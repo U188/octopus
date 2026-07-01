@@ -1,0 +1,258 @@
+package model
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+
+	"github.com/U188/octopus/internal/transformer/outbound"
+)
+
+type AutoGroupType int
+
+const (
+	AutoGroupTypeNone  AutoGroupType = 0 //不自动分组
+	AutoGroupTypeFuzzy AutoGroupType = 1 //模糊匹配
+	AutoGroupTypeExact AutoGroupType = 2 //准确匹配
+	AutoGroupTypeRegex AutoGroupType = 3 //正则匹配
+)
+
+func (t AutoGroupType) Valid() bool {
+	switch t {
+	case AutoGroupTypeNone, AutoGroupTypeFuzzy, AutoGroupTypeExact, AutoGroupTypeRegex:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseAutoGroupSettingValue(value string) (AutoGroupType, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "false":
+		return AutoGroupTypeNone, true
+	case "true":
+		return AutoGroupTypeFuzzy, true
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return AutoGroupTypeNone, false
+	}
+	mode := AutoGroupType(parsed)
+	return mode, mode.Valid()
+}
+
+type ChannelWSMode string
+
+const (
+	ChannelWSModeInherit     ChannelWSMode = "inherit"
+	ChannelWSModeOff         ChannelWSMode = "off"
+	ChannelWSModePassthrough ChannelWSMode = "passthrough"
+	ChannelWSModeTransform   ChannelWSMode = "transform"
+)
+
+func (m ChannelWSMode) Normalize() ChannelWSMode {
+	switch m {
+	case ChannelWSModeOff, ChannelWSModePassthrough, ChannelWSModeTransform:
+		return m
+	default:
+		return ChannelWSModeInherit
+	}
+}
+
+type Channel struct {
+	ID            int                   `json:"id" gorm:"primaryKey"`
+	Name          string                `json:"name" gorm:"unique;not null"`
+	Type          outbound.OutboundType `json:"type"`
+	Enabled       bool                  `json:"enabled" gorm:"default:true"`
+	BaseUrls      []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
+	Keys          []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
+	Model         string                `json:"model"`
+	CustomModel   string                `json:"custom_model"`
+	ProxyMode     ProxyUsageMode        `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
+	ProxyConfigID *int                  `json:"proxy_config_id"`
+	Proxy         bool                  `json:"-" gorm:"default:false"`
+	AutoSync      bool                  `json:"auto_sync" gorm:"default:false"`
+	AutoGroup     AutoGroupType         `json:"auto_group" gorm:"default:0"`
+	CustomHeader  []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
+	WSMode        ChannelWSMode         `json:"ws_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
+	CodexMode     bool                  `json:"codex_mode" gorm:"default:false"`
+	ClaudeMode    bool                  `json:"claude_mode" gorm:"default:false"`
+	ParamOverride *string               `json:"param_override"`
+	ChannelProxy  *string               `json:"-" gorm:"column:channel_proxy"`
+	Stats         *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
+	MatchRegex    *string               `json:"match_regex"`
+	Managed       bool                  `json:"managed" gorm:"-"`
+	ManagedSource *ManagedChannelSource `json:"managed_source,omitempty" gorm:"-"`
+}
+
+func (c *Channel) UnmarshalJSON(data []byte) error {
+	type alias Channel
+	aux := struct {
+		*alias
+		Proxy        *bool   `json:"proxy"`
+		ChannelProxy *string `json:"channel_proxy"`
+	}{alias: (*alias)(c)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.Proxy != nil {
+		c.Proxy = *aux.Proxy
+	}
+	if aux.ChannelProxy != nil {
+		c.ChannelProxy = aux.ChannelProxy
+	}
+	return nil
+}
+
+type ManagedChannelSource struct {
+	SiteID          int    `json:"site_id"`
+	SiteAccountID   int    `json:"site_account_id"`
+	SiteUserGroupID *int   `json:"site_user_group_id,omitempty"`
+	GroupKey        string `json:"group_key"`
+}
+
+type BaseUrl struct {
+	URL   string `json:"url"`
+	Delay int    `json:"delay"`
+}
+
+type CustomHeader struct {
+	HeaderKey   string `json:"header_key"`
+	HeaderValue string `json:"header_value"`
+}
+
+type ChannelKey struct {
+	ID               int     `json:"id" gorm:"primaryKey"`
+	ChannelID        int     `json:"channel_id"`
+	Enabled          bool    `json:"enabled" gorm:"default:true"`
+	ChannelKey       string  `json:"channel_key"`
+	StatusCode       int     `json:"status_code"`
+	LastUseTimeStamp int64   `json:"last_use_time_stamp"`
+	TotalCost        float64 `json:"total_cost"`
+	Remark           string  `json:"remark"`
+}
+
+type ChannelKeySelectOptions struct {
+	ExcludeKeyIDs  map[int]struct{}
+	PreferredKeyID int
+}
+
+// ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据
+type ChannelUpdateRequest struct {
+	ID            int                    `json:"id" binding:"required"`
+	Name          *string                `json:"name,omitempty"`
+	Type          *outbound.OutboundType `json:"type,omitempty"`
+	Enabled       *bool                  `json:"enabled,omitempty"`
+	BaseUrls      *[]BaseUrl             `json:"base_urls,omitempty"`
+	Model         *string                `json:"model,omitempty"`
+	CustomModel   *string                `json:"custom_model,omitempty"`
+	ProxyMode     *ProxyUsageMode        `json:"proxy_mode,omitempty"`
+	ProxyConfigID *int                   `json:"proxy_config_id,omitempty"`
+	Proxy         *bool                  `json:"-"`
+	AutoSync      *bool                  `json:"auto_sync,omitempty"`
+	AutoGroup     *AutoGroupType         `json:"auto_group,omitempty"`
+	CustomHeader  *[]CustomHeader        `json:"custom_header,omitempty"`
+	WSMode        *ChannelWSMode         `json:"ws_mode,omitempty"`
+	CodexMode     *bool                  `json:"codex_mode,omitempty"`
+	ClaudeMode    *bool                  `json:"claude_mode,omitempty"`
+	ChannelProxy  *string                `json:"-"`
+	ParamOverride *string                `json:"param_override,omitempty"`
+	MatchRegex    *string                `json:"match_regex,omitempty"`
+
+	KeysToAdd    []ChannelKeyAddRequest    `json:"keys_to_add,omitempty"`
+	KeysToUpdate []ChannelKeyUpdateRequest `json:"keys_to_update,omitempty"`
+	KeysToDelete []int                     `json:"keys_to_delete,omitempty"`
+
+	BypassManagedCheck bool `json:"-"` // 内部使用：允许投影逻辑更新 managed channel
+}
+
+type ChannelKeyAddRequest struct {
+	Enabled    bool   `json:"enabled"`
+	ChannelKey string `json:"channel_key" binding:"required"`
+	Remark     string `json:"remark"`
+}
+
+type ChannelKeyUpdateRequest struct {
+	ID         int     `json:"id" binding:"required"`
+	Enabled    *bool   `json:"enabled,omitempty"`
+	ChannelKey *string `json:"channel_key,omitempty"`
+	Remark     *string `json:"remark,omitempty"`
+}
+
+// ChannelFetchModelRequest is used by /channel/fetch-model (not persisted).
+type ChannelFetchModelRequest struct {
+	Type          outbound.OutboundType `json:"type" binding:"required"`
+	BaseURL       string                `json:"base_url" binding:"required"`
+	Key           string                `json:"key" binding:"required"`
+	ProxyMode     ProxyUsageMode        `json:"proxy_mode"`
+	ProxyConfigID *int                  `json:"proxy_config_id"`
+}
+
+func (c *Channel) GetBaseUrl() string {
+	if c == nil || len(c.BaseUrls) == 0 {
+		return ""
+	}
+
+	bestURL := ""
+	bestDelay := 0
+	bestSet := false
+
+	for _, bu := range c.BaseUrls {
+		if bu.URL == "" {
+			continue
+		}
+		if !bestSet || bu.Delay < bestDelay {
+			bestURL = bu.URL
+			bestDelay = bu.Delay
+			bestSet = true
+		}
+	}
+
+	return bestURL
+}
+
+func (c *Channel) GetChannelKey(opts ...ChannelKeySelectOptions) ChannelKey {
+	if c == nil || len(c.Keys) == 0 {
+		return ChannelKey{}
+	}
+
+	var selectOpts ChannelKeySelectOptions
+	if len(opts) > 0 {
+		selectOpts = opts[0]
+	}
+
+	if selectOpts.PreferredKeyID > 0 {
+		for _, k := range c.Keys {
+			if k.ID != selectOpts.PreferredKeyID || !k.Enabled || k.ChannelKey == "" {
+				continue
+			}
+			if _, excluded := selectOpts.ExcludeKeyIDs[k.ID]; excluded {
+				break
+			}
+			return k
+		}
+	}
+
+	best := ChannelKey{}
+	bestCost := 0.0
+	bestSet := false
+
+	for _, k := range c.Keys {
+		if !k.Enabled || k.ChannelKey == "" {
+			continue
+		}
+		if _, excluded := selectOpts.ExcludeKeyIDs[k.ID]; excluded {
+			continue
+		}
+		if !bestSet || k.TotalCost < bestCost {
+			best = k
+			bestCost = k.TotalCost
+			bestSet = true
+		}
+	}
+
+	if !bestSet {
+		return ChannelKey{}
+	}
+	return best
+}

@@ -1,0 +1,804 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiClient, API_BASE_URL } from "../client";
+import { logger } from "@/lib/logger";
+import { useAuthStore } from "./user";
+import type { ProxyMode } from "./proxy-pool";
+
+export enum SitePlatform {
+  NewAPI = "new-api",
+  AnyRouter = "anyrouter",
+  OneAPI = "one-api",
+  OneHub = "one-hub",
+  DoneHub = "done-hub",
+  Sub2API = "sub2api",
+  API = "api",
+}
+
+export enum SiteCredentialType {
+  UsernamePassword = "username_password",
+  AccessToken = "access_token",
+  APIKey = "api_key",
+}
+
+export type CustomHeader = {
+  header_key: string;
+  header_value: string;
+};
+
+export type SiteRouteBaseURL = {
+  route_type: string;
+  base_url: string;
+};
+
+export type SiteToken = {
+  id: number;
+  site_account_id: number;
+  name: string;
+  token: string;
+  value_status?: "ready" | "masked_pending";
+  group_key: string;
+  group_name: string;
+  enabled: boolean;
+  source: string;
+  is_default: boolean;
+  last_sync_at?: string | null;
+};
+
+export type SiteUserGroup = {
+  id: number;
+  site_account_id: number;
+  group_key: string;
+  name: string;
+  raw_payload?: string | null;
+  projection_disabled?: boolean;
+  projection_suspended?: boolean;
+  projection_suspend_reason?: string;
+  projection_suspended_at?: string | null;
+  model_sync_status?: 'idle' | 'synced' | 'empty' | 'stale' | 'failed' | 'unresolved' | 'missing_key' | 'removed';
+  model_sync_message?: string;
+  model_sync_authoritative?: boolean;
+  model_sync_model_count?: number;
+  last_model_sync_at?: string | null;
+  last_model_sync_success_at?: string | null;
+  model_sync_failure_count?: number;
+};
+
+export type SiteModel = {
+  id: number;
+  site_account_id: number;
+  model_name: string;
+  source: string;
+  group_key?: string;
+  route_type?: string;
+  context_1m?: boolean;
+  disabled?: boolean;
+};
+
+export type SiteChannelBinding = {
+  id: number;
+  site_id: number;
+  site_account_id: number;
+  site_user_group_id?: number | null;
+  group_key: string;
+  channel_id: number;
+};
+
+export type SiteAccount = {
+  id: number;
+  site_id: number;
+  name: string;
+  credential_type: SiteCredentialType;
+  username: string;
+  password: string;
+  access_token: string;
+  api_key: string;
+  refresh_token: string;
+  token_expires_at: number;
+  platform_user_id?: number | null;
+  proxy_mode: ProxyMode;
+  proxy_config_id?: number | null;
+  enabled: boolean;
+  auto_sync: boolean;
+  auto_checkin: boolean;
+  random_checkin: boolean;
+  checkin_interval_hours: number;
+  checkin_random_window_minutes: number;
+  next_auto_checkin_at?: string | null;
+  last_sync_at?: string | null;
+  last_checkin_at?: string | null;
+  last_sync_status: string;
+  last_checkin_status: string;
+  last_sync_message: string;
+  last_checkin_message: string;
+  balance: number;
+  balance_used: number;
+  today_income: number;
+  tokens: SiteToken[];
+  user_groups: SiteUserGroup[];
+  models: SiteModel[];
+  channel_bindings: SiteChannelBinding[];
+};
+
+export type Site = {
+  id: number;
+  name: string;
+  platform: SitePlatform;
+  base_url: string;
+  enabled: boolean;
+  proxy_mode: Exclude<ProxyMode, "inherit">;
+  proxy_config_id?: number | null;
+  external_checkin_url?: string | null;
+  is_pinned: boolean;
+  sort_order: number;
+  global_weight: number;
+  custom_header: CustomHeader[];
+  route_base_urls: SiteRouteBaseURL[];
+  tags: string[];
+  default_route_type?: string;
+  codex_mode: boolean;
+  claude_mode: boolean;
+  archived: boolean;
+  archived_at?: string | null;
+  accounts: SiteAccount[];
+};
+
+type SiteServer = Omit<
+  Site,
+  "accounts" | "custom_header" | "route_base_urls" | "tags"
+> & {
+  accounts: Array<
+    Omit<
+      SiteAccount,
+      "tokens" | "user_groups" | "models" | "channel_bindings"
+    > & {
+      tokens: SiteToken[] | null;
+      user_groups: SiteUserGroup[] | null;
+      models: SiteModel[] | null;
+      channel_bindings: SiteChannelBinding[] | null;
+    }
+  > | null;
+  custom_header: CustomHeader[] | null;
+  route_base_urls: SiteRouteBaseURL[] | null;
+  tags: string[] | null;
+  default_route_type?: string | null;
+};
+
+export type SiteSyncResult = {
+  account_id: number;
+  site_id: number;
+  status: string;
+  channel_count: number;
+  group_count: number;
+  token_count: number;
+  model_count: number;
+  managed_channels: number[];
+  models: string[];
+  group_results: Array<{
+    group_key: string;
+    group_name: string;
+    has_key: boolean;
+    status: string;
+    authoritative: boolean;
+    model_count: number;
+    message?: string;
+    projection_suspended?: boolean;
+    projection_suspend_reason?: string;
+  }>;
+  message: string;
+};
+
+export type SiteCheckinResult = {
+  account_id: number;
+  site_id: number;
+  status: string;
+  message: string;
+  reward?: string;
+};
+
+export type SiteTestConversationMode =
+  | "openai_chat"
+  | "openai_response"
+  | "anthropic";
+
+export type SiteTestConversationClient =
+  | "default"
+  | "codex"
+  | "claude";
+
+export type SiteTestConversationRequest = {
+  account_id: number;
+  token_id: number;
+  model: string;
+  mode: SiteTestConversationMode;
+  greeting: string;
+  client?: SiteTestConversationClient;
+};
+
+export type SiteTestConversationResult = {
+  model: string;
+  mode: SiteTestConversationMode;
+  greeting: string;
+  reply: string;
+  duration_ms: number;
+  raw?: unknown;
+};
+
+export type SiteTestConversationStreamEvent = {
+  type: "start" | "delta" | "done" | "error";
+  delta?: string;
+  result?: SiteTestConversationResult;
+  error?: string;
+};
+
+export type AllAPIHubImportResult = {
+  created_sites: number;
+  reused_sites: number;
+  created_accounts: number;
+  updated_accounts: number;
+  skipped_accounts: number;
+  scheduled_sync_accounts: number;
+  warnings: string[];
+};
+
+export type MetAPIImportResult = {
+  created_sites: number;
+  reused_sites: number;
+  created_accounts: number;
+  updated_accounts: number;
+  skipped_accounts: number;
+  imported_tokens: number;
+  imported_groups: number;
+  imported_models: number;
+  disabled_models: number;
+  warnings: string[];
+};
+
+export function useSiteList() {
+  return useQuery({
+    queryKey: ["sites", "list"],
+    queryFn: async () => apiClient.get<SiteServer[]>("/api/v1/site/list"),
+    select: normalizeSiteServerList,
+    refetchInterval: 30000,
+  });
+}
+
+export function useArchivedSiteList(enabled = false) {
+  return useQuery({
+    queryKey: ["sites", "archived"],
+    queryFn: async () => apiClient.get<SiteServer[]>("/api/v1/site/archived"),
+    select: normalizeSiteServerList,
+    enabled,
+  });
+}
+
+function normalizeSiteServerList(data: SiteServer[]): Site[] {
+  return data.map((site) => ({
+    ...site,
+    custom_header: site.custom_header ?? [],
+    route_base_urls: site.route_base_urls ?? [],
+    tags: site.tags ?? [],
+    default_route_type: site.default_route_type ?? undefined,
+    codex_mode: site.codex_mode ?? false,
+    claude_mode: site.claude_mode ?? false,
+    proxy_mode: site.proxy_mode ?? "direct",
+    proxy_config_id: site.proxy_config_id ?? null,
+    external_checkin_url: site.external_checkin_url ?? null,
+    is_pinned: site.is_pinned ?? false,
+    sort_order: typeof site.sort_order === "number" ? site.sort_order : 0,
+    global_weight:
+      typeof site.global_weight === "number" && site.global_weight > 0
+        ? site.global_weight
+        : 1,
+    archived: site.archived ?? false,
+    archived_at: site.archived_at ?? null,
+    accounts: (site.accounts ?? []).map((account) => ({
+      ...account,
+      refresh_token:
+        typeof account.refresh_token === "string"
+          ? account.refresh_token
+          : "",
+      token_expires_at:
+        typeof account.token_expires_at === "number" &&
+        account.token_expires_at > 0
+          ? account.token_expires_at
+          : 0,
+      platform_user_id: account.platform_user_id ?? null,
+      proxy_mode: account.proxy_mode ?? "inherit",
+      proxy_config_id: account.proxy_config_id ?? null,
+      random_checkin: account.random_checkin ?? false,
+      checkin_interval_hours:
+        typeof account.checkin_interval_hours === "number" &&
+        account.checkin_interval_hours > 0
+          ? account.checkin_interval_hours
+          : 24,
+      checkin_random_window_minutes:
+        typeof account.checkin_random_window_minutes === "number" &&
+        account.checkin_random_window_minutes >= 0
+          ? account.checkin_random_window_minutes
+          : 120,
+      balance: typeof account.balance === "number" ? account.balance : 0,
+      balance_used:
+        typeof account.balance_used === "number" ? account.balance_used : 0,
+      today_income:
+        typeof account.today_income === "number" ? account.today_income : 0,
+      tokens: account.tokens ?? [],
+      user_groups: account.user_groups ?? [],
+      models: account.models ?? [],
+      channel_bindings: account.channel_bindings ?? [],
+    })),
+  })) as Site[];
+}
+
+function invalidateSiteQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["sites", "list"] });
+  queryClient.invalidateQueries({ queryKey: ["sites", "archived"] });
+  queryClient.invalidateQueries({ queryKey: ["site-channel", "list"] });
+  queryClient.invalidateQueries({ queryKey: ["channels", "list"] });
+  queryClient.invalidateQueries({ queryKey: ["models", "channel"] });
+  queryClient.invalidateQueries({ queryKey: ["proxy-pool"] });
+}
+
+function getAuthHeader() {
+  const token = useAuthStore.getState().token;
+  if (!token) throw new Error("Not authenticated");
+  return `Bearer ${token}`;
+}
+
+function extractResponseMessage(payload: unknown, fallback: string) {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "message" in payload &&
+    typeof payload.message === "string"
+  ) {
+    return payload.message;
+  }
+  return fallback;
+}
+
+function extractResponseData<T>(payload: unknown): T | undefined {
+  if (payload && typeof payload === "object" && "data" in payload) {
+    return (payload as { data?: T }).data;
+  }
+  return undefined;
+}
+
+export function useCreateSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      data: Omit<Site, "id" | "accounts" | "archived" | "archived_at">,
+    ) => apiClient.post<Site>("/api/v1/site/create", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点创建失败:", error),
+  });
+}
+
+export function useUpdateSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      data: Partial<Omit<Site, "accounts">> & { id: number },
+    ) => apiClient.post<Site>("/api/v1/site/update", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点更新失败:", error),
+  });
+}
+
+export function useEnableSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { id: number; enabled: boolean }) =>
+      apiClient.post<null>("/api/v1/site/enable", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点状态更新失败:", error),
+  });
+}
+
+export function useDeleteSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.delete<null>(`/api/v1/site/delete/${id}`),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点删除失败:", error),
+  });
+}
+
+export function useArchiveSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.post<null>(`/api/v1/site/archive/${id}`),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点归档失败:", error),
+  });
+}
+
+export function useRestoreSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.post<null>(`/api/v1/site/restore/${id}`),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点恢复失败:", error),
+  });
+}
+
+export function useCreateSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      data: Omit<
+        SiteAccount,
+        | "id"
+        | "tokens"
+        | "user_groups"
+        | "models"
+        | "channel_bindings"
+        | "last_sync_at"
+        | "last_checkin_at"
+        | "last_sync_status"
+        | "last_checkin_status"
+        | "last_sync_message"
+        | "last_checkin_message"
+        | "balance"
+        | "balance_used"
+        | "today_income"
+      >,
+    ) => apiClient.post<SiteAccount>("/api/v1/site/account/create", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号创建失败:", error),
+  });
+}
+
+export function useUpdateSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      data: Partial<
+        Omit<
+          SiteAccount,
+          "tokens" | "user_groups" | "models" | "channel_bindings"
+        >
+      > & { id: number },
+    ) => apiClient.post<SiteAccount>("/api/v1/site/account/update", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号更新失败:", error),
+  });
+}
+
+export function useEnableSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { id: number; enabled: boolean }) =>
+      apiClient.post<null>("/api/v1/site/account/enable", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号状态更新失败:", error),
+  });
+}
+
+export function useDeleteSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.delete<null>(`/api/v1/site/account/delete/${id}`),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号删除失败:", error),
+  });
+}
+
+export function useSyncSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.post<SiteSyncResult>(`/api/v1/site/account/sync/${id}`, {}),
+    onSettled: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号同步失败:", error),
+  });
+}
+
+export function useCheckinSiteAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      apiClient.post<SiteCheckinResult>(
+        `/api/v1/site/account/checkin/${id}`,
+        {},
+      ),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点账号签到失败:", error),
+  });
+}
+
+export function useTestSiteConversation() {
+  return useMutation({
+    mutationFn: async (data: SiteTestConversationRequest) =>
+      apiClient.post<SiteTestConversationResult>(
+        "/api/v1/site/account/test-conversation",
+        data,
+      ),
+    onError: (error) => logger.error("站点测试对话失败:", error),
+  });
+}
+
+export async function streamTestSiteConversation(
+  data: SiteTestConversationRequest,
+  handlers: {
+    onStart?: () => void;
+    onDelta?: (delta: string) => void;
+    onDone?: (result: SiteTestConversationResult) => void;
+    onError?: (message: string) => void;
+  } = {},
+  signal?: AbortSignal,
+): Promise<SiteTestConversationResult> {
+  const token = useAuthStore.getState().token;
+  const response = await fetch(`${API_BASE_URL}/api/v1/site/account/test-conversation/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+    signal,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || response.statusText);
+  }
+  if (!response.body) {
+    throw new Error("stream response body is unavailable");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: SiteTestConversationResult | null = null;
+
+  const handleBlock = (block: string) => {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart());
+    if (dataLines.length === 0) return;
+    const event = JSON.parse(dataLines.join("\n")) as SiteTestConversationStreamEvent;
+    switch (event.type) {
+      case "start":
+        handlers.onStart?.();
+        break;
+      case "delta":
+        if (event.delta) handlers.onDelta?.(event.delta);
+        break;
+      case "done":
+        if (event.result) {
+          finalResult = event.result;
+          handlers.onDone?.(event.result);
+        }
+        break;
+      case "error":
+        handlers.onError?.(event.error || "测试对话失败");
+        throw new Error(event.error || "测试对话失败");
+    }
+  };
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    let boundary = buffer.search(/\r?\n\r?\n/);
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(buffer[boundary] === "\r" ? boundary + 4 : boundary + 2);
+      handleBlock(block);
+      boundary = buffer.search(/\r?\n\r?\n/);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) handleBlock(buffer);
+  if (!finalResult) {
+    throw new Error("测试对话流未返回完成事件");
+  }
+  return finalResult;
+}
+
+export function useSyncAllSites() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => apiClient.post<null>("/api/v1/site/sync-all", {}),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点批量同步失败:", error),
+  });
+}
+
+export function useCheckinAllSites() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      apiClient.post<null>("/api/v1/site/checkin-all", {}),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("站点批量签到失败:", error),
+  });
+}
+
+export function useSiteLastSyncTime() {
+  return useQuery({
+    queryKey: ["sites", "last-sync-time"],
+    queryFn: async () => apiClient.get<string>("/api/v1/site/last-sync-time"),
+    refetchInterval: 30000,
+  });
+}
+
+export function useSiteLastCheckinTime() {
+  return useQuery({
+    queryKey: ["sites", "last-checkin-time"],
+    queryFn: async () =>
+      apiClient.get<string>("/api/v1/site/last-checkin-time"),
+    refetchInterval: 30000,
+  });
+}
+
+export function useImportAllAPIHub() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { file?: File | null; text?: string }) => {
+      const hasFile = !!payload.file;
+      const hasText = !!payload.text?.trim();
+      if (!hasFile && !hasText) {
+        throw new Error("请选择 JSON 文件或粘贴导出内容");
+      }
+
+      const headers: HeadersInit = {
+        Authorization: getAuthHeader(),
+      };
+      let body: BodyInit;
+
+      if (payload.file) {
+        const form = new FormData();
+        form.append("file", payload.file);
+        body = form;
+      } else {
+        headers["Content-Type"] = "application/json";
+        body = payload.text!.trim();
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/site/import/all-api-hub`,
+        {
+          method: "POST",
+          headers,
+          body,
+        },
+      );
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+
+      if (!response.ok) {
+        throw new Error(
+          extractResponseMessage(
+            data,
+            typeof data === "string" ? data : response.statusText,
+          ),
+        );
+      }
+
+      const result =
+        extractResponseData<AllAPIHubImportResult>(data) ??
+        (data as AllAPIHubImportResult);
+      return {
+        ...result,
+        warnings: result.warnings ?? [],
+      };
+    },
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("导入 All API Hub 账号失败:", error),
+  });
+}
+
+export function useImportMetAPI() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { file?: File | null; text?: string }) => {
+      const hasFile = !!payload.file;
+      const hasText = !!payload.text?.trim();
+      if (!hasFile && !hasText) {
+        throw new Error("请选择 JSON 文件或粘贴导出内容");
+      }
+
+      const headers: HeadersInit = {
+        Authorization: getAuthHeader(),
+      };
+      let body: BodyInit;
+
+      if (payload.file) {
+        const form = new FormData();
+        form.append("file", payload.file);
+        body = form;
+      } else {
+        headers["Content-Type"] = "application/json";
+        body = payload.text!.trim();
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/site/import/metapi`, {
+        method: "POST",
+        headers,
+        body,
+      });
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+
+      if (!response.ok) {
+        throw new Error(
+          extractResponseMessage(
+            data,
+            typeof data === "string" ? data : response.statusText,
+          ),
+        );
+      }
+
+      const result =
+        extractResponseData<MetAPIImportResult>(data) ??
+        (data as MetAPIImportResult);
+      return {
+        ...result,
+        warnings: result.warnings ?? [],
+      };
+    },
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("导入 metapi 站点失败:", error),
+  });
+}
+
+export function useDetectSitePlatform() {
+  return useMutation({
+    mutationFn: async (url: string) =>
+      apiClient.post<{ platform: string; default_route_type?: string }>("/api/v1/site/detect", { url }),
+    onError: (error) => logger.error("平台检测失败:", error),
+  });
+}
+
+export function useSiteBatchAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { ids: number[]; action: string }) =>
+      apiClient.post<{
+        success_ids: number[];
+        failed_items: Array<{ id: number; message: string }>;
+      }>("/api/v1/site/batch", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("批量操作失败:", error),
+  });
+}
+
+export function useSiteBatchEdit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      ids: number[];
+      add_tags: string[];
+      remove_tags: string[];
+      upserts: CustomHeader[];
+      delete_keys: string[];
+    }) =>
+      apiClient.post<{
+        success_ids: number[];
+        failed_items: Array<{ id: number; message: string }>;
+      }>("/api/v1/site/batch/edit", data),
+    onSuccess: () => invalidateSiteQueries(queryClient),
+    onError: (error) => logger.error("批量编辑失败:", error),
+  });
+}
+
+export function useSiteAvailableModels(siteId: number | null) {
+  return useQuery({
+    queryKey: ["sites", "available-models", siteId],
+    queryFn: async () =>
+      apiClient.get<{ site_id: number; models: string[] }>(
+        `/api/v1/site/${siteId}/available-models`,
+      ),
+    enabled: siteId != null && siteId > 0,
+  });
+}

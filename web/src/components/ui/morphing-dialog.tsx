@@ -1,0 +1,517 @@
+'use client';
+
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  motion,
+  AnimatePresence,
+  MotionConfig,
+  Transition,
+  Variant,
+} from 'motion/react';
+import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
+import { XIcon } from 'lucide-react';
+import useClickOutside from '@/hooks/useClickOutside';
+
+const PORTAL_IGNORED_SLOTS = [
+  'select-content',
+  'popover-content',
+  'hover-card-content',
+  'dialog-content',
+  'dialog-overlay',
+  'alert-dialog-content',
+  'alert-dialog-overlay',
+] as const;
+
+export type MorphingDialogContextType = {
+  isOpen: boolean;
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  uniqueId: string;
+  triggerRef: React.RefObject<HTMLDivElement | null>;
+};
+
+const MorphingDialogContext =
+  React.createContext<MorphingDialogContextType | null>(null);
+
+function useMorphingDialog() {
+  const context = useContext(MorphingDialogContext);
+  if (!context) {
+    throw new Error(
+      'useMorphingDialog must be used within a MorphingDialogProvider'
+    );
+  }
+  return context;
+}
+
+export type MorphingDialogProviderProps = {
+  children: React.ReactNode;
+  transition?: Transition;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+function MorphingDialogProvider({
+  children,
+  transition,
+  open: controlledOpen,
+  onOpenChange,
+}: MorphingDialogProviderProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const isOpen = isControlled ? (controlledOpen as boolean) : uncontrolledOpen;
+  const uniqueId = useId();
+  const triggerRef = useRef<HTMLDivElement>(null!);
+
+  const setIsOpen = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (value) => {
+      // 非受控：直接交给 setUncontrolledOpen，由 React 基于最新 state 计算，
+      // 避免 useCallback 闭包捕获到陈旧的 uncontrolledOpen
+      if (!isControlled) {
+        setUncontrolledOpen(value);
+        return;
+      }
+      // 受控：基于 controlledOpen 计算下一个值并通知外部
+      const current = controlledOpen as boolean;
+      const next =
+        typeof value === 'function'
+          ? (value as (prev: boolean) => boolean)(current)
+          : value;
+      if (next !== current) onOpenChange?.(next);
+    },
+    [isControlled, controlledOpen, onOpenChange]
+  );
+
+  const contextValue = useMemo(
+    () => ({
+      isOpen,
+      setIsOpen,
+      uniqueId,
+      triggerRef,
+    }),
+    [isOpen, setIsOpen, uniqueId]
+  );
+
+  return (
+    <MorphingDialogContext.Provider value={contextValue}>
+      <MotionConfig transition={transition}>{children}</MotionConfig>
+    </MorphingDialogContext.Provider>
+  );
+}
+
+export type MorphingDialogProps = {
+  children: React.ReactNode;
+  transition?: Transition;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+function MorphingDialog({ children, transition, open, onOpenChange }: MorphingDialogProps) {
+  return (
+    <MorphingDialogProvider transition={transition} open={open} onOpenChange={onOpenChange}>
+      {children}
+    </MorphingDialogProvider>
+  );
+}
+
+export type MorphingDialogTriggerProps = {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  triggerRef?: React.RefObject<HTMLDivElement>;
+  onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  'aria-label'?: string;
+};
+
+function MorphingDialogTrigger({
+  children,
+  className,
+  style,
+  triggerRef: triggerRefProp,
+  onClick,
+  'aria-label': ariaLabel,
+}: MorphingDialogTriggerProps) {
+  const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
+
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      onClick?.(event);
+      if (event.defaultPrevented) return;
+      setIsOpen(!isOpen);
+    },
+    [isOpen, setIsOpen, onClick]
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setIsOpen(!isOpen);
+      }
+    },
+    [isOpen, setIsOpen]
+  );
+
+  // Important: when dialog is open, framer-motion shared-layout can temporarily
+  // "flash" the trigger back into its original position during internal re-layouts.
+  // To make this robust, we render a non-motion placeholder (still in layout flow)
+  // instead of the motion trigger while open.
+  if (isOpen) {
+    return (
+      <div
+        ref={triggerRefProp ?? triggerRef}
+        className={cn('relative', className)}
+        style={{ ...style, visibility: 'hidden', pointerEvents: 'none' }}
+        aria-hidden
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      ref={triggerRefProp ?? triggerRef}
+      layoutId={`dialog-${uniqueId}`}
+      className={cn('relative cursor-pointer', className)}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      style={style}
+      aria-haspopup='dialog'
+      aria-expanded={isOpen}
+      aria-controls={`motion-ui-morphing-dialog-content-${uniqueId}`}
+      aria-label={ariaLabel ?? `Open dialog ${uniqueId}`}
+      role='button'
+      tabIndex={0}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export type MorphingDialogContentProps = {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+function MorphingDialogContent({
+  children,
+  className,
+  style,
+}: MorphingDialogContentProps) {
+  const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
+  const containerRef = useRef<HTMLDivElement>(null!);
+  const firstFocusableElementRef = useRef<HTMLElement | null>(null);
+  const lastFocusableElementRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // 与下方 useClickOutside 的忽略逻辑一致：上层 portal 内容（Select/浮层等）
+        // 打开时 Escape 只关闭上层，不连带关闭本对话框
+        for (const slot of PORTAL_IGNORED_SLOTS) {
+          if (document.querySelector(`[data-slot="${slot}"]`)) return;
+        }
+        setIsOpen(false);
+      }
+      if (event.key === 'Tab') {
+        if (!firstFocusableElementRef.current || !lastFocusableElementRef.current) return;
+
+        if (event.shiftKey) {
+          if (document.activeElement === firstFocusableElementRef.current) {
+            event.preventDefault();
+            lastFocusableElementRef.current.focus();
+          }
+        } else {
+          if (document.activeElement === lastFocusableElementRef.current) {
+            event.preventDefault();
+            firstFocusableElementRef.current.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [setIsOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('overflow-hidden');
+      // Defer focusable-elements scan + focus() to next frame so the morph
+      // animation can start on the same frame the dialog opens. The synchronous
+      // querySelectorAll + focus() on a heavy panel triggers forced reflow and
+      // delays the layout-animation FLIP measure, which was the major cause of
+      // the "open click feels stuck" perception.
+      const rafId = window.requestAnimationFrame(() => {
+        const root = containerRef.current;
+        if (!root) return;
+        const focusableElements = root.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements && focusableElements.length > 0) {
+          firstFocusableElementRef.current = focusableElements[0] as HTMLElement;
+          lastFocusableElementRef.current = focusableElements[focusableElements.length - 1] as HTMLElement;
+          (focusableElements[0] as HTMLElement).focus();
+        }
+      });
+      return () => {
+        window.cancelAnimationFrame(rafId);
+      };
+    } else {
+      document.body.classList.remove('overflow-hidden');
+      triggerRef.current?.focus();
+    }
+  }, [isOpen, triggerRef]);
+
+  useClickOutside(
+    containerRef,
+    () => {
+      if (isOpen) {
+        setIsOpen(false);
+      }
+    },
+    (event) => {
+      const target = event.target as HTMLElement | null;
+      for (const slot of PORTAL_IGNORED_SLOTS) {
+        const selector = `[data-slot="${slot}"]`;
+        if (target?.closest(selector)) return true;
+        if (document.querySelector(selector)) return true;
+      }
+      return false;
+    }
+  );
+
+  return (
+    <motion.div
+      ref={containerRef}
+      layoutId={`dialog-${uniqueId}`}
+      className={cn('overflow-hidden', className)}
+      style={style}
+      role='dialog'
+      aria-modal='true'
+      aria-labelledby={`motion-ui-morphing-dialog-title-${uniqueId}`}
+      aria-describedby={`motion-ui-morphing-dialog-description-${uniqueId}`}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export type MorphingDialogContainerProps = {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+function MorphingDialogContainer({ children }: MorphingDialogContainerProps) {
+  const { isOpen, uniqueId } = useMorphingDialog();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // Schedule state update for next tick to avoid synchronous update warning
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <AnimatePresence initial={false} mode='sync'>
+      {isOpen && (
+        <>
+          <motion.div
+            key={`backdrop-${uniqueId}`}
+            className='fixed inset-0 h-full w-full bg-white/40 backdrop-blur-xs dark:bg-black/40 z-50'
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <div className='fixed inset-0 z-50 flex items-center justify-center'>
+            {children}
+          </div>
+        </>
+      )}
+    </AnimatePresence>,
+    document.body
+  );
+}
+
+export type MorphingDialogTitleProps = {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+function MorphingDialogTitle({
+  children,
+  className,
+  style,
+}: MorphingDialogTitleProps) {
+  const { uniqueId } = useMorphingDialog();
+
+  return (
+    <motion.div
+      layoutId={`dialog-title-container-${uniqueId}`}
+      className={className}
+      style={style}
+      layout
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export type MorphingDialogSubtitleProps = {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+function MorphingDialogSubtitle({
+  children,
+  className,
+  style,
+}: MorphingDialogSubtitleProps) {
+  const { uniqueId } = useMorphingDialog();
+
+  return (
+    <motion.div
+      layoutId={`dialog-subtitle-container-${uniqueId}`}
+      className={className}
+      style={style}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export type MorphingDialogDescriptionProps = {
+  children: React.ReactNode;
+  className?: string;
+  disableLayoutAnimation?: boolean;
+  variants?: {
+    initial: Variant;
+    animate: Variant;
+    exit: Variant;
+  };
+};
+
+function MorphingDialogDescription({
+  children,
+  className,
+  variants,
+  disableLayoutAnimation,
+}: MorphingDialogDescriptionProps) {
+  const { uniqueId } = useMorphingDialog();
+
+  return (
+    <motion.div
+      key={`dialog-description-${uniqueId}`}
+      layoutId={
+        disableLayoutAnimation
+          ? undefined
+          : `dialog-description-content-${uniqueId}`
+      }
+      variants={variants}
+      className={className}
+      initial='initial'
+      animate='animate'
+      exit='exit'
+      id={`dialog-description-${uniqueId}`}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export type MorphingDialogImageProps = {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+};
+
+function MorphingDialogImage({
+  src,
+  alt,
+  className,
+  style,
+}: MorphingDialogImageProps) {
+  const { uniqueId } = useMorphingDialog();
+
+  return (
+    <motion.img
+      src={src}
+      alt={alt}
+      className={cn(className)}
+      layoutId={`dialog-img-${uniqueId}`}
+      style={style}
+    />
+  );
+}
+
+export type MorphingDialogCloseProps = {
+  children?: React.ReactNode;
+  className?: string;
+  variants?: {
+    initial: Variant;
+    animate: Variant;
+    exit: Variant;
+  };
+};
+
+function MorphingDialogClose({
+  children,
+  className,
+  variants,
+}: MorphingDialogCloseProps) {
+  const { setIsOpen, uniqueId } = useMorphingDialog();
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+  }, [setIsOpen]);
+
+  return (
+    <motion.button
+      onClick={handleClose}
+      type='button'
+      aria-label='Close dialog'
+      key={`dialog-close-${uniqueId}`}
+      className={cn('absolute top-6 right-6', className)}
+      initial='initial'
+      animate='animate'
+      exit='exit'
+      variants={variants}
+    >
+      {children || <XIcon size={24} />}
+    </motion.button>
+  );
+}
+
+export {
+  MorphingDialog,
+  MorphingDialogTrigger,
+  MorphingDialogContainer,
+  MorphingDialogContent,
+  MorphingDialogClose,
+  MorphingDialogTitle,
+  MorphingDialogSubtitle,
+  MorphingDialogDescription,
+  MorphingDialogImage,
+  useMorphingDialog,
+};
