@@ -90,6 +90,25 @@ func TestBuildTestConversationRequestUsesRouteOverrideVerbatim(t *testing.T) {
 	}
 }
 
+func TestBuildTestConversationRequestResponsesDefaultsToStream(t *testing.T) {
+	siteRecord := &model.Site{
+		Platform: model.SitePlatformAPI,
+		BaseURL:  "https://example.com",
+	}
+	token := model.SiteToken{Token: "sk-test"}
+
+	requestURL, body, headers := buildTestConversationRequest(siteRecord, token, "gpt-5.5", TestConversationModeOpenAIResponse, "hi", TestConversationClientDefault, false)
+	if requestURL != "https://example.com/v1/responses" {
+		t.Fatalf("expected responses URL, got %q", requestURL)
+	}
+	if body["stream"] != true {
+		t.Fatalf("expected stream=true for responses test conversation, got %#v", body["stream"])
+	}
+	if headers["Accept"] != "text/event-stream" {
+		t.Fatalf("expected SSE accept header, got %q", headers["Accept"])
+	}
+}
+
 func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	siteRecord := &model.Site{
 		Platform: model.SitePlatformAPI,

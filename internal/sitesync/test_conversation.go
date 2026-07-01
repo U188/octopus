@@ -367,8 +367,12 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 			map[string]any{
 				"model": modelName,
 				"input": greeting,
+				"stream": true,
 			},
-			map[string]string{"Authorization": ensureBearer(key)}
+			map[string]string{
+				"Authorization": ensureBearer(key),
+				"Accept":        "text/event-stream",
+			}
 	case TestConversationModeAnthropic:
 		baseURL := testConversationBaseURL(siteRecord, model.SiteModelRouteTypeAnthropic)
 		headers := map[string]string{
@@ -411,6 +415,9 @@ func requestTestConversation(ctx context.Context, siteRecord *model.Site, reques
 	if client == TestConversationClientClaude {
 		return requestClaudeTestConversationStream(ctx, siteRecord, requestURL, body, headers, account, emit)
 	}
+	if mode == TestConversationModeOpenAIResponse && testConversationBodyStream(body) {
+		return requestCodexTestConversationStream(ctx, siteRecord, requestURL, body, headers, account, emit)
+	}
 	if mode == TestConversationModeOpenAIChat && testConversationBodyStream(body) {
 		return requestOpenAIChatTestConversationStream(ctx, siteRecord, requestURL, body, headers, account, emit)
 	}
@@ -425,6 +432,9 @@ func requestTestConversation(ctx context.Context, siteRecord *model.Site, reques
 		retryHeaders := cloneTestConversationHeaders(headers)
 		if _, ok := retryHeaders["Accept"]; !ok {
 			retryHeaders["Accept"] = "text/event-stream"
+		}
+		if mode == TestConversationModeOpenAIResponse {
+			return requestCodexTestConversationStream(ctx, siteRecord, requestURL, retryBody, retryHeaders, account, emit)
 		}
 		return requestOpenAIChatTestConversationStream(ctx, siteRecord, requestURL, retryBody, retryHeaders, account, emit)
 	}
