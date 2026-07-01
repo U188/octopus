@@ -97,9 +97,12 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 	if _, ok := payload["text"]; !ok {
 		payload["text"] = map[string]any{"verbosity": "low"}
 	}
+	ensureCodexResponsesReasoning(payload)
+	ensureCodexResponsesInclude(payload)
 	if _, ok := payload["tool_choice"]; !ok && hasResponsesTools(payload["tools"]) {
 		payload["tool_choice"] = "auto"
 	}
+	normalizeCodexResponsesInput(payload)
 
 	metadata, _ := payload["client_metadata"].(map[string]any)
 	if metadata == nil {
@@ -123,6 +126,126 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 		return
 	}
 	resetRequestBody(req, normalized)
+}
+
+func ensureCodexResponsesReasoning(payload map[string]any) {
+	reasoning, _ := payload["reasoning"].(map[string]any)
+	if reasoning == nil {
+		reasoning = map[string]any{}
+		payload["reasoning"] = reasoning
+	}
+	if _, ok := reasoning["effort"]; !ok {
+		reasoning["effort"] = "high"
+	}
+}
+
+func ensureCodexResponsesInclude(payload map[string]any) {
+	const encryptedReasoning = "reasoning.encrypted_content"
+	include, ok := payload["include"]
+	if !ok {
+		payload["include"] = []any{encryptedReasoning}
+		return
+	}
+	switch values := include.(type) {
+	case []any:
+		for _, value := range values {
+			if value == encryptedReasoning {
+				return
+			}
+		}
+		payload["include"] = append(values, encryptedReasoning)
+	case []string:
+		for _, value := range values {
+			if value == encryptedReasoning {
+				return
+			}
+		}
+		next := make([]any, 0, len(values)+1)
+		for _, value := range values {
+			next = append(next, value)
+		}
+		payload["include"] = append(next, encryptedReasoning)
+	}
+}
+
+func normalizeCodexResponsesInput(payload map[string]any) {
+	input, ok := payload["input"]
+	if !ok {
+		return
+	}
+	payload["input"] = normalizeCodexResponsesInputValue(input)
+}
+
+func normalizeCodexResponsesInputValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return []any{map[string]any{
+			"type": "message",
+			"role": "user",
+			"content": []any{
+				map[string]any{"type": "input_text", "text": v},
+			},
+		}}
+	case []any:
+		items := make([]any, len(v))
+		for i, item := range v {
+			items[i] = normalizeCodexResponsesInputItem(item)
+		}
+		return items
+	case []map[string]any:
+		items := make([]any, len(v))
+		for i := range v {
+			items[i] = normalizeCodexResponsesInputItem(v[i])
+		}
+		return items
+	default:
+		return value
+	}
+}
+
+func normalizeCodexResponsesInputItem(value any) any {
+	item, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	if _, hasType := item["type"]; !hasType && item["role"] != nil {
+		item["type"] = "message"
+	}
+	if item["type"] != "message" {
+		return item
+	}
+	switch content := item["content"].(type) {
+	case string:
+		item["content"] = []any{map[string]any{"type": "input_text", "text": content}}
+	case []any:
+		for i, part := range content {
+			content[i] = normalizeCodexResponsesContentPart(part)
+		}
+		item["content"] = content
+	case []map[string]any:
+		parts := make([]any, len(content))
+		for i := range content {
+			parts[i] = normalizeCodexResponsesContentPart(content[i])
+		}
+		item["content"] = parts
+	}
+	return item
+}
+
+func normalizeCodexResponsesContentPart(value any) any {
+	part, ok := value.(map[string]any)
+	if !ok {
+		if text, ok := value.(string); ok {
+			return map[string]any{"type": "input_text", "text": text}
+		}
+		return value
+	}
+	if _, hasType := part["type"]; !hasType {
+		if _, hasText := part["text"]; hasText {
+			part["type"] = "input_text"
+		}
+	}
+	return part
 }
 
 func hasResponsesTools(value any) bool {

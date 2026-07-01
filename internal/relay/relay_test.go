@@ -1460,13 +1460,13 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 		t.Fatalf("ChannelCreate failed: %v", err)
 	}
 
-	rawBody := []byte(`{"model":"gpt-5.5","stream":true,"store":false,"temperature":1.0,"instructions":"external","input":[{"role":"user","content":"hi"}],"reasoning":{"summary":"auto"},"include":["reasoning.encrypted_content"],"tools":[{"type":"function","name":"use_skill","parameters":{"type":"object"}}]}`)
+	rawBody := []byte(`{"model":"gpt","stream":true,"store":false,"temperature":1.0,"instructions":"external","input":[{"role":"user","content":"hi"}],"tools":[{"type":"function","name":"use_skill","parameters":{"type":"object"}}]}`)
 	writer := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
 	c.Request.Header.Set("User-Agent", "RikkaHub/1.0")
 	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-5.5", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
-	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt-5.5", rawBody, internalReq), apiKeyID: 1, requestModel: "gpt-5.5", rawBody: rawBody}
+	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt", rawBody, internalReq), apiKeyID: 1, requestModel: "gpt", rawBody: rawBody}
 	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
 
 	statusCode, err := ra.forwardViaHTTP(context.Background())
@@ -1489,6 +1489,32 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 	}
 	if text, ok := payload["text"].(map[string]any); !ok || text["verbosity"] != "low" {
 		t.Fatalf("expected codex text options, got %#v", payload["text"])
+	}
+	if reasoning, ok := payload["reasoning"].(map[string]any); !ok || reasoning["effort"] != "high" {
+		t.Fatalf("expected codex reasoning defaults, got %#v", payload["reasoning"])
+	}
+	include, ok := payload["include"].([]any)
+	if !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("expected codex include defaults, got %#v", payload["include"])
+	}
+	if payload["model"] != "gpt-5.5" {
+		t.Fatalf("expected upstream model rewrite, got %#v", payload["model"])
+	}
+	input, ok := payload["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("expected normalized codex input array, got %#v", payload["input"])
+	}
+	message, ok := input[0].(map[string]any)
+	if !ok || message["type"] != "message" || message["role"] != "user" {
+		t.Fatalf("expected normalized codex message item, got %#v", input[0])
+	}
+	content, ok := message["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected normalized codex content parts, got %#v", message["content"])
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok || part["type"] != "input_text" || part["text"] != "hi" {
+		t.Fatalf("expected input_text content part, got %#v", content[0])
 	}
 	metadata, ok := payload["client_metadata"].(map[string]any)
 	if !ok || metadata["session_id"] == "" || metadata["thread_id"] == "" || metadata["turn_id"] == "" || metadata["x-codex-turn-metadata"] == "" {
