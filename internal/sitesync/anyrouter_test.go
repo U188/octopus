@@ -219,3 +219,65 @@ func TestSyncAnyRouterDoesNotUseAccessTokenAsChatKeyWhenTokenListIsEmpty(t *test
 		t.Fatalf("expected missing key error, got %v", err)
 	}
 }
+
+func TestSyncAnyRouterFallsBackToExistingReadyTokenWhenTokenListIsEmpty(t *testing.T) {
+	var modelAuthHeaders []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/user/self":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":11494,"username":"fallback-user"}}`))
+		case "/api/token/":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"items":[]}}`))
+		case "/api/user/self/groups":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":["default"]}`))
+		case "/models", "/v1/models":
+			modelAuthHeaders = append(modelAuthHeaders, r.Header.Get("Authorization"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.5"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := syncAnyRouter(context.Background(), &model.Site{
+		BaseURL:  server.URL,
+		Platform: model.SitePlatformAnyRouter,
+	}, &model.SiteAccount{
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-access-token",
+		Tokens: []model.SiteToken{
+			{
+				Name:        "default",
+				Token:       "sk-cached-chat-key",
+				ValueStatus: model.SiteTokenValueStatusReady,
+				GroupKey:    model.SiteDefaultGroupKey,
+				GroupName:   model.SiteDefaultGroupName,
+				Enabled:     true,
+				Source:      "manual",
+				IsDefault:   true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("syncAnyRouter with cached token failed: %v", err)
+	}
+	if snapshot == nil || len(snapshot.tokens) != 1 || snapshot.tokens[0].Token != "sk-cached-chat-key" {
+		t.Fatalf("expected cached token to be reused, got %+v", snapshot)
+	}
+	if len(snapshot.models) != 1 || snapshot.models[0].ModelName != "gpt-5.5" {
+		t.Fatalf("expected cached token models to sync, got %+v", snapshot.models)
+	}
+	if len(modelAuthHeaders) == 0 {
+		t.Fatalf("expected model discovery request")
+	}
+	if got := strings.Join(modelAuthHeaders, ","); !strings.Contains(got, "Bearer sk-cached-chat-key") {
+		t.Fatalf("expected cached chat key for model discovery, got %q", got)
+	}
+	if got := strings.Join(modelAuthHeaders, ","); strings.Contains(got, "session-access-token") {
+		t.Fatalf("access token must not be used for model discovery, got %q", got)
+	}
+}

@@ -18,8 +18,31 @@ func TestResolveDirectTokenUsesAPIKeyOnly(t *testing.T) {
 	}
 
 	account.APIKey = ""
+	account.Tokens = []model.SiteToken{
+		{Token: "cached-chat-key", Enabled: true, ValueStatus: model.SiteTokenValueStatusReady, GroupKey: model.SiteDefaultGroupKey, IsDefault: true},
+	}
+	if got := resolveDirectToken(account); got != "cached-chat-key" {
+		t.Fatalf("expected cached ready site token, got %q", got)
+	}
+
+	account.Tokens = nil
 	if got := resolveDirectToken(account); got != "" {
-		t.Fatalf("expected empty direct token without api key, got %q", got)
+		t.Fatalf("expected empty direct token without api key or cached token, got %q", got)
+	}
+}
+
+func TestResolveDirectTokenSkipsAccessTokenAndMaskedTokens(t *testing.T) {
+	account := &model.SiteAccount{
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-token",
+		Tokens: []model.SiteToken{
+			{Token: "sk-****1234", Enabled: true, ValueStatus: model.SiteTokenValueStatusMaskedPending, GroupKey: model.SiteDefaultGroupKey, IsDefault: true},
+			{Token: "ready-chat-key", Enabled: true, ValueStatus: model.SiteTokenValueStatusReady, GroupKey: "vip"},
+		},
+	}
+
+	if got := resolveDirectToken(account); got != "ready-chat-key" {
+		t.Fatalf("expected ready cached site token and not access token, got %q", got)
 	}
 }
 

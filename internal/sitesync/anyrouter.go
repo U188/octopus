@@ -60,6 +60,9 @@ func syncAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.S
 		})
 	}
 	if len(tokens) == 0 {
+		tokens = fallbackExistingReadySiteTokens(account)
+	}
+	if len(tokens) == 0 {
 		return nil, newMissingGroupKeyError(model.SiteDefaultGroupKey)
 	}
 
@@ -113,6 +116,27 @@ func syncAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.S
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}
 	return snapshot, nil
+}
+
+func fallbackExistingReadySiteTokens(account *model.SiteAccount) []model.SiteToken {
+	if account == nil {
+		return nil
+	}
+	tokens := make([]model.SiteToken, 0, len(account.Tokens))
+	for _, token := range account.Tokens {
+		token.Token = strings.TrimSpace(token.Token)
+		token.GroupKey = model.NormalizeSiteGroupKey(token.GroupKey)
+		token.GroupName = model.NormalizeSiteGroupName(token.GroupKey, token.GroupName)
+		token.ValueStatus = model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token)
+		if !token.Enabled || token.Token == "" || model.IsMaskedSiteTokenValue(token.Token) || !model.IsReadySiteToken(token) {
+			continue
+		}
+		if strings.TrimSpace(token.Source) == "" {
+			token.Source = "cached"
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens
 }
 
 func checkinAnyRouter(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*model.SiteCheckinResult, string, error) {

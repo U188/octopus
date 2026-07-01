@@ -343,5 +343,37 @@ func resolveDirectToken(account *model.SiteAccount) string {
 	if account == nil {
 		return ""
 	}
-	return strings.TrimSpace(account.APIKey)
+	if token := strings.TrimSpace(account.APIKey); token != "" {
+		return token
+	}
+	return firstExistingReadyDirectToken(account)
+}
+
+func firstExistingReadyDirectToken(account *model.SiteAccount) string {
+	if account == nil {
+		return ""
+	}
+	for _, token := range account.Tokens {
+		if !isUsableExistingDirectToken(token) {
+			continue
+		}
+		if token.IsDefault || model.NormalizeSiteGroupKey(token.GroupKey) == model.SiteDefaultGroupKey {
+			return strings.TrimSpace(token.Token)
+		}
+	}
+	for _, token := range account.Tokens {
+		if isUsableExistingDirectToken(token) {
+			return strings.TrimSpace(token.Token)
+		}
+	}
+	return ""
+}
+
+func isUsableExistingDirectToken(token model.SiteToken) bool {
+	token.Token = strings.TrimSpace(token.Token)
+	token.ValueStatus = model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token)
+	return token.Enabled &&
+		token.Token != "" &&
+		!model.IsMaskedSiteTokenValue(token.Token) &&
+		model.IsReadySiteToken(token)
 }
