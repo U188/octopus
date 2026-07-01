@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -64,13 +63,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	if err != nil {
 		return
 	}
-	supportedModels := c.GetString("supported_models")
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		if !slices.Contains(supportedModelsArray, internalRequest.Model) {
-			resp.ErrorWithCode(c, http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported")
-			return
-		}
+	if !supportedModelAllowed(c.GetString("supported_models"), internalRequest.Model) {
+		resp.ErrorWithCode(c, http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported")
+		return
 	}
 
 	requestModel := internalRequest.Model

@@ -205,20 +205,9 @@ func processWSResponseCreate(
 		}
 	}
 
-	// Check supported models
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		found := false
-		for _, m := range supportedModelsArray {
-			if m == executionRequest.Model {
-				found = true
-				break
-			}
-		}
-		if !found {
-			writeWSError(ctx, conn, 400, "invalid_request", "model not supported")
-			return conversationState
-		}
+	if !supportedModelAllowed(supportedModels, executionRequest.Model) {
+		writeWSError(ctx, conn, 400, "invalid_request", "model not supported")
+		return conversationState
 	}
 
 	requestModel = executionRequest.Model
@@ -309,18 +298,8 @@ func bestEffortWarmupUpstreamWS(
 		return fmt.Errorf("warmup request missing model")
 	}
 
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		found := false
-		for _, modelName := range supportedModelsArray {
-			if modelName == requestModel {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("model not supported")
-		}
+	if !supportedModelAllowed(supportedModels, requestModel) {
+		return fmt.Errorf("model not supported")
 	}
 
 	group, err := op.GroupGetEnabledMap(requestModel, ctx)

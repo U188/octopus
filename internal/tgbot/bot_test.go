@@ -1,7 +1,9 @@
 package tgbot
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/U188/octopus/internal/model"
 )
@@ -143,6 +145,66 @@ func TestBuildInlineKeyboardSkipsEmptyItems(t *testing.T) {
 	}
 	if len(rows) != 1 || len(rows[0]) != 1 || rows[0][0]["callback_data"] != "a" {
 		t.Fatalf("unexpected rows: %#v", rows)
+	}
+}
+
+func TestPrepareResponseAliasesLongCallbackData(t *testing.T) {
+	r := &Runner{}
+	longData := "model:view:1:2:vip:" + strings.Repeat("x", 80)
+	resp := r.prepareResponse(response{
+		Text: "models",
+		Buttons: [][]inlineButton{{
+			{Text: "Long", Data: longData},
+			{Text: "Short", Data: "home"},
+		}},
+	})
+	if len(resp.Buttons) != 1 || len(resp.Buttons[0]) != 2 {
+		t.Fatalf("unexpected buttons: %#v", resp.Buttons)
+	}
+	alias := resp.Buttons[0][0].Data
+	if alias == longData {
+		t.Fatalf("expected long callback data to be aliased")
+	}
+	if len(alias) > maxCallbackDataBytes {
+		t.Fatalf("alias too long: %q", alias)
+	}
+	resolved, ok := r.resolveCallbackData(alias)
+	if !ok {
+		t.Fatalf("expected alias to resolve")
+	}
+	if resolved != longData {
+		t.Fatalf("got %q, want %q", resolved, longData)
+	}
+	if got := resp.Buttons[0][1].Data; got != "home" {
+		t.Fatalf("short callback should be unchanged, got %q", got)
+	}
+}
+
+func TestResolveCallbackDataRejectsExpiredAlias(t *testing.T) {
+	r := &Runner{
+		callbackAliases: map[string]callbackAlias{
+			"cb:old": {Data: "home", ExpiresAt: time.Now().Add(-time.Second)},
+		},
+	}
+	if _, ok := r.resolveCallbackData("cb:old"); ok {
+		t.Fatalf("expected expired alias to fail")
+	}
+	if _, ok := r.callbackAliases["cb:old"]; ok {
+		t.Fatalf("expected expired alias to be removed")
+	}
+}
+
+func TestGetPendingExpiresAction(t *testing.T) {
+	r := &Runner{
+		pending: map[int64]pendingAction{
+			1: {Kind: pendingAddSite, ExpiresAt: time.Now().Add(-time.Second)},
+		},
+	}
+	if _, ok := r.getPending(1); ok {
+		t.Fatalf("expected expired pending action to be ignored")
+	}
+	if _, ok := r.pending[1]; ok {
+		t.Fatalf("expected expired pending action to be removed")
 	}
 }
 

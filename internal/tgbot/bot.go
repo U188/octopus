@@ -24,8 +24,13 @@ import (
 )
 
 const (
-	defaultAPIBaseURL = "https://api.telegram.org"
-	maxMessageLen     = 3600
+	defaultAPIBaseURL     = "https://api.telegram.org"
+	maxMessageLen         = 3600
+	maxCallbackDataBytes  = 64
+	callbackAliasPrefix   = "cb:"
+	callbackAliasTTL      = 24 * time.Hour
+	maxCallbackAliasCount = 5000
+	pendingActionTTL      = 15 * time.Minute
 )
 
 type config struct {
@@ -62,6 +67,12 @@ type pendingAction struct {
 	GroupKey  string
 	ModelName string
 	RouteType model.SiteModelRouteType
+	ExpiresAt time.Time
+}
+
+type callbackAlias struct {
+	Data      string
+	ExpiresAt time.Time
 }
 
 type response struct {
@@ -75,14 +86,17 @@ type inlineButton struct {
 }
 
 type Runner struct {
-	offset  int64
-	mu      sync.Mutex
-	pending map[int64]pendingAction
+	offset           int64
+	mu               sync.Mutex
+	pending          map[int64]pendingAction
+	callbackAliases  map[string]callbackAlias
+	callbackAliasSeq uint64
 }
 
 func Run(ctx context.Context) {
 	r := &Runner{
-		pending: make(map[int64]pendingAction),
+		pending:         make(map[int64]pendingAction),
+		callbackAliases: make(map[string]callbackAlias),
 	}
 	r.Run(ctx)
 }
@@ -248,7 +262,7 @@ func (r *Runner) handleUpdate(ctx context.Context, cfg config, client *http.Clie
 			return
 		}
 		resp := r.handleMessage(handleCtx, userID, text)
-		_ = sendMessage(handleCtx, cfg, client, update.Message.Chat.ID, resp)
+		_ = sendMessage(handleCtx, cfg, client, update.Message.Chat.ID, r.prepareResponse(resp))
 		return
 	}
 
@@ -258,10 +272,20 @@ func (r *Runner) handleUpdate(ctx context.Context, cfg config, client *http.Clie
 			_ = answerCallback(handleCtx, cfg, client, query.ID, "未授权")
 			return
 		}
-		resp := r.handleCallback(handleCtx, query.From.ID, query.Data)
 		_ = answerCallback(handleCtx, cfg, client, query.ID, "")
+		data, ok := r.resolveCallbackData(query.Data)
+		if !ok {
+			if query.Message != nil {
+				_ = editMessage(handleCtx, cfg, client, query.Message.Chat.ID, query.Message.MessageID, r.prepareResponse(response{
+					Text:    "操作已过期，请重新打开菜单。",
+					Buttons: mainMenuButtons(),
+				}))
+			}
+			return
+		}
+		resp := r.handleCallback(handleCtx, query.From.ID, data)
 		if query.Message != nil {
-			_ = editMessage(handleCtx, cfg, client, query.Message.Chat.ID, query.Message.MessageID, resp)
+			_ = editMessage(handleCtx, cfg, client, query.Message.Chat.ID, query.Message.MessageID, r.prepareResponse(resp))
 		}
 	}
 }
@@ -298,6 +322,8 @@ func (r *Runner) handleCommand(ctx context.Context, text string) response {
 	switch command {
 	case "/start", "/help":
 		return r.helpResponse()
+	case "/cancel":
+		return response{Text: "已取消当前操作。", Buttons: mainMenuButtons()}
 	case "/sites":
 		return r.sitesMenu(ctx)
 	case "/site":
@@ -1445,20 +1471,43 @@ func (r *Runner) fulfillPending(ctx context.Context, userID int64, action pendin
 func (r *Runner) getPending(userID int64) (pendingAction, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensurePendingLocked()
 	action, ok := r.pending[userID]
+	if !ok {
+		return pendingAction{}, false
+	}
+	if !action.ExpiresAt.IsZero() && time.Now().After(action.ExpiresAt) {
+		delete(r.pending, userID)
+		return pendingAction{}, false
+	}
 	return action, ok
 }
 
 func (r *Runner) setPending(userID int64, action pendingAction) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensurePendingLocked()
+	action.ExpiresAt = time.Now().Add(pendingActionTTL)
 	r.pending[userID] = action
 }
 
 func (r *Runner) clearPending(userID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensurePendingLocked()
 	delete(r.pending, userID)
+}
+
+func (r *Runner) ensurePendingLocked() {
+	if r.pending == nil {
+		r.pending = make(map[int64]pendingAction)
+	}
+}
+
+func (r *Runner) ensureCallbackAliasesLocked() {
+	if r.callbackAliases == nil {
+		r.callbackAliases = make(map[string]callbackAlias)
+	}
 }
 
 func (r *Runner) createModelGroup(ctx context.Context, text string) string {
@@ -2530,6 +2579,93 @@ func answerCallback(ctx context.Context, cfg config, client *http.Client, callba
 	return telegramRequest(ctx, cfg, client, "answerCallbackQuery", body, nil)
 }
 
+func (r *Runner) prepareResponse(resp response) response {
+	resp.Text = strings.TrimSpace(resp.Text)
+	if resp.Text == "" {
+		resp.Text = "操作完成"
+	}
+	if len(resp.Buttons) == 0 {
+		return resp
+	}
+
+	now := time.Now()
+	prepared := make([][]inlineButton, 0, len(resp.Buttons))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureCallbackAliasesLocked()
+	r.pruneCallbackAliasesLocked(now)
+	for _, row := range resp.Buttons {
+		if len(row) == 0 {
+			continue
+		}
+		preparedRow := make([]inlineButton, 0, len(row))
+		for _, item := range row {
+			data := strings.TrimSpace(item.Data)
+			if data == "" {
+				preparedRow = append(preparedRow, item)
+				continue
+			}
+			item.Data = data
+			if len(item.Data) > maxCallbackDataBytes {
+				item.Data = r.registerCallbackAliasLocked(item.Data, now)
+			}
+			preparedRow = append(preparedRow, item)
+		}
+		if len(preparedRow) > 0 {
+			prepared = append(prepared, preparedRow)
+		}
+	}
+	resp.Buttons = prepared
+	return resp
+}
+
+func (r *Runner) registerCallbackAliasLocked(data string, now time.Time) string {
+	r.callbackAliasSeq++
+	token := callbackAliasPrefix + strconv.FormatUint(r.callbackAliasSeq, 36)
+	r.callbackAliases[token] = callbackAlias{
+		Data:      data,
+		ExpiresAt: now.Add(callbackAliasTTL),
+	}
+	return token
+}
+
+func (r *Runner) resolveCallbackData(data string) (string, bool) {
+	data = strings.TrimSpace(data)
+	if !strings.HasPrefix(data, callbackAliasPrefix) {
+		return data, true
+	}
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureCallbackAliasesLocked()
+	alias, ok := r.callbackAliases[data]
+	if !ok {
+		return "", false
+	}
+	if now.After(alias.ExpiresAt) {
+		delete(r.callbackAliases, data)
+		return "", false
+	}
+	return alias.Data, true
+}
+
+func (r *Runner) pruneCallbackAliasesLocked(now time.Time) {
+	if len(r.callbackAliases) == 0 {
+		return
+	}
+	for token, alias := range r.callbackAliases {
+		if now.After(alias.ExpiresAt) {
+			delete(r.callbackAliases, token)
+		}
+	}
+	for len(r.callbackAliases) > maxCallbackAliasCount {
+		for token := range r.callbackAliases {
+			delete(r.callbackAliases, token)
+			break
+		}
+	}
+}
+
 func buildInlineKeyboard(rows [][]inlineButton) map[string]any {
 	if len(rows) == 0 {
 		return nil
@@ -2541,12 +2677,13 @@ func buildInlineKeyboard(rows [][]inlineButton) map[string]any {
 		}
 		items := make([]map[string]string, 0, len(row))
 		for _, item := range row {
-			if strings.TrimSpace(item.Text) == "" || strings.TrimSpace(item.Data) == "" {
+			data := strings.TrimSpace(item.Data)
+			if strings.TrimSpace(item.Text) == "" || data == "" || len(data) > maxCallbackDataBytes {
 				continue
 			}
 			items = append(items, map[string]string{
 				"text":          item.Text,
-				"callback_data": item.Data,
+				"callback_data": data,
 			})
 		}
 		if len(items) > 0 {

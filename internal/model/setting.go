@@ -98,8 +98,19 @@ func DefaultSettings() []Setting {
 	}
 }
 
+func IsKnownSettingKey(key SettingKey) bool {
+	for _, setting := range DefaultSettings() {
+		if setting.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKeyStatsSaveInterval:
+		return validateIntMin(s.Value, 1)
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySiteSyncInterval,
 		SettingKeySiteCheckinInterval, SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown:

@@ -69,6 +69,13 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	switch setting.Key {
+	case model.SettingKeyStatsSaveInterval:
+		minutes, err := strconv.Atoi(setting.Value)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		task.Update(task.TaskStatsSave, time.Duration(minutes)*time.Minute)
 	case model.SettingKeyModelInfoUpdateInterval:
 		hours, err := strconv.Atoi(setting.Value)
 		if err != nil {
@@ -90,6 +97,13 @@ func setSetting(c *gin.Context) {
 			return
 		}
 		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
+	case model.SettingKeyOutlierRetireInterval:
+		minutes, err := strconv.Atoi(setting.Value)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		task.Update(string(setting.Key), time.Duration(minutes)*time.Minute)
 	case model.SettingKeyProjectedChannelAutoGroupEnabled:
 		mode, _ := model.ParseAutoGroupSettingValue(setting.Value)
 		if mode != model.AutoGroupTypeNone && projectedAutoGroupQueued.CompareAndSwap(false, true) {

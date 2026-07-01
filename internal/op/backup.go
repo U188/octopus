@@ -145,6 +145,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if dump.Version != 0 && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
+	if err := validateImportSettings(dump.Settings); err != nil {
+		return nil, err
+	}
 
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
@@ -760,6 +763,18 @@ func createUpsertSettings(tx *gorm.DB, rows []model.Setting) (int64, error) {
 		DoUpdates: clause.AssignmentColumns([]string{"value"}),
 	}).CreateInBatches(&rows, dbImportBatchSize)
 	return result.RowsAffected, result.Error
+}
+
+func validateImportSettings(rows []model.Setting) error {
+	for _, setting := range rows {
+		if !model.IsKnownSettingKey(setting.Key) {
+			return fmt.Errorf("import settings: unknown setting key %q", setting.Key)
+		}
+		if err := setting.Validate(); err != nil {
+			return fmt.Errorf("import settings: %s: %w", setting.Key, err)
+		}
+	}
+	return nil
 }
 
 // DBExportZip streams the database dump as a ZIP archive: small tables become

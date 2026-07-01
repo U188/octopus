@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	dbpkg "github.com/U188/octopus/internal/db"
@@ -198,6 +199,36 @@ func TestDBImportSkipsOrphanedStats(t *testing.T) {
 	}
 	if result.RowsAffected["stats_api_key"] != 0 {
 		t.Fatalf("expected 0 stats_api_key imported, got %d", result.RowsAffected["stats_api_key"])
+	}
+}
+
+func TestDBImportRejectsInvalidSettings(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+
+	dump := &model.DBDump{
+		Version: dbDumpVersion,
+		Settings: []model.Setting{{
+			Key:   model.SettingKeyTelegramBotPollInterval,
+			Value: "0",
+		}},
+	}
+	if _, err := DBImportIncremental(ctx, dump); err == nil || !strings.Contains(err.Error(), "telegram_bot_poll_interval_seconds") {
+		t.Fatalf("expected invalid setting import to fail with setting key, got %v", err)
+	}
+}
+
+func TestDBImportRejectsUnknownSettings(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+
+	dump := &model.DBDump{
+		Version: dbDumpVersion,
+		Settings: []model.Setting{{
+			Key:   model.SettingKey("unknown_setting"),
+			Value: "1",
+		}},
+	}
+	if _, err := DBImportIncremental(ctx, dump); err == nil || !strings.Contains(err.Error(), "unknown setting key") {
+		t.Fatalf("expected unknown setting import to fail, got %v", err)
 	}
 }
 

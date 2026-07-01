@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -62,13 +61,9 @@ func HandleResponsesCompact(c *gin.Context) {
 		return
 	}
 
-	supportedModels := c.GetString("supported_models")
-	if supportedModels != "" {
-		supportedModelsArray := strings.Split(supportedModels, ",")
-		if !slices.Contains(supportedModelsArray, compactReq.Model) {
-			resp.ErrorWithCode(c, http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported")
-			return
-		}
+	if !supportedModelAllowed(c.GetString("supported_models"), compactReq.Model) {
+		resp.ErrorWithCode(c, http.StatusBadRequest, CodeRelayModelNotSupported, "model not supported")
+		return
 	}
 
 	requestModel := compactReq.Model
