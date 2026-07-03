@@ -272,7 +272,7 @@ export function SettingData() {
                 )}
             </div>
 
-            {/* WebDAV 整库备份 */}
+            {/* WebDAV 轻量备份 */}
             <SettingSection title={t('backup.dav.title')} />
             <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-3">

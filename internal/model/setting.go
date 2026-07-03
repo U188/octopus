@@ -48,7 +48,7 @@ const (
 	SettingKeyTelegramBotProxyMode             SettingKey = "telegram_bot_proxy_mode"              // Telegram Bot 代理模式：direct/system/custom
 	SettingKeyTelegramBotProxyURL              SettingKey = "telegram_bot_proxy_url"               // Telegram Bot 自定义代理地址
 	SettingKeyTelegramBotPollInterval          SettingKey = "telegram_bot_poll_interval_seconds"   // Telegram Bot 异常重试/配置刷新间隔（秒）
-	SettingKeyWebDAVAutoBackupEnabled          SettingKey = "webdav_auto_backup_enabled"           // 是否启用 WebDAV 自动整库备份
+	SettingKeyWebDAVAutoBackupEnabled          SettingKey = "webdav_auto_backup_enabled"           // 是否启用 WebDAV 自动轻量备份（不含历史对话日志）
 	SettingKeyWebDAVAutoBackupURL              SettingKey = "webdav_auto_backup_url"               // WebDAV 自动备份地址
 	SettingKeyWebDAVAutoBackupUsername         SettingKey = "webdav_auto_backup_username"          // WebDAV 自动备份用户名
 	SettingKeyWebDAVAutoBackupPassword         SettingKey = "webdav_auto_backup_password"          // WebDAV 自动备份密码

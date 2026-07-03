@@ -369,7 +369,7 @@
                 "result": "Import result"
             },
             "dav": {
-                "title": "WebDAV Database Backup",
+                "title": "WebDAV Lightweight Backup",
                 "url": "WebDAV URL",
                 "username": "Username",
                 "password": "Password",
@@ -379,26 +379,26 @@
                 "empty": "No database backup files in the remote directory",
                 "listSuccess": "Remote backups refreshed",
                 "listFailed": "Failed to refresh remote backups",
-                "backup": "Back Up Database to DAV",
+                "backup": "Back Up Lightweight DB to DAV",
                 "backingUp": "Backing up...",
-                "backupSuccess": "Database backed up to DAV",
+                "backupSuccess": "Lightweight backup uploaded to DAV",
                 "backupFailed": "DAV backup failed",
                 "restore": "Restore Database from DAV",
                 "restoring": "Restoring...",
                 "restoreSuccess": "Restore file is ready and will be applied after service restart",
                 "restoreFailed": "DAV restore failed",
                 "noFile": "Select a remote backup file first",
-                "restoreWarning": "WebDAV restore replaces the whole database: the running database is not overwritten immediately; it is applied before the database opens after service restart."
+                "restoreWarning": "WebDAV restore replaces the whole database: lightweight backups do not include historical conversation logs; the running database is not overwritten immediately and is applied before the database opens after service restart."
             },
             "autoDav": {
-                "title": "WebDAV Auto Backup",
+                "title": "WebDAV Auto Lightweight Backup",
                 "enabled": "Enable auto backup",
                 "url": "WebDAV URL",
                 "username": "Username",
                 "password": "Password (leave blank to keep)",
                 "interval": "Backup interval (hours)",
                 "retention": "Retention count",
-                "hint": "Auto backup files use the octopus-auto-db- prefix. Retention only removes auto backup files."
+                "hint": "Auto backup files use the octopus-auto-db- prefix and exclude historical conversation logs. Retention only removes auto backup files."
             }
         },
         "audit": {

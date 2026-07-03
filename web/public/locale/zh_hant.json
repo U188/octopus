@@ -369,7 +369,7 @@
                 "result": "匯入結果"
             },
             "dav": {
-                "title": "WebDAV 整庫備份",
+                "title": "WebDAV 輕量備份",
                 "url": "WebDAV 地址",
                 "username": "使用者名稱",
                 "password": "密碼",
@@ -379,26 +379,26 @@
                 "empty": "遠端目錄暫無資料庫備份檔案",
                 "listSuccess": "已重新整理遠端備份",
                 "listFailed": "重新整理遠端備份失敗",
-                "backup": "備份資料庫至 DAV",
+                "backup": "輕量備份至 DAV",
                 "backingUp": "備份中...",
-                "backupSuccess": "資料庫已備份至 DAV",
+                "backupSuccess": "輕量備份已上傳至 DAV",
                 "backupFailed": "DAV 備份失敗",
                 "restore": "從 DAV 復原資料庫",
                 "restoring": "復原中...",
                 "restoreSuccess": "復原檔案已準備好，重啟服務後生效",
                 "restoreFailed": "DAV 復原失敗",
                 "noFile": "請先選擇遠端備份檔案",
-                "restoreWarning": "WebDAV 復原是整庫替換：目前執行中的資料庫不會立即被覆蓋，重啟服務後會在開啟資料庫前套用。"
+                "restoreWarning": "WebDAV 復原是整庫替換：輕量備份不包含歷史對話日誌；目前執行中的資料庫不會立即被覆蓋，重啟服務後會在開啟資料庫前套用。"
             },
             "autoDav": {
-                "title": "WebDAV 自動備份",
+                "title": "WebDAV 自動輕量備份",
                 "enabled": "啟用自動備份",
                 "url": "WebDAV 地址",
                 "username": "使用者名稱",
                 "password": "密碼（留空不修改）",
                 "interval": "備份間隔（小時）",
                 "retention": "保留份數",
-                "hint": "自動備份檔案使用 octopus-auto-db- 前綴，保留策略只清理自動備份檔案。"
+                "hint": "自動備份檔案使用 octopus-auto-db- 前綴，不包含歷史對話日誌；保留份數只會清理自動備份檔案。"
             }
         },
         "audit": {

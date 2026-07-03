@@ -21,6 +21,9 @@ import (
 	"github.com/U188/octopus/internal/conf"
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var webDAVHTTPClient = &http.Client{Timeout: 30 * time.Minute}
@@ -135,6 +138,9 @@ func WebDAVBackupSQLite(ctx context.Context, req model.WebDAVBackupRequest) (*mo
 	if err := db.CreateSQLiteSnapshot(ctx, tmpPath); err != nil {
 		return nil, err
 	}
+	if err := stripRelayLogsFromSQLiteBackup(tmpPath); err != nil {
+		return nil, err
+	}
 	if err := db.ValidateSQLiteDatabaseFile(tmpPath); err != nil {
 		return nil, fmt.Errorf("validate database backup: %w", err)
 	}
@@ -153,6 +159,42 @@ func WebDAVBackupSQLite(ctx context.Context, req model.WebDAVBackupRequest) (*mo
 		return nil, err
 	}
 	return &model.WebDAVBackupResult{Filename: uploadedFilename, Size: stat.Size()}, nil
+}
+
+func stripRelayLogsFromSQLiteBackup(dbPath string) error {
+	conn, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		return fmt.Errorf("open lightweight database backup: %w", err)
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return fmt.Errorf("open lightweight database backup handle: %w", err)
+	}
+	defer sqlDB.Close()
+
+	var tableName string
+	if err := conn.Raw("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'relay_logs' LIMIT 1").Scan(&tableName).Error; err != nil {
+		return fmt.Errorf("inspect relay_logs in database backup: %w", err)
+	}
+	if tableName != "relay_logs" {
+		return nil
+	}
+	if err := conn.Exec("DELETE FROM relay_logs").Error; err != nil {
+		return fmt.Errorf("strip relay_logs from database backup: %w", err)
+	}
+	var sequenceTable string
+	if err := conn.Raw("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence' LIMIT 1").Scan(&sequenceTable).Error; err != nil {
+		return fmt.Errorf("inspect sqlite_sequence in database backup: %w", err)
+	}
+	if sequenceTable == "sqlite_sequence" {
+		if err := conn.Exec("DELETE FROM sqlite_sequence WHERE name = 'relay_logs'").Error; err != nil {
+			return fmt.Errorf("reset relay_logs sequence in database backup: %w", err)
+		}
+	}
+	if err := conn.Exec("VACUUM").Error; err != nil {
+		return fmt.Errorf("compact lightweight database backup: %w", err)
+	}
+	return nil
 }
 
 func WebDAVAutoBackupSQLite(ctx context.Context, cred model.WebDAVCredentials, retention int) (*model.WebDAVBackupResult, error) {
