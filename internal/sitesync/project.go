@@ -36,6 +36,15 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 		}
 		return channelIDs, nil
 	}
+	if len(account.Models) == 0 {
+		var models []model.SiteModel
+		if err := db.GetDB().WithContext(ctx).
+			Raw("SELECT * FROM site_models WHERE site_account_id = ? ORDER BY id ASC", account.ID).
+			Scan(&models).Error; err != nil {
+			return nil, err
+		}
+		account.Models = models
+	}
 
 	groupMap := make(map[string]model.SiteUserGroup)
 	for _, item := range account.UserGroups {

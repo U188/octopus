@@ -179,6 +179,14 @@ func buildSiteChannelCardWithHistories(ctx context.Context, site model.Site, his
 }
 
 func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.SiteAccount, historyMap map[string]*model.SiteModelHistorySummary) []model.SiteChannelGroup {
+	if len(account.Models) == 0 && account.ID > 0 {
+		var models []model.SiteModel
+		if err := db.GetDB().WithContext(ctx).
+			Raw("SELECT * FROM site_models WHERE site_account_id = ? ORDER BY id ASC", account.ID).
+			Scan(&models).Error; err == nil {
+			account.Models = models
+		}
+	}
 	split := siteChannelShouldSplitByOutboundType(site)
 	groups := make(map[string]*model.SiteChannelGroup)
 	projectedChannels := make(map[int]*model.Channel)
