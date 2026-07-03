@@ -270,6 +270,7 @@ func listWebDAVBackups(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	req.WebDAVCredentials = resolveStoredWebDAVCredentials(req.WebDAVCredentials)
 	files, err := op.WebDAVBackupList(c.Request.Context(), req.WebDAVCredentials)
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
@@ -284,6 +285,7 @@ func backupToWebDAV(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	req.WebDAVCredentials = resolveStoredWebDAVCredentials(req.WebDAVCredentials)
 	result, err := op.WebDAVBackupSQLite(c.Request.Context(), req)
 	if err != nil {
 		recordAudit(c, "webdav.backup", op.AuditStatusFailed, map[string]any{
@@ -305,6 +307,7 @@ func restoreFromWebDAV(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	req.WebDAVCredentials = resolveStoredWebDAVCredentials(req.WebDAVCredentials)
 	result, err := op.WebDAVRestoreSQLite(c.Request.Context(), req)
 	if err != nil {
 		recordAudit(c, "webdav.restore", op.AuditStatusFailed, map[string]any{
@@ -319,6 +322,25 @@ func restoreFromWebDAV(c *gin.Context) {
 		"restart_required": result.RestartRequired,
 	}, nil)
 	resp.Success(c, result)
+}
+
+func resolveStoredWebDAVCredentials(cred model.WebDAVCredentials) model.WebDAVCredentials {
+	if strings.TrimSpace(cred.URL) == "" {
+		if value, err := op.SettingGetString(model.SettingKeyWebDAVAutoBackupURL); err == nil {
+			cred.URL = value
+		}
+	}
+	if strings.TrimSpace(cred.Username) == "" {
+		if value, err := op.SettingGetString(model.SettingKeyWebDAVAutoBackupUsername); err == nil {
+			cred.Username = value
+		}
+	}
+	if cred.Password == "" {
+		if value, err := op.SettingGetString(model.SettingKeyWebDAVAutoBackupPassword); err == nil {
+			cred.Password = value
+		}
+	}
+	return cred
 }
 
 func decodeDBDump(body []byte, dump *model.DBDump) error {

@@ -56,6 +56,51 @@ function errorMessage(error: unknown) {
   return "测试对话失败";
 }
 
+function tokenSourceRank(source: string) {
+  switch (source.trim()) {
+    case "manual":
+      return 3;
+    case "sync":
+      return 2;
+    case "account":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function preferTokenOption<T extends { token: string; value_status?: string; is_default: boolean; source: string }>(current: T, candidate: T) {
+  const currentReady = current.value_status !== "masked_pending";
+  const candidateReady = candidate.value_status !== "masked_pending";
+  if (candidateReady !== currentReady) return candidateReady;
+
+  const sourceDelta = tokenSourceRank(candidate.source) - tokenSourceRank(current.source);
+  if (sourceDelta !== 0) return sourceDelta > 0;
+
+  if (candidate.is_default !== current.is_default) return candidate.is_default;
+  return false;
+}
+
+function dedupeTokenOptions<T extends { token: string; value_status?: string; is_default: boolean; source: string }>(tokens: T[]) {
+  const byValue = new Map<string, T>();
+  const withoutValue: T[] = [];
+
+  for (const token of tokens) {
+    const value = token.token.trim();
+    if (!value) {
+      withoutValue.push(token);
+      continue;
+    }
+
+    const existing = byValue.get(value);
+    if (!existing || preferTokenOption(existing, token)) {
+      byValue.set(value, token);
+    }
+  }
+
+  return [...byValue.values(), ...withoutValue];
+}
+
 export function TestConversationPanel({
   site,
   account,
@@ -85,8 +130,7 @@ export function TestConversationPanel({
 
   const enabledTokenOptions = useMemo(
     () =>
-      latestAccount.tokens
-        .filter((token) => token.enabled)
+      dedupeTokenOptions(latestAccount.tokens.filter((token) => token.enabled))
         .sort((a, b) => {
           const groupCompare = (a.group_name || a.group_key).localeCompare(b.group_name || b.group_key);
           return Number(b.is_default) - Number(a.is_default) || groupCompare || a.name.localeCompare(b.name);

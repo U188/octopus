@@ -369,7 +369,7 @@
                 "result": "匯入結果"
             },
             "dav": {
-                "title": "WebDAV 輕量備份",
+                "title": "WebDAV 輕量備份與復原",
                 "url": "WebDAV 地址",
                 "username": "使用者名稱",
                 "password": "密碼",
@@ -391,14 +391,14 @@
                 "restoreWarning": "WebDAV 復原是整庫替換：輕量備份不包含歷史對話日誌；目前執行中的資料庫不會立即被覆蓋，重啟服務後會在開啟資料庫前套用。"
             },
             "autoDav": {
-                "title": "WebDAV 自動輕量備份",
+                "title": "自動備份策略",
                 "enabled": "啟用自動備份",
                 "url": "WebDAV 地址",
                 "username": "使用者名稱",
                 "password": "密碼（留空不修改）",
                 "interval": "備份間隔（小時）",
                 "retention": "保留份數",
-                "hint": "自動備份檔案使用 octopus-auto-db- 前綴，不包含歷史對話日誌；保留份數只會清理自動備份檔案。"
+                "hint": "自動備份使用上方的 WebDAV 配置，檔案使用 octopus-auto-db- 前綴，不包含歷史對話日誌；保留份數只會清理自動備份檔案。"
             }
         },
         "audit": {

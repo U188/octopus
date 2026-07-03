@@ -288,7 +288,7 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 	}
 	result := make([]model.SiteChannelGroup, 0, len(groups))
 	for _, item := range groups {
-		item.HasKeys = item.KeyCount > 0
+		item.HasKeys = item.EnabledKeyCount > 0
 		sort.Slice(item.ProjectedChannelIDs, func(i, j int) bool { return item.ProjectedChannelIDs[i] < item.ProjectedChannelIDs[j] })
 		sort.Slice(item.ProjectedChannels, func(i, j int) bool { return item.ProjectedChannels[i].ChannelID < item.ProjectedChannels[j].ChannelID })
 		sort.Slice(item.SourceKeys, func(i, j int) bool {

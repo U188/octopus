@@ -562,6 +562,9 @@ func TestSiteChannelAccountGetCountsMaskedPendingKeysAsPendingOnly(t *testing.T)
 	if group.MaskedPendingKeyCount != 1 {
 		t.Fatalf("expected masked_pending_key_count=1, got %d", group.MaskedPendingKeyCount)
 	}
+	if group.HasKeys {
+		t.Fatalf("expected masked_pending token not to count as usable keys")
+	}
 }
 
 func TestUpdateSiteSourceKeysNormalizesPrefix(t *testing.T) {

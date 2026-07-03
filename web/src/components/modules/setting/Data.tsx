@@ -40,17 +40,14 @@ export function SettingData() {
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const [davURL, setDavURL] = useState('');
-    const [davUsername, setDavUsername] = useState('');
-    const [davPassword, setDavPassword] = useState('');
     const [davFilename, setDavFilename] = useState('');
     const [selectedDavFile, setSelectedDavFile] = useState('');
 
     const davCredentials = useMemo(() => ({
-        url: davURL.trim(),
-        username: davUsername.trim(),
-        password: davPassword,
-    }), [davPassword, davURL, davUsername]);
+        url: autoDAVURL.value.trim(),
+        username: autoDAVUsername.value.trim(),
+        password: autoDAVPassword.value,
+    }), [autoDAVPassword.value, autoDAVURL.value, autoDAVUsername.value]);
 
     const rowsAffected = importDB.data?.rows_affected ?? null;
     const rowsAffectedList = useMemo(() => {
@@ -275,31 +272,34 @@ export function SettingData() {
             {/* WebDAV 轻量备份 */}
             <SettingSection title={t('backup.dav.title')} />
             <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                     <Input
-                        value={davURL}
-                        onChange={(e) => setDavURL(e.target.value)}
-                        placeholder={t('backup.dav.url')}
-                        className="rounded-xl sm:col-span-3"
+                        value={autoDAVURL.value}
+                        onChange={(e) => autoDAVURL.setValue(e.target.value)}
+                        onBlur={autoDAVURL.save}
+                        placeholder={t('backup.autoDav.url')}
+                        className="rounded-xl sm:col-span-2"
                     />
                     <Input
-                        value={davUsername}
-                        onChange={(e) => setDavUsername(e.target.value)}
-                        placeholder={t('backup.dav.username')}
+                        value={autoDAVUsername.value}
+                        onChange={(e) => autoDAVUsername.setValue(e.target.value)}
+                        onBlur={autoDAVUsername.save}
+                        placeholder={t('backup.autoDav.username')}
                         className="rounded-xl"
                     />
                     <Input
                         type="password"
-                        value={davPassword}
-                        onChange={(e) => setDavPassword(e.target.value)}
-                        placeholder={t('backup.dav.password')}
+                        value={autoDAVPassword.value}
+                        onChange={(e) => autoDAVPassword.setValue(e.target.value)}
+                        onBlur={autoDAVPassword.save}
+                        placeholder={t('backup.autoDav.password')}
                         className="rounded-xl"
                     />
                     <Input
                         value={davFilename}
                         onChange={(e) => setDavFilename(e.target.value)}
                         placeholder={t('backup.dav.filename')}
-                        className="rounded-xl"
+                        className="rounded-xl sm:col-span-2"
                     />
                 </div>
 
@@ -374,28 +374,6 @@ export function SettingData() {
                     <Switch checked={autoDAVEnabled.enabled} onCheckedChange={autoDAVEnabled.toggle} />
                 </SettingRow>
                 <div className="grid gap-3 sm:grid-cols-2">
-                    <Input
-                        value={autoDAVURL.value}
-                        onChange={(e) => autoDAVURL.setValue(e.target.value)}
-                        onBlur={autoDAVURL.save}
-                        placeholder={t('backup.autoDav.url')}
-                        className="rounded-xl sm:col-span-2"
-                    />
-                    <Input
-                        value={autoDAVUsername.value}
-                        onChange={(e) => autoDAVUsername.setValue(e.target.value)}
-                        onBlur={autoDAVUsername.save}
-                        placeholder={t('backup.autoDav.username')}
-                        className="rounded-xl"
-                    />
-                    <Input
-                        type="password"
-                        value={autoDAVPassword.value}
-                        onChange={(e) => autoDAVPassword.setValue(e.target.value)}
-                        onBlur={autoDAVPassword.save}
-                        placeholder={t('backup.autoDav.password')}
-                        className="rounded-xl"
-                    />
                     <Input
                         type="number"
                         min={1}

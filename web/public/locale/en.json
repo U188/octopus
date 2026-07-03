@@ -369,7 +369,7 @@
                 "result": "Import result"
             },
             "dav": {
-                "title": "WebDAV Lightweight Backup",
+                "title": "WebDAV Lightweight Backup and Restore",
                 "url": "WebDAV URL",
                 "username": "Username",
                 "password": "Password",
@@ -391,14 +391,14 @@
                 "restoreWarning": "WebDAV restore replaces the whole database: lightweight backups do not include historical conversation logs; the running database is not overwritten immediately and is applied before the database opens after service restart."
             },
             "autoDav": {
-                "title": "WebDAV Auto Lightweight Backup",
+                "title": "Auto Backup Policy",
                 "enabled": "Enable auto backup",
                 "url": "WebDAV URL",
                 "username": "Username",
                 "password": "Password (leave blank to keep)",
                 "interval": "Backup interval (hours)",
                 "retention": "Retention count",
-                "hint": "Auto backup files use the octopus-auto-db- prefix and exclude historical conversation logs. Retention only removes auto backup files."
+                "hint": "Auto backups use the WebDAV configuration above. Files use the octopus-auto-db- prefix and exclude historical conversation logs. Retention only removes auto backup files."
             }
         },
         "audit": {

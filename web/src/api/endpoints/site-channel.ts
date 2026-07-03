@@ -463,8 +463,20 @@ function invalidateSiteChannelQueries(queryClient: ReturnType<typeof useQueryCli
 
 function invalidateSiteChannelAndRelated(queryClient: ReturnType<typeof useQueryClient>) {
     queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] });
+    queryClient.invalidateQueries({ queryKey: ['sites', 'list'] });
     queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
     queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+}
+
+function updateSiteChannelListQueries(
+    queryClient: ReturnType<typeof useQueryClient>,
+    siteId: number,
+    account: SiteChannelAccount,
+) {
+    queryClient.setQueriesData<SiteChannelCard[]>(
+        { queryKey: ['site-channel', 'list'] },
+        (cards) => replaceSiteChannelAccount(cards, siteId, account),
+    );
 }
 
 export function useSiteChannelList(options: { includeHistory?: boolean } = {}) {
@@ -485,9 +497,7 @@ export function useUpdateSiteChannelModelRoutes(siteId: number, accountId: numbe
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/model-routes'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelQueries(queryClient);
         },
         onError: (error) => {
@@ -504,10 +514,8 @@ export function useCreateSiteChannelKey(siteId: number, accountId: number) {
             apiClient.post<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/keys'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
-            invalidateSiteChannelQueries(queryClient);
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
+            invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
             logger.error('site channel key create failed:', error);
@@ -523,9 +531,7 @@ export function useUpdateSiteChannelModelDisabled() {
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/model-disabled'), payload),
         onSuccess: (account, variables) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, variables.siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, variables.siteId, normalizedAccount);
             invalidateSiteChannelQueries(queryClient);
         },
         onError: (error) => {
@@ -542,9 +548,7 @@ export function useUpdateSiteChannelModelContext1M() {
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/model-context-1m'), payload),
         onSuccess: (account, variables) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, variables.siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, variables.siteId, normalizedAccount);
             invalidateSiteChannelQueries(queryClient);
         },
         onError: (error) => {
@@ -561,9 +565,7 @@ export function useUpdateSiteSourceKeys(siteId: number, accountId: number) {
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/source-keys'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -588,9 +590,7 @@ export function useUpdateAnySiteSourceKeys() {
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/source-keys'), payload),
         onSuccess: (account, variables) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, variables.siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, variables.siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -607,9 +607,7 @@ export function useUpdateSiteGroupProjection(siteId: number, accountId: number) 
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/group-projection'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -626,9 +624,7 @@ export function useUpdateSiteProjectedChannelSettings(siteId: number, accountId:
             apiClient.put<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/projected-channel-settings'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -645,9 +641,7 @@ export function useAddSiteManualModels(siteId: number, accountId: number) {
             apiClient.post<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/manual-models'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -664,9 +658,7 @@ export function useDeleteSiteManualModel(siteId: number, accountId: number) {
             apiClient.post<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/manual-models/delete'), payload),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelAndRelated(queryClient);
         },
         onError: (error) => {
@@ -683,9 +675,7 @@ export function useResetSiteChannelModelRoutes(siteId: number, accountId: number
             apiClient.post<SiteChannelAccountServer>(getAccountPath(siteId, accountId, '/model-routes/reset'), {}),
         onSuccess: (account) => {
             const normalizedAccount = normalizeSiteChannelAccount(account);
-            queryClient.setQueryData<SiteChannelCard[]>(['site-channel', 'list'], (cards) =>
-                replaceSiteChannelAccount(cards, siteId, normalizedAccount),
-            );
+            updateSiteChannelListQueries(queryClient, siteId, normalizedAccount);
             invalidateSiteChannelQueries(queryClient);
         },
         onError: (error) => {

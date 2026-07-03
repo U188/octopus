@@ -139,7 +139,9 @@ func finalizeSiteGroupSyncResults(
 
 	for _, token := range tokens {
 		groupKey := model.NormalizeSiteGroupKey(token.GroupKey)
-		hasKeyMap[groupKey] = true
+		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
+			hasKeyMap[groupKey] = true
+		}
 		currentKeys[groupKey] = struct{}{}
 	}
 	for _, group := range groups {
@@ -158,7 +160,7 @@ func finalizeSiteGroupSyncResults(
 	for _, item := range tokenResults {
 		item.GroupKey = model.NormalizeSiteGroupKey(item.GroupKey)
 		item.GroupName = resolveGroupName(item.GroupKey, item.GroupName, groupNames)
-		item.HasKey = true
+		item.HasKey = item.HasKey || hasKeyMap[item.GroupKey]
 		if item.ModelCount == 0 {
 			item.ModelCount = modelCounts[item.GroupKey]
 		}
@@ -180,16 +182,16 @@ func finalizeSiteGroupSyncResults(
 			HasKey:     hasKeyMap[groupKey],
 			ModelCount: count,
 		}
-		if count > 0 {
+		if !hasKeyMap[groupKey] {
+			result.Status = siteGroupSyncStatusMissingKey
+			result.Message = "该分组没有可用 Key，已暂停投影"
+		} else if count > 0 {
 			result.Status = siteGroupSyncStatusSynced
 			result.Authoritative = true
 			result.Message = fmt.Sprintf("通过显式分组元数据同步到 %d 个模型", count)
-		} else if hasKeyMap[groupKey] {
+		} else {
 			result.Status = siteGroupSyncStatusUnresolved
 			result.Message = "本次未能确认该分组模型，已沿用历史投影"
-		} else {
-			result.Status = siteGroupSyncStatusMissingKey
-			result.Message = "该分组没有可用 Key，已暂停投影"
 		}
 		resultMap[groupKey] = result
 	}

@@ -153,6 +153,64 @@ func TestMergePersistedSiteTokensTreatsOptionalSKPrefixAsSameReadyToken(t *testi
 	}
 }
 
+func TestMergePersistedSiteTokensSkipsIncomingDuplicateOfAccountToken(t *testing.T) {
+	now := time.Unix(1711929600, 0)
+	existing := []model.SiteToken{{
+		ID:            7,
+		SiteAccountID: 9,
+		Name:          "account",
+		Token:         "sk-same-account-key",
+		GroupKey:      model.SiteDefaultGroupKey,
+		GroupName:     model.SiteDefaultGroupName,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "account",
+		IsDefault:     true,
+	}}
+	incoming := []model.SiteToken{{
+		Name:        "me",
+		Token:       "sk-same-account-key",
+		GroupKey:    model.SiteDefaultGroupKey,
+		GroupName:   model.SiteDefaultGroupName,
+		Enabled:     true,
+		ValueStatus: model.SiteTokenValueStatusReady,
+		Source:      "sync",
+		IsDefault:   true,
+	}}
+
+	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	if len(merged) != 0 {
+		t.Fatalf("expected duplicate incoming account token to be skipped, got %+v", merged)
+	}
+}
+
+func TestFinalizeSiteGroupSyncResultsTreatsMaskedTokenAsMissingKey(t *testing.T) {
+	results := finalizeSiteGroupSyncResults(
+		&model.SiteAccount{},
+		[]model.SiteUserGroup{{GroupKey: "vip", Name: "VIP"}},
+		[]model.SiteToken{{
+			Name:        "masked",
+			Token:       "sk-ab***xyz",
+			GroupKey:    "vip",
+			GroupName:   "VIP",
+			Enabled:     false,
+			ValueStatus: model.SiteTokenValueStatusMaskedPending,
+		}},
+		[]model.SiteModel{{GroupKey: "vip", ModelName: "gpt-4.1"}},
+		nil,
+	)
+
+	if len(results) != 1 {
+		t.Fatalf("expected one group result, got %+v", results)
+	}
+	if results[0].HasKey {
+		t.Fatalf("expected masked token not to count as has_key: %+v", results[0])
+	}
+	if results[0].Status != siteGroupSyncStatusMissingKey {
+		t.Fatalf("expected missing_key status for masked token, got %+v", results[0])
+	}
+}
+
 func TestMergePersistedSiteTokensDropsStaleManualTokenWithSameGroupAndName(t *testing.T) {
 	now := time.Unix(1711929600, 0)
 	existing := []model.SiteToken{

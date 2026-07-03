@@ -309,7 +309,11 @@ func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, i
 	}
 
 	readyCandidates := make([]model.SiteToken, 0)
+	existingSourceByID := make(map[int]string, len(preparedExisting))
 	for _, token := range preparedExisting {
+		if token.ID != 0 {
+			existingSourceByID[token.ID] = strings.TrimSpace(token.Source)
+		}
 		if !model.IsReadySiteToken(token) || model.IsMaskedSiteTokenValue(token.Token) {
 			continue
 		}
@@ -338,6 +342,9 @@ func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, i
 		if merged.ValueStatus == model.SiteTokenValueStatusMaskedPending {
 			merged.Enabled = false
 			merged.IsDefault = false
+		}
+		if merged.ID != 0 && existingSourceByID[merged.ID] == "account" {
+			continue
 		}
 		result = append(result, merged)
 	}
