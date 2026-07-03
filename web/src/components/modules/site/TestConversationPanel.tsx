@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot, Clock3, LoaderCircle, MessageCircle, Send, UserRound } from "lucide-react";
 import {
   type Site,
@@ -9,6 +9,7 @@ import {
   type SiteTestConversationResult,
   type SiteTestConversationMode,
   streamTestSiteConversation,
+  useSiteList,
 } from "@/api/endpoints/site";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,13 +72,26 @@ export function TestConversationPanel({
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<Error | null>(null);
   const [conversationResult, setConversationResult] = useState<SiteTestConversationResult | null>(null);
+  const { data: latestSites } = useSiteList();
+
+  const latestAccount = useMemo(() => {
+    if (!latestSites) return account;
+    for (const item of latestSites) {
+      const found = item.accounts.find((candidate) => candidate.id === account.id);
+      if (found) return found;
+    }
+    return account;
+  }, [account, latestSites]);
 
   const enabledTokenOptions = useMemo(
     () =>
-      account.tokens
+      latestAccount.tokens
         .filter((token) => token.enabled)
-        .sort((a, b) => Number(b.is_default) - Number(a.is_default) || a.name.localeCompare(b.name)),
-    [account.tokens],
+        .sort((a, b) => {
+          const groupCompare = (a.group_name || a.group_key).localeCompare(b.group_name || b.group_key);
+          return Number(b.is_default) - Number(a.is_default) || groupCompare || a.name.localeCompare(b.name);
+        }),
+    [latestAccount.tokens],
   );
   const readyTokenOptions = useMemo(
     () => enabledTokenOptions.filter((token) => token.value_status !== "masked_pending"),
@@ -88,14 +102,14 @@ export function TestConversationPanel({
   const modelOptions = useMemo(() => {
     const seen = new Set<string>();
     const names: string[] = [];
-    for (const item of account.models) {
+    for (const item of latestAccount.models) {
       const name = item.model_name.trim();
       if (!name || item.disabled || seen.has(name)) continue;
       seen.add(name);
       names.push(name);
     }
     return names.sort((a, b) => a.localeCompare(b));
-  }, [account.models]);
+  }, [latestAccount.models]);
 
   const effectiveTokenID = useMemo(() => {
     if (tokenID && readyTokenOptions.some((token) => String(token.id) === tokenID)) return tokenID;
@@ -112,7 +126,21 @@ export function TestConversationPanel({
   const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
   const tokenLabel = (token: (typeof enabledTokenOptions)[number]) =>
-    token.name || token.group_name || `Key ${token.id}`;
+    [token.group_name || token.group_key || "default", token.name || `Key ${token.id}`].filter(Boolean).join(" / ");
+
+  useEffect(() => {
+    if (!tokenID) return;
+    if (!readyTokenOptions.some((token) => String(token.id) === tokenID)) {
+      setTokenID("");
+    }
+  }, [readyTokenOptions, tokenID]);
+
+  useEffect(() => {
+    if (!model) return;
+    if (!modelOptions.includes(model)) {
+      setModel("");
+    }
+  }, [model, modelOptions]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -171,7 +199,7 @@ export function TestConversationPanel({
         <DialogHeader>
           <DialogTitle>测试对话</DialogTitle>
           <DialogDescription>
-            使用当前账号的 API Key 和模型发起一次测试请求，招呼语默认 hi。
+            使用当前账号最新同步到的 API Key 和模型发起一次测试请求，招呼语默认 hi。
           </DialogDescription>
         </DialogHeader>
 
@@ -184,24 +212,30 @@ export function TestConversationPanel({
                   <SelectValue placeholder="选择 Key" />
                 </SelectTrigger>
                 <SelectContent>
-                  {enabledTokenOptions.map((token) => (
-                    <SelectItem
-                      key={token.id}
-                      value={String(token.id)}
-                      disabled={token.value_status === "masked_pending"}
-                    >
-                      {tokenLabel(token)}
-                      {token.value_status === "masked_pending" ? " · 待补全" : ""}
+                  {enabledTokenOptions.length > 0 ? (
+                    enabledTokenOptions.map((token) => (
+                      <SelectItem
+                        key={token.id}
+                        value={String(token.id)}
+                        disabled={token.value_status === "masked_pending"}
+                      >
+                        {tokenLabel(token)}
+                        {token.value_status === "masked_pending" ? " · 待补全" : ""}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__empty" disabled>
+                      当前账号没有同步到 Key
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
               <span className="min-h-4 truncate text-xs text-muted-foreground">
-                {selectedToken?.group_name
-                  ? `分组：${selectedToken.group_name}`
+                {selectedToken
+                  ? `分组：${selectedToken.group_name || selectedToken.group_key || "default"}`
                   : maskedPendingTokenCount > 0
                     ? "当前只有待补全 Key，请先在站点渠道里补全真实 Key"
-                    : " "}
+                    : "同步账号后会显示可用于测试的 Key"}
               </span>
             </label>
 
