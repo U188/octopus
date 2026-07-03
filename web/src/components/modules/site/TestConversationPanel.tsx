@@ -72,13 +72,18 @@ export function TestConversationPanel({
   const [streamError, setStreamError] = useState<Error | null>(null);
   const [conversationResult, setConversationResult] = useState<SiteTestConversationResult | null>(null);
 
-  const tokenOptions = useMemo(
+  const enabledTokenOptions = useMemo(
     () =>
       account.tokens
-        .filter((token) => token.enabled && token.value_status !== "masked_pending")
+        .filter((token) => token.enabled)
         .sort((a, b) => Number(b.is_default) - Number(a.is_default) || a.name.localeCompare(b.name)),
     [account.tokens],
   );
+  const readyTokenOptions = useMemo(
+    () => enabledTokenOptions.filter((token) => token.value_status !== "masked_pending"),
+    [enabledTokenOptions],
+  );
+  const maskedPendingTokenCount = enabledTokenOptions.length - readyTokenOptions.length;
 
   const modelOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -93,10 +98,10 @@ export function TestConversationPanel({
   }, [account.models]);
 
   const effectiveTokenID = useMemo(() => {
-    if (tokenID && tokenOptions.some((token) => String(token.id) === tokenID)) return tokenID;
-    const preferred = tokenOptions.find((token) => token.is_default) ?? tokenOptions[0];
+    if (tokenID && readyTokenOptions.some((token) => String(token.id) === tokenID)) return tokenID;
+    const preferred = readyTokenOptions.find((token) => token.is_default) ?? readyTokenOptions[0];
     return preferred ? String(preferred.id) : "";
-  }, [tokenID, tokenOptions]);
+  }, [tokenID, readyTokenOptions]);
 
   const effectiveModel = useMemo(() => {
     if (model && modelOptions.includes(model)) return model;
@@ -104,8 +109,10 @@ export function TestConversationPanel({
   }, [model, modelOptions]);
 
   const canSend = Boolean(effectiveTokenID && effectiveModel && greeting.trim()) && !isStreaming;
-  const selectedToken = tokenOptions.find((token) => String(token.id) === effectiveTokenID);
+  const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
+  const tokenLabel = (token: (typeof enabledTokenOptions)[number]) =>
+    token.name || token.group_name || `Key ${token.id}`;
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -177,15 +184,24 @@ export function TestConversationPanel({
                   <SelectValue placeholder="选择 Key" />
                 </SelectTrigger>
                 <SelectContent>
-                  {tokenOptions.map((token) => (
-                    <SelectItem key={token.id} value={String(token.id)}>
-                      {token.name || token.group_name || `Key ${token.id}`}
+                  {enabledTokenOptions.map((token) => (
+                    <SelectItem
+                      key={token.id}
+                      value={String(token.id)}
+                      disabled={token.value_status === "masked_pending"}
+                    >
+                      {tokenLabel(token)}
+                      {token.value_status === "masked_pending" ? " · 待补全" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <span className="min-h-4 truncate text-xs text-muted-foreground">
-                {selectedToken?.group_name ? `分组：${selectedToken.group_name}` : " "}
+                {selectedToken?.group_name
+                  ? `分组：${selectedToken.group_name}`
+                  : maskedPendingTokenCount > 0
+                    ? "当前只有待补全 Key，请先在站点渠道里补全真实 Key"
+                    : " "}
               </span>
             </label>
 

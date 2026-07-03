@@ -911,7 +911,9 @@
                 "delete": "删除",
                 "confirmDelete": "确认删除",
                 "deleting": "删除中..."
-            }
+            },
+            "responsesToolAutoDenylistCleared": "自动禁用工具已清除",
+            "responsesToolAutoDenylistClearFailed": "清除自动禁用工具失败"
         },
         "create": {
             "dialogTitle": "创建新渠道",
@@ -968,6 +970,10 @@
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式",
             "responsesToolDenylist": "Responses 禁用工具",
             "responsesToolDenylistPlaceholder": "可选：逗号或换行分隔，例如 image_generation, web_search",
+            "responsesToolAutoDenylist": "自动禁用中",
+            "autoRecoverAt": "{time} 自动恢复",
+            "clearResponsesToolAutoDenylist": "立即恢复",
+            "clearingResponsesToolAutoDenylist": "恢复中...",
             "remark": "备注"
         }
     },
@@ -994,6 +1000,12 @@
             "paramOverridePlaceholder": "留空表示清除；非空时必须是 JSON 对象，例如：{\"temperature\":0.7,\"max_tokens\":4096}",
             "responsesToolDenylist": "Responses 禁用工具",
             "responsesToolDenylistPlaceholder": "逗号或换行分隔；用于移除上游不支持的工具，例如 image_generation",
+            "responsesToolAutoDenylist": "自动禁用中",
+            "autoRecoverAt": "{time} 自动恢复",
+            "clearResponsesToolAutoDenylist": "立即恢复",
+            "clearingResponsesToolAutoDenylist": "恢复中...",
+            "responsesToolAutoDenylistCleared": "自动禁用工具已清除",
+            "responsesToolAutoDenylistClearFailed": "清除自动禁用工具失败",
             "cancel": "取消",
             "save": "保存",
             "saving": "保存中...",

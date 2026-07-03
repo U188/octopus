@@ -5,6 +5,28 @@ import (
 	"time"
 )
 
+func TestEffectiveResponsesToolDenylistMergesManualAndActiveAuto(t *testing.T) {
+	now := time.Now().Unix()
+	channel := &Channel{
+		ResponsesToolDenylist: []string{" image_generation ", "web_search"},
+		ResponsesToolAutoDenylist: []ResponsesToolAutoDeny{
+			{Tool: "tool_search", ExpiresAt: now + 60},
+			{Tool: "web_search", ExpiresAt: now + 60},
+			{Tool: "expired_tool", ExpiresAt: now - 1},
+		},
+	}
+	got := channel.EffectiveResponsesToolDenylist(now)
+	want := []string{"image_generation", "web_search", "tool_search"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 func TestGetChannelKeyPrefersPreferredKeyID(t *testing.T) {
 	channel := &Channel{
 		Keys: []ChannelKey{

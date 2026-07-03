@@ -60,30 +60,71 @@ func (m ChannelWSMode) Normalize() ChannelWSMode {
 }
 
 type Channel struct {
-	ID                    int                   `json:"id" gorm:"primaryKey"`
-	Name                  string                `json:"name" gorm:"unique;not null"`
-	Type                  outbound.OutboundType `json:"type"`
-	Enabled               bool                  `json:"enabled" gorm:"default:true"`
-	BaseUrls              []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
-	Keys                  []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
-	Model                 string                `json:"model"`
-	CustomModel           string                `json:"custom_model"`
-	ProxyMode             ProxyUsageMode        `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
-	ProxyConfigID         *int                  `json:"proxy_config_id"`
-	Proxy                 bool                  `json:"-" gorm:"default:false"`
-	AutoSync              bool                  `json:"auto_sync" gorm:"default:false"`
-	AutoGroup             AutoGroupType         `json:"auto_group" gorm:"default:0"`
-	CustomHeader          []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
-	WSMode                ChannelWSMode         `json:"ws_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
-	CodexMode             bool                  `json:"codex_mode" gorm:"default:false"`
-	ClaudeMode            bool                  `json:"claude_mode" gorm:"default:false"`
-	ResponsesToolDenylist []string              `json:"responses_tool_denylist" gorm:"serializer:json"`
-	ParamOverride         *string               `json:"param_override"`
-	ChannelProxy          *string               `json:"-" gorm:"column:channel_proxy"`
-	Stats                 *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
-	MatchRegex            *string               `json:"match_regex"`
-	Managed               bool                  `json:"managed" gorm:"-"`
-	ManagedSource         *ManagedChannelSource `json:"managed_source,omitempty" gorm:"-"`
+	ID                        int                     `json:"id" gorm:"primaryKey"`
+	Name                      string                  `json:"name" gorm:"unique;not null"`
+	Type                      outbound.OutboundType   `json:"type"`
+	Enabled                   bool                    `json:"enabled" gorm:"default:true"`
+	BaseUrls                  []BaseUrl               `json:"base_urls" gorm:"serializer:json"`
+	Keys                      []ChannelKey            `json:"keys" gorm:"foreignKey:ChannelID"`
+	Model                     string                  `json:"model"`
+	CustomModel               string                  `json:"custom_model"`
+	ProxyMode                 ProxyUsageMode          `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
+	ProxyConfigID             *int                    `json:"proxy_config_id"`
+	Proxy                     bool                    `json:"-" gorm:"default:false"`
+	AutoSync                  bool                    `json:"auto_sync" gorm:"default:false"`
+	AutoGroup                 AutoGroupType           `json:"auto_group" gorm:"default:0"`
+	CustomHeader              []CustomHeader          `json:"custom_header" gorm:"serializer:json"`
+	WSMode                    ChannelWSMode           `json:"ws_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
+	CodexMode                 bool                    `json:"codex_mode" gorm:"default:false"`
+	ClaudeMode                bool                    `json:"claude_mode" gorm:"default:false"`
+	ResponsesToolDenylist     []string                `json:"responses_tool_denylist" gorm:"serializer:json"`
+	ResponsesToolAutoDenylist []ResponsesToolAutoDeny `json:"responses_tool_auto_denylist" gorm:"serializer:json"`
+	ParamOverride             *string                 `json:"param_override"`
+	ChannelProxy              *string                 `json:"-" gorm:"column:channel_proxy"`
+	Stats                     *StatsChannel           `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
+	MatchRegex                *string                 `json:"match_regex"`
+	Managed                   bool                    `json:"managed" gorm:"-"`
+	ManagedSource             *ManagedChannelSource   `json:"managed_source,omitempty" gorm:"-"`
+}
+
+type ResponsesToolAutoDeny struct {
+	Tool      string `json:"tool"`
+	Reason    string `json:"reason,omitempty"`
+	LastError string `json:"last_error,omitempty"`
+	UpdatedAt int64  `json:"updated_at"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+func (c *Channel) EffectiveResponsesToolDenylist(now int64) []string {
+	if c == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(c.ResponsesToolDenylist)+len(c.ResponsesToolAutoDenylist))
+	out := make([]string, 0, len(c.ResponsesToolDenylist)+len(c.ResponsesToolAutoDenylist))
+	appendTool := func(value string) {
+		tool := strings.ToLower(strings.TrimSpace(value))
+		if tool == "" {
+			return
+		}
+		if _, ok := seen[tool]; ok {
+			return
+		}
+		seen[tool] = struct{}{}
+		out = append(out, tool)
+	}
+	for _, tool := range c.ResponsesToolDenylist {
+		appendTool(tool)
+	}
+	for _, item := range c.ResponsesToolAutoDenylist {
+		if item.ExpiresAt <= now {
+			continue
+		}
+		appendTool(item.Tool)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (c *Channel) UnmarshalJSON(data []byte) error {

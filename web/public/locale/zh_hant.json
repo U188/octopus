@@ -911,7 +911,9 @@
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
                 "deleting": "刪除中..."
-            }
+            },
+            "responsesToolAutoDenylistCleared": "自動禁用工具已清除",
+            "responsesToolAutoDenylistClearFailed": "清除自動禁用工具失敗"
         },
         "create": {
             "dialogTitle": "建立新供應源",
@@ -968,6 +970,10 @@
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式",
             "responsesToolDenylist": "Responses 禁用工具",
             "responsesToolDenylistPlaceholder": "可選：逗號或換行分隔，例如 image_generation, web_search",
+            "responsesToolAutoDenylist": "自動禁用中",
+            "autoRecoverAt": "{time} 自動恢復",
+            "clearResponsesToolAutoDenylist": "立即恢復",
+            "clearingResponsesToolAutoDenylist": "恢復中...",
             "remark": "備註"
         }
     },
@@ -994,6 +1000,12 @@
             "paramOverridePlaceholder": "留空表示清除；非空時必須是 JSON 物件，例如：{\"temperature\":0.7,\"max_tokens\":4096}",
             "responsesToolDenylist": "Responses 禁用工具",
             "responsesToolDenylistPlaceholder": "逗號或換行分隔；用於移除上游不支援的工具，例如 image_generation",
+            "responsesToolAutoDenylist": "自動禁用中",
+            "autoRecoverAt": "{time} 自動恢復",
+            "clearResponsesToolAutoDenylist": "立即恢復",
+            "clearingResponsesToolAutoDenylist": "恢復中...",
+            "responsesToolAutoDenylistCleared": "自動禁用工具已清除",
+            "responsesToolAutoDenylistClearFailed": "清除自動禁用工具失敗",
             "cancel": "取消",
             "save": "儲存",
             "saving": "儲存中...",

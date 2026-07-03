@@ -91,6 +91,7 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 	if err != nil {
 		return nil, err
 	}
+	tokens = completeMaskedTokensFromAccountAPIKey(tokens, account.APIKey)
 	groups, err := fetchManagementGroups(ctx, siteRecord, account, accessToken)
 	if err != nil {
 		groups = nil
@@ -202,6 +203,7 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 	if err != nil {
 		return nil, err
 	}
+	tokens = completeMaskedTokensFromAccountAPIKey(tokens, account.APIKey)
 	if len(tokens) == 0 && strings.TrimSpace(account.APIKey) != "" {
 		tokens = append(tokens, model.SiteToken{Name: "default", Token: strings.TrimSpace(account.APIKey), GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "fallback", IsDefault: true})
 	}
@@ -240,6 +242,26 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}
 	return snapshot, nil
+}
+
+func completeMaskedTokensFromAccountAPIKey(tokens []model.SiteToken, apiKey string) []model.SiteToken {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" || len(tokens) == 0 {
+		return tokens
+	}
+	out := make([]model.SiteToken, len(tokens))
+	copy(out, tokens)
+	for i := range out {
+		if !model.IsMaskedSiteTokenValue(out[i].Token) {
+			continue
+		}
+		if !model.SiteMaskedTokenMatches(apiKey, out[i].Token) {
+			continue
+		}
+		out[i].Token = apiKey
+		out[i].ValueStatus = model.SiteTokenValueStatusReady
+	}
+	return out
 }
 
 func syncOfficialPlatform(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*syncSnapshot, error) {

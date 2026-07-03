@@ -56,6 +56,14 @@ export type ManagedChannelSource = {
     group_key: string;
 };
 
+export type ResponsesToolAutoDeny = {
+    tool: string;
+    reason?: string;
+    last_error?: string;
+    updated_at: number;
+    expires_at: number;
+};
+
 /**
  * 渠道完整数据（与后端 model.Channel 对齐；数组字段在前端保证为 []）
  */
@@ -77,6 +85,7 @@ export type Channel = {
     codex_mode: boolean;
     claude_mode: boolean;
     responses_tool_denylist: string[];
+    responses_tool_auto_denylist: ResponsesToolAutoDeny[];
     param_override?: string | null;
     match_regex?: string | null;
     managed: boolean;
@@ -85,10 +94,11 @@ export type Channel = {
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
-type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
+type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'responses_tool_auto_denylist'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    responses_tool_auto_denylist?: ResponsesToolAutoDeny[] | null;
 };
 
 /**
@@ -181,6 +191,7 @@ export function useChannelList() {
                 codex_mode: item.codex_mode ?? false,
                 claude_mode: item.claude_mode ?? false,
                 responses_tool_denylist: Array.isArray(item.responses_tool_denylist) ? item.responses_tool_denylist : [],
+                responses_tool_auto_denylist: normalizeResponsesToolAutoDenylist(item.responses_tool_auto_denylist),
                 keys: item.keys ?? [],
                 proxy_mode: item.proxy_mode ?? 'direct',
                 proxy_config_id: item.proxy_config_id ?? null,
@@ -200,6 +211,16 @@ export function useChannelList() {
         })) as Array<{ raw: Channel; formatted: StatsMetricsFormatted }>,
         refetchInterval: 30000,
     });
+}
+
+function normalizeResponsesToolAutoDenylist(items: ResponsesToolAutoDeny[] | null | undefined): ResponsesToolAutoDeny[] {
+    if (!Array.isArray(items)) return [];
+    return items.filter((item): item is ResponsesToolAutoDeny =>
+        item &&
+        typeof item.tool === 'string' &&
+        typeof item.updated_at === 'number' &&
+        typeof item.expires_at === 'number',
+    );
 }
 
 /**
@@ -326,6 +347,26 @@ export function useEnableChannel() {
         },
         onError: (error) => {
             logger.error('渠道状态更新失败:', error);
+        },
+    });
+}
+
+export function useClearChannelResponsesToolAutoDenylist() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: { id: number }) => {
+            return apiClient.post<null>('/api/v1/channel/responses-tool-auto-denylist/clear', data);
+        },
+        onSuccess: () => {
+            logger.log('Responses 自动禁用工具已清除');
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('Responses 自动禁用工具清除失败:', error);
         },
     });
 }

@@ -11,7 +11,7 @@ import {
     Globe,
     Key
 } from 'lucide-react';
-import { useUpdateChannel, useDeleteChannel, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
+import { useUpdateChannel, useDeleteChannel, useClearChannelResponsesToolAutoDenylist, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -33,6 +33,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
+    const clearResponsesToolAutoDenylist = useClearChannelResponsesToolAutoDenylist();
     const requestJump = useJumpStore((state) => state.requestJump);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
@@ -174,6 +175,21 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         setTimeout(() => {
             deleteChannel.mutate(channel.id);
         }, 300);
+    };
+
+    const handleClearResponsesToolAutoDenylist = () => {
+        clearResponsesToolAutoDenylist.mutate(
+            { id: channel.id },
+            {
+                onSuccess: () => {
+                    toast.success(t('responsesToolAutoDenylistCleared'));
+                },
+                onError: (error) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    toast.error(t('responsesToolAutoDenylistClearFailed'), { description: errorMessage });
+                },
+            },
+        );
     };
 
     const handleManagedSourceJump = (target: 'site' | 'site-channel') => {
@@ -526,6 +542,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 onCancel={() => setIsEditing(false)}
                                 cancelText={t('actions.cancel')}
                                 idPrefix="channel"
+                                responsesToolAutoDenylist={channel.responses_tool_auto_denylist}
+                                onClearResponsesToolAutoDenylist={handleClearResponsesToolAutoDenylist}
+                                isClearingResponsesToolAutoDenylist={clearResponsesToolAutoDenylist.isPending}
                             />
                         </TabsContent>
                     </TabsContents>

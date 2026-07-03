@@ -121,22 +121,24 @@ func (r *relayRequest) requestContext() context.Context {
 type relayAttempt struct {
 	*relayRequest // 嵌入请求级上下文
 
-	outAdapter           model.Outbound
-	channel              *dbmodel.Channel
-	usedKey              dbmodel.ChannelKey
-	firstTokenTimeOutSec int
-	firstTokenBudget     *firstTokenBudget
-	retryAfter           time.Duration // forward() 提取后暂存
+	outAdapter              model.Outbound
+	channel                 *dbmodel.Channel
+	usedKey                 dbmodel.ChannelKey
+	firstTokenTimeOutSec    int
+	firstTokenBudget        *firstTokenBudget
+	retryAfter              time.Duration // forward() 提取后暂存
+	autoDeniedResponsesTool bool
 }
 
 // attemptResult 封装单次尝试的结果
 type attemptResult struct {
-	Success           bool          // 是否成功
-	Written           bool          // 流式响应是否已开始写入（不可重试）
-	Canceled          bool          // 是否由下游请求取消或超时触发
-	ResetConversation bool          // 是否需要立即重置连续会话并停止后续 failover
-	FirstTokenTimeout bool          // 是否由首字超时触发，用于直接切换渠道
-	Err               error         // 失败时的错误
-	StatusCode        int           // 上游 HTTP 状态码（0 = 连接错误）
-	RetryAfter        time.Duration // 解析的 Retry-After 值
+	Success                 bool          // 是否成功
+	Written                 bool          // 流式响应是否已开始写入（不可重试）
+	Canceled                bool          // 是否由下游请求取消或超时触发
+	ResetConversation       bool          // 是否需要立即重置连续会话并停止后续 failover
+	FirstTokenTimeout       bool          // 是否由首字超时触发，用于直接切换渠道
+	Err                     error         // 失败时的错误
+	StatusCode              int           // 上游 HTTP 状态码（0 = 连接错误）
+	RetryAfter              time.Duration // 解析的 Retry-After 值
+	AutoDeniedResponsesTool bool          // 本次失败已写入 Responses 工具自动禁用
 }

@@ -39,6 +39,10 @@ func init() {
 				Handle(enableChannel),
 		).
 		AddRoute(
+			router.NewRoute("/responses-tool-auto-denylist/clear", http.MethodPost).
+				Handle(clearResponsesToolAutoDenylist),
+		).
+		AddRoute(
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteChannel),
 		).
@@ -170,6 +174,21 @@ func enableChannel(c *gin.Context) {
 		return
 	}
 	if err := op.ChannelEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
+		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
+		return
+	}
+	resp.Success(c, nil)
+}
+
+func clearResponsesToolAutoDenylist(c *gin.Context) {
+	var request struct {
+		ID int `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	if err := op.ChannelClearResponsesToolAutoDenylist(request.ID, c.Request.Context()); err != nil {
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
 		return
 	}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../client';
 import { logger } from '@/lib/logger';
 import type { SitePlatform } from './site';
-import type { AutoGroupType } from './channel';
+import type { AutoGroupType, ResponsesToolAutoDeny } from './channel';
 
 export type SiteModelRouteType =
     | 'unknown'
@@ -73,6 +73,7 @@ export type SiteProjectedChannelSettings = {
     effective_auto_group: AutoGroupType;
     param_override: string;
     responses_tool_denylist: string[];
+    responses_tool_auto_denylist: ResponsesToolAutoDeny[];
     global_override: boolean;
 };
 
@@ -269,6 +270,14 @@ function normalizeProjectedChannel(channel: Partial<SiteProjectedChannelSettings
         effective_auto_group: normalizeAutoGroup(channel?.effective_auto_group),
         param_override: typeof channel?.param_override === 'string' ? channel.param_override : '',
         responses_tool_denylist: Array.isArray(channel?.responses_tool_denylist) ? channel.responses_tool_denylist.filter((item): item is string => typeof item === 'string') : [],
+        responses_tool_auto_denylist: Array.isArray(channel?.responses_tool_auto_denylist)
+            ? channel.responses_tool_auto_denylist.filter((item): item is ResponsesToolAutoDeny =>
+                item &&
+                typeof item.tool === 'string' &&
+                typeof item.updated_at === 'number' &&
+                typeof item.expires_at === 'number',
+            )
+            : [],
         global_override: channel?.global_override === true,
     };
 }

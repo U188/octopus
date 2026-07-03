@@ -2,10 +2,12 @@ package op
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
@@ -24,8 +26,10 @@ var channelKeyCacheNeedUpdateLock sync.Mutex
 
 func ChannelList(ctx context.Context) ([]model.Channel, error) {
 	channels := make([]model.Channel, 0, channelCache.Len())
+	now := time.Now().Unix()
 	for _, channel := range channelCache.GetAll() {
 		normalizeChannelProxyFields(&channel)
+		channel.ResponsesToolAutoDenylist = normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, now)
 		channels = append(channels, channel)
 	}
 	return channels, nil
@@ -53,6 +57,7 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
 	channel.ResponsesToolDenylist = normalizeResponsesToolDenylist(channel.ResponsesToolDenylist)
+	channel.ResponsesToolAutoDenylist = normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, time.Now().Unix())
 	if err := channel.ProxyMode.Validate(false); err != nil {
 		return err
 	}
@@ -385,6 +390,116 @@ func normalizeResponsesToolDenylist(items []string) []string {
 	return out
 }
 
+func normalizeResponsesToolAutoDenylist(items []model.ResponsesToolAutoDeny, now int64) []model.ResponsesToolAutoDeny {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]int, len(items))
+	out := make([]model.ResponsesToolAutoDeny, 0, len(items))
+	for _, item := range items {
+		tool := strings.ToLower(strings.TrimSpace(item.Tool))
+		if tool == "" || item.ExpiresAt <= now {
+			continue
+		}
+		item.Tool = tool
+		if len(item.LastError) > 500 {
+			item.LastError = item.LastError[:500]
+		}
+		if idx, ok := seen[tool]; ok {
+			if item.ExpiresAt > out[idx].ExpiresAt {
+				out[idx] = item
+			}
+			continue
+		}
+		seen[tool] = len(out)
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func ChannelAutoDenyResponsesTool(channelID int, tool string, reason string, lastError string, ttl time.Duration, ctx context.Context) error {
+	tool = strings.ToLower(strings.TrimSpace(tool))
+	if channelID <= 0 || tool == "" {
+		return fmt.Errorf("invalid channel or tool")
+	}
+	if ttl <= 0 {
+		return fmt.Errorf("invalid ttl")
+	}
+	ch, ok := channelCache.Get(channelID)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	for _, manual := range normalizeResponsesToolDenylist(ch.ResponsesToolDenylist) {
+		if manual == tool {
+			return nil
+		}
+	}
+
+	now := time.Now().Unix()
+	expiresAt := time.Now().Add(ttl).Unix()
+	items := normalizeResponsesToolAutoDenylist(ch.ResponsesToolAutoDenylist, now)
+	if len(lastError) > 500 {
+		lastError = lastError[:500]
+	}
+	replaced := false
+	for i := range items {
+		if items[i].Tool != tool {
+			continue
+		}
+		items[i].Reason = reason
+		items[i].LastError = lastError
+		items[i].UpdatedAt = now
+		items[i].ExpiresAt = expiresAt
+		replaced = true
+		break
+	}
+	if !replaced {
+		items = append(items, model.ResponsesToolAutoDeny{
+			Tool:      tool,
+			Reason:    reason,
+			LastError: lastError,
+			UpdatedAt: now,
+			ExpiresAt: expiresAt,
+		})
+	}
+
+	payload, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).
+		Where("id = ?", channelID).
+		Update("responses_tool_auto_denylist", string(payload)).Error; err != nil {
+		return err
+	}
+	ch.ResponsesToolAutoDenylist = items
+	channelCache.Set(channelID, ch)
+	resetBalancerStateForChannel(channelID)
+	return nil
+}
+
+func ChannelClearResponsesToolAutoDenylist(channelID int, ctx context.Context) error {
+	if channelID <= 0 {
+		return fmt.Errorf("invalid channel")
+	}
+	ch, ok := channelCache.Get(channelID)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).
+		Where("id = ?", channelID).
+		Update("responses_tool_auto_denylist", "[]").Error; err != nil {
+		return err
+	}
+	ch.ResponsesToolAutoDenylist = nil
+	channelCache.Set(channelID, ch)
+	resetBalancerStateForChannel(channelID)
+	return nil
+}
+
 func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	oldChannel, ok := channelCache.Get(id)
 	if !ok {
@@ -607,6 +722,7 @@ func ChannelGet(id int, ctx context.Context) (*model.Channel, error) {
 		return nil, fmt.Errorf("channel not found")
 	}
 	normalizeChannelProxyFields(&channel)
+	channel.ResponsesToolAutoDenylist = normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, time.Now().Unix())
 	return &channel, nil
 }
 

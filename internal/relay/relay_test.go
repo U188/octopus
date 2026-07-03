@@ -993,6 +993,89 @@ func TestHandlerAppliesResponsesToolDenylistToOpenAIResponsesPassthrough(t *test
 	}
 }
 
+func TestHandlerAutoDeniesResponsesToolAfterPermissionError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	var capturedBodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body failed: %v", err)
+		}
+		bodyText := string(body)
+		capturedBodies = append(capturedBodies, bodyText)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(bodyText, "image_generation") {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"message":"Image generation is not enabled for this group","type":"permission_error"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"status":"completed"}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name:     "relay-responses-tool-auto-deny",
+		Type:     outbound.OutboundTypeOpenAIResponse,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:    "gpt-5.5",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	group := &model.Group{Name: "relay-responses-tool-auto-deny-group", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: channel.ID, ModelName: "gpt-5.5", Priority: 1, Weight: 1}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	requestBody := `{"model":"relay-responses-tool-auto-deny-group","input":"hello","tools":[{"type":"image_generation"}],"tool_choice":"auto"}`
+
+	firstRecorder := httptest.NewRecorder()
+	firstCtx, _ := gin.CreateTestContext(firstRecorder)
+	firstCtx.Set("api_key_id", 7)
+	firstCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+	firstCtx.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIResponse, firstCtx)
+
+	if firstRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected first request to fail with 403, got %d body %s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+	updated, err := op.ChannelGet(channel.ID, ctx)
+	if err != nil {
+		t.Fatalf("ChannelGet failed: %v", err)
+	}
+	if len(updated.ResponsesToolAutoDenylist) != 1 || updated.ResponsesToolAutoDenylist[0].Tool != "image_generation" {
+		t.Fatalf("expected image_generation to be auto denied, got %#v", updated.ResponsesToolAutoDenylist)
+	}
+
+	secondRecorder := httptest.NewRecorder()
+	secondCtx, _ := gin.CreateTestContext(secondRecorder)
+	secondCtx.Set("api_key_id", 7)
+	secondCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+	secondCtx.Request.Header.Set("Content-Type", "application/json")
+	Handler(inbound.InboundTypeOpenAIResponse, secondCtx)
+
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("expected second request to succeed after filtering, got %d body %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	if len(capturedBodies) != 2 {
+		t.Fatalf("expected two upstream requests, got %d", len(capturedBodies))
+	}
+	if !strings.Contains(capturedBodies[0], "image_generation") {
+		t.Fatalf("expected first upstream body to include image_generation, got %s", capturedBodies[0])
+	}
+	if strings.Contains(capturedBodies[1], "image_generation") || strings.Contains(capturedBodies[1], "tool_choice") {
+		t.Fatalf("expected second upstream body to remove denied tool and empty tool_choice, got %s", capturedBodies[1])
+	}
+}
+
 func TestRelayMetricsUsesResponseModelForCostLookup(t *testing.T) {
 	metrics := NewRelayMetrics(0, "alias-model", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
 	metrics.StartTime = time.Now()

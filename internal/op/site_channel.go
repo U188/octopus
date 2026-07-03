@@ -236,14 +236,15 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		}
 		globalAutoGroup := ProjectedChannelGlobalAutoGroupEnabled()
 		group.ProjectedChannels = append(group.ProjectedChannels, model.SiteProjectedChannelSettings{
-			ChannelID:             channel.ID,
-			ChannelName:           channel.Name,
-			RouteType:             routeType,
-			AutoGroup:             channel.AutoGroup,
-			EffectiveGroup:        EffectiveProjectedChannelAutoGroup(*channel),
-			ParamOverride:         paramOverride,
-			ResponsesToolDenylist: normalizeResponsesToolDenylist(channel.ResponsesToolDenylist),
-			GlobalOverride:        globalAutoGroup,
+			ChannelID:                 channel.ID,
+			ChannelName:               channel.Name,
+			RouteType:                 routeType,
+			AutoGroup:                 channel.AutoGroup,
+			EffectiveGroup:            EffectiveProjectedChannelAutoGroup(*channel),
+			ParamOverride:             paramOverride,
+			ResponsesToolDenylist:     normalizeResponsesToolDenylist(channel.ResponsesToolDenylist),
+			ResponsesToolAutoDenylist: normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, time.Now().Unix()),
+			GlobalOverride:            globalAutoGroup,
 		})
 		for _, key := range channel.Keys {
 			group.ProjectedKeys = append(group.ProjectedKeys, model.SiteProjectedKey{

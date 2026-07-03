@@ -67,3 +67,69 @@ func TestBuildSub2APITokensIgnoresAccessTokenFields(t *testing.T) {
 		t.Fatalf("expected chat api key token, got %q", tokens[0].Token)
 	}
 }
+
+func TestCompleteMaskedTokensFromAccountAPIKeyRestoresMatchingToken(t *testing.T) {
+	tokens := []model.SiteToken{
+		{
+			Name:        "me",
+			Token:       "SHPk**********30T0",
+			GroupKey:    "Free",
+			Enabled:     true,
+			ValueStatus: model.SiteTokenValueStatusMaskedPending,
+		},
+	}
+
+	completed := completeMaskedTokensFromAccountAPIKey(tokens, "sk-SHPk123456789030T0")
+
+	if completed[0].Token != "sk-SHPk123456789030T0" {
+		t.Fatalf("expected masked token to be restored from account api key, got %q", completed[0].Token)
+	}
+	if completed[0].ValueStatus != model.SiteTokenValueStatusReady {
+		t.Fatalf("expected restored token to be ready, got %q", completed[0].ValueStatus)
+	}
+	if tokens[0].Token != "SHPk**********30T0" {
+		t.Fatalf("expected input token slice to remain unchanged, got %q", tokens[0].Token)
+	}
+}
+
+func TestCompleteMaskedTokensFromAccountAPIKeyLeavesNonMatchingTokenPending(t *testing.T) {
+	tokens := []model.SiteToken{
+		{
+			Name:        "other",
+			Token:       "SHPk**********30T0",
+			GroupKey:    "Free",
+			Enabled:     true,
+			ValueStatus: model.SiteTokenValueStatusMaskedPending,
+		},
+	}
+
+	completed := completeMaskedTokensFromAccountAPIKey(tokens, "sk-OTHER12345678930T0")
+
+	if completed[0].Token != "SHPk**********30T0" {
+		t.Fatalf("expected nonmatching masked token to remain masked, got %q", completed[0].Token)
+	}
+	if completed[0].ValueStatus != model.SiteTokenValueStatusMaskedPending {
+		t.Fatalf("expected nonmatching masked token to remain pending, got %q", completed[0].ValueStatus)
+	}
+}
+
+func TestCompleteMaskedTokensFromAccountAPIKeyLeavesReadyTokenUnchanged(t *testing.T) {
+	tokens := []model.SiteToken{
+		{
+			Name:        "ready",
+			Token:       "ready-chat-key",
+			GroupKey:    "Free",
+			Enabled:     true,
+			ValueStatus: model.SiteTokenValueStatusReady,
+		},
+	}
+
+	completed := completeMaskedTokensFromAccountAPIKey(tokens, "sk-SHPk123456789030T0")
+
+	if completed[0].Token != "ready-chat-key" {
+		t.Fatalf("expected ready token to remain unchanged, got %q", completed[0].Token)
+	}
+	if completed[0].ValueStatus != model.SiteTokenValueStatusReady {
+		t.Fatalf("expected ready token to stay ready, got %q", completed[0].ValueStatus)
+	}
+}

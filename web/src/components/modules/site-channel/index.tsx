@@ -76,6 +76,7 @@ import { cn, formatCount, formatMoney } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import type { ToolbarSortField, ToolbarSortOrder } from '@/components/modules/toolbar/view-options-store';
 import { useSettingStore } from '@/stores/setting';
+import { useClearChannelResponsesToolAutoDenylist } from '@/api/endpoints/channel';
 import {
     type SiteChannelAccount,
     type SiteChannelCard,
@@ -1345,6 +1346,7 @@ function SiteAccountPanel({
     const context1MMutation = useUpdateSiteChannelModelContext1M();
     const resetMutation = useResetSiteChannelModelRoutes(siteId, account.account_id);
     const enableSiteAccount = useEnableSiteAccount();
+    const clearResponsesToolAutoDenylist = useClearChannelResponsesToolAutoDenylist();
 
     const translateSiteError = useCallback(
         (error: unknown, fallback: string) => translateSiteMessage(locale, getErrorMessage(error, fallback), t),
@@ -1425,7 +1427,7 @@ function SiteAccountPanel({
         () => Array.from(selectedModelKeys).map((key) => visibleModelMap.get(key)).filter((model): model is SiteModelView => !!model),
         [selectedModelKeys, visibleModelMap],
     );
-    const hasPendingChanges = pendingModelKeys.size > 0 || routeMutation.isPending || disabledMutation.isPending || context1MMutation.isPending || advancedMutation.isPending || addManualModelsMutation.isPending || deleteManualModelMutation.isPending;
+    const hasPendingChanges = pendingModelKeys.size > 0 || routeMutation.isPending || disabledMutation.isPending || context1MMutation.isPending || advancedMutation.isPending || clearResponsesToolAutoDenylist.isPending || addManualModelsMutation.isPending || deleteManualModelMutation.isPending;
 
     useEffect(() => {
         if (!jumpRequest || jumpRequest.target.kind !== 'site-channel-model') return;
@@ -1791,6 +1793,20 @@ function SiteAccountPanel({
                 toast.error(translateSiteError(error, t('siteChannel.advanced.saveFailed')));
             },
         });
+    };
+
+    const handleClearAdvancedResponsesToolAutoDenylist = (channelId: number) => {
+        clearResponsesToolAutoDenylist.mutate(
+            { id: channelId },
+            {
+                onSuccess: () => {
+                    toast.success(t('siteChannel.advanced.responsesToolAutoDenylistCleared'));
+                },
+                onError: (error) => {
+                    toast.error(translateSiteError(error, t('siteChannel.advanced.responsesToolAutoDenylistClearFailed')));
+                },
+            },
+        );
     };
 
     const projectedKeyRowId = (item: SiteSourceKeyFormItem, index: number) => `${item.id ?? 'new'}-${index}`;
@@ -2421,6 +2437,7 @@ function SiteAccountPanel({
                                     param_override: channel.param_override ?? '',
                                     responses_tool_denylist: (channel.responses_tool_denylist ?? []).join('\n'),
                                 };
+                                const activeResponsesToolAutoDenylist = channel.responses_tool_auto_denylist ?? [];
                                 return (
                                     <div className="space-y-4 rounded-2xl border border-border/60 bg-muted/10 p-4">
                                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2449,6 +2466,36 @@ function SiteAccountPanel({
                                                     className="min-h-24 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                                 />
                                             </label>
+                                            {activeResponsesToolAutoDenylist.length > 0 && (
+                                                <div className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div className="text-sm font-medium text-foreground">{t('siteChannel.advanced.responsesToolAutoDenylist')}</div>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleClearAdvancedResponsesToolAutoDenylist(channel.channel_id)}
+                                                            disabled={clearResponsesToolAutoDenylist.isPending}
+                                                            className="h-8 rounded-xl"
+                                                        >
+                                                            {clearResponsesToolAutoDenylist.isPending
+                                                                ? t('siteChannel.advanced.clearingResponsesToolAutoDenylist')
+                                                                : t('siteChannel.advanced.clearResponsesToolAutoDenylist')}
+                                                        </Button>
+                                                    </div>
+                                                    <div className="flex flex-col gap-2">
+                                                        {activeResponsesToolAutoDenylist.map((item) => (
+                                                            <div key={item.tool} className="rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge variant="secondary" className="rounded-md font-mono">{item.tool}</Badge>
+                                                                    <span>{t('siteChannel.advanced.autoRecoverAt', { time: dayjs.unix(item.expires_at).format('YYYY-MM-DD HH:mm:ss') })}</span>
+                                                                </div>
+                                                                {item.reason && <div className="mt-1 break-words">{item.reason}</div>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 );

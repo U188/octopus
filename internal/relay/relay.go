@@ -242,11 +242,15 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 		// 同通道重试耗尽后记录熔断器失败
 		if !result.Success && !result.Written && !result.Canceled && !result.ResetConversation {
-			failureKind := circuitFailureKind(group.RetryEnabled, result.StatusCode)
-			balancer.RecordFailure(channel.ID, usedKey.ID, internalRequest.Model, failureKind)
-			outlierwindow.Report(channel.ID, false, result.StatusCode, time.Now())
-			if failureKind == balancer.FailureHard {
-				maybeLearnManagedRoute(c.Request.Context(), channel.ID, internalRequest.Model, inboundType, result.Err)
+			if result.AutoDeniedResponsesTool {
+				log.Infof("skip circuit failure for channel %s after responses tool auto deny", channel.Name)
+			} else {
+				failureKind := circuitFailureKind(group.RetryEnabled, result.StatusCode)
+				balancer.RecordFailure(channel.ID, usedKey.ID, internalRequest.Model, failureKind)
+				outlierwindow.Report(channel.ID, false, result.StatusCode, time.Now())
+				if failureKind == balancer.FailureHard {
+					maybeLearnManagedRoute(c.Request.Context(), channel.ID, internalRequest.Model, inboundType, result.Err)
+				}
 			}
 		}
 
@@ -376,13 +380,14 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 	firstTokenTimeout := isFirstTokenTimeout(nil, fwdErr)
 	return attemptResult{
-		Success:           false,
-		Written:           written,
-		ResetConversation: statusCode == http.StatusConflict && needsConversationRestart(relayErrorMessage(fwdErr)),
-		FirstTokenTimeout: firstTokenTimeout,
-		Err:               fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
-		StatusCode:        statusCode,
-		RetryAfter:        ra.retryAfter,
+		Success:                 false,
+		Written:                 written,
+		ResetConversation:       statusCode == http.StatusConflict && needsConversationRestart(relayErrorMessage(fwdErr)),
+		FirstTokenTimeout:       firstTokenTimeout,
+		Err:                     fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		StatusCode:              statusCode,
+		RetryAfter:              ra.retryAfter,
+		AutoDeniedResponsesTool: ra.autoDeniedResponsesTool,
 	}
 }
 
@@ -711,6 +716,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 	if err := ra.applyParamOverride(outboundRequest); err != nil {
 		return 0, err
 	}
+	responsesTools := responsesToolTypesFromHTTPRequest(outboundRequest)
 
 	// Copy headers
 	ra.copyHeaders(outboundRequest)
@@ -733,6 +739,7 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 		ra.retryAfter = parseRetryAfter(response.Header.Get("Retry-After"))
 		body, _ := io.ReadAll(response.Body)
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
+		ra.maybeAutoDenyResponsesTool(responsesTools, string(body))
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
 		return statusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
@@ -795,6 +802,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 	if err := ra.applyParamOverride(outboundRequest); err != nil {
 		return 0, err
 	}
+	responsesTools := responsesToolTypesFromHTTPRequest(outboundRequest)
 
 	// 复制请求头
 	ra.copyHeaders(outboundRequest)
@@ -820,6 +828,7 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
+		ra.maybeAutoDenyResponsesTool(responsesTools, string(body))
 		log.Warnf("upstream error from channel %s: status=%d, body=%s", ra.channel.Name, response.StatusCode, string(body))
 		return statusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
@@ -880,7 +889,7 @@ func (ra *relayAttempt) applyParamOverride(outboundRequest *http.Request) error 
 	if err := helper.ApplyParamOverride(outboundRequest, ra.channel.ParamOverride); err != nil {
 		return err
 	}
-	if err := helper.ApplyResponsesToolDenylist(outboundRequest, ra.channel.ResponsesToolDenylist); err != nil {
+	if err := helper.ApplyResponsesToolDenylist(outboundRequest, ra.channel.EffectiveResponsesToolDenylist(time.Now().Unix())); err != nil {
 		return err
 	}
 	if requestBody, readErr := readOutboundRequestBody(outboundRequest); readErr == nil {

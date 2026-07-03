@@ -1,4 +1,4 @@
-import { ChannelType, type AutoGroupType, type Channel, type ChannelWSMode, useFetchModel } from '@/api/endpoints/channel';
+import { ChannelType, type AutoGroupType, type Channel, type ChannelWSMode, type ResponsesToolAutoDeny, useFetchModel } from '@/api/endpoints/channel';
 import { ProxySelector } from '@/components/modules/proxy-pool/ProxySelector';
 import {
     Select,
@@ -55,6 +55,9 @@ export interface ChannelFormProps {
     onCancel?: () => void;
     cancelText?: string;
     idPrefix?: string;
+    responsesToolAutoDenylist?: ResponsesToolAutoDeny[];
+    onClearResponsesToolAutoDenylist?: () => void;
+    isClearingResponsesToolAutoDenylist?: boolean;
 }
 
 import {
@@ -74,8 +77,12 @@ export function ChannelForm({
     onCancel,
     cancelText,
     idPrefix = 'channel',
+    responsesToolAutoDenylist = [],
+    onClearResponsesToolAutoDenylist,
+    isClearingResponsesToolAutoDenylist = false,
 }: ChannelFormProps) {
     const t = useTranslations('channel.form');
+    const activeResponsesToolAutoDenylist = responsesToolAutoDenylist;
 
     // Ensure the form always shows at least 1 row for base_urls / keys / custom_header.
     // This avoids "empty list" UI and also keeps URL + APIKEY layout consistent.
@@ -590,6 +597,37 @@ export function ChannelForm({
                                 className="min-h-20 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             />
                         </div>
+
+                        {activeResponsesToolAutoDenylist.length > 0 && (
+                            <div className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="text-sm font-medium text-card-foreground">{t('responsesToolAutoDenylist')}</div>
+                                    {onClearResponsesToolAutoDenylist && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={onClearResponsesToolAutoDenylist}
+                                            disabled={isClearingResponsesToolAutoDenylist}
+                                            className="h-8 rounded-xl"
+                                        >
+                                            {isClearingResponsesToolAutoDenylist ? t('clearingResponsesToolAutoDenylist') : t('clearResponsesToolAutoDenylist')}
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    {activeResponsesToolAutoDenylist.map((item) => (
+                                        <div key={item.tool} className="rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary" className="rounded-md font-mono">{item.tool}</Badge>
+                                                <span>{t('autoRecoverAt', { time: new Date(item.expires_at * 1000).toLocaleString() })}</span>
+                                            </div>
+                                            {item.reason && <div className="mt-1 break-words">{item.reason}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </AccordionContent>
                 </AccordionItem>
             </Accordion>
