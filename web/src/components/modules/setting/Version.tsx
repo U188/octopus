@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
 import { SettingCard } from './shared';
 
-const frontendVersion = packageInfo.version;
+const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || packageInfo.version;
 
 export function SettingVersion() {
     const t = useTranslations('setting');

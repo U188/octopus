@@ -33,9 +33,9 @@ export function SettingData() {
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const [davURL, setDavURL] = useState('http://49.233.38.144:5244/dav');
-    const [davUsername, setDavUsername] = useState('u1888');
-    const [davPassword, setDavPassword] = useState('xm552297');
+    const [davURL, setDavURL] = useState('');
+    const [davUsername, setDavUsername] = useState('');
+    const [davPassword, setDavPassword] = useState('');
     const [davFilename, setDavFilename] = useState('');
     const [selectedDavFile, setSelectedDavFile] = useState('');
 
