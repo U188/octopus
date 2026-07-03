@@ -40,6 +40,14 @@ func recordAudit(c *gin.Context, action, status string, detail map[string]any, a
 	}
 }
 
+func recordAuditSuccess(c *gin.Context, action string, detail map[string]any) {
+	recordAudit(c, action, op.AuditStatusSuccess, detail, nil)
+}
+
+func recordAuditFailure(c *gin.Context, action string, detail map[string]any, err error) {
+	recordAudit(c, action, op.AuditStatusFailed, detail, err)
+}
+
 func redactedSettingValue(key model.SettingKey, value string) string {
 	if model.IsSensitiveSettingKey(key) && value != "" {
 		return "<redacted>"

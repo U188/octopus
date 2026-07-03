@@ -137,9 +137,15 @@ func createLLM(c *gin.Context) {
 		return
 	}
 	if err := op.LLMCreate(model, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "model.create", map[string]any{
+			"name": model.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, modelError(codeModelCreateFailed, "model create failed", err))
 		return
 	}
+	recordAuditSuccess(c, "model.create", map[string]any{
+		"name": model.Name,
+	})
 	resp.Success(c, model)
 }
 
@@ -150,9 +156,15 @@ func updateLLM(c *gin.Context) {
 		return
 	}
 	if err := op.LLMUpdate(model, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "model.update", map[string]any{
+			"name": model.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, modelError(codeModelUpdateFailed, "model update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "model.update", map[string]any{
+		"name": model.Name,
+	})
 	resp.Success(c, model)
 }
 
@@ -165,18 +177,26 @@ func deleteLLM(c *gin.Context) {
 		return
 	}
 	if err := op.LLMDelete(req.Name, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "model.delete", map[string]any{
+			"name": req.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, modelError(codeModelPriceDeleteFailed, "model price delete failed", err))
 		return
 	}
+	recordAuditSuccess(c, "model.delete", map[string]any{
+		"name": req.Name,
+	})
 	resp.Success(c, nil)
 }
 
 func updateLLMPrice(c *gin.Context) {
 	err := price.UpdateLLMPrice(c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "model.update_price", nil, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, modelError(codeModelPriceUpdateFailed, "model price update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "model.update_price", nil)
 	resp.Success(c, nil)
 }
 

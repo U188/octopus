@@ -106,6 +106,12 @@ func createSiteChannelKey(c *gin.Context) {
 		return
 	}
 	if _, err := sitesvc.CreateAccountToken(c.Request.Context(), accountID, req); err != nil {
+		recordAuditFailure(c, "site_channel.key.create", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+			"group_key":  req.GroupKey,
+			"name":       req.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelKeyCreateFailed, "site channel key create failed", err).WithStatus(http.StatusInternalServerError))
 		return
 	}
@@ -114,6 +120,12 @@ func createSiteChannelKey(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.key.create", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"group_key":  req.GroupKey,
+		"name":       req.Name,
+	})
 	resp.Success(c, data)
 }
 
@@ -128,6 +140,14 @@ func updateSiteSourceKeys(c *gin.Context) {
 		return
 	}
 	if err := op.UpdateSiteSourceKeys(siteID, accountID, &req, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site_channel.source_keys.update", map[string]any{
+			"site_id":      siteID,
+			"account_id":   accountID,
+			"group_key":    req.GroupKey,
+			"add_count":    len(req.KeysToAdd),
+			"update_count": len(req.KeysToUpdate),
+			"delete_count": len(req.KeysToDelete),
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelSourceKeyUpdateFailed, "site channel source key update failed", err).WithStatus(http.StatusInternalServerError))
 		return
 	}
@@ -140,6 +160,14 @@ func updateSiteSourceKeys(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.source_keys.update", map[string]any{
+		"site_id":      siteID,
+		"account_id":   accountID,
+		"group_key":    req.GroupKey,
+		"add_count":    len(req.KeysToAdd),
+		"update_count": len(req.KeysToUpdate),
+		"delete_count": len(req.KeysToDelete),
+	})
 	resp.Success(c, data)
 }
 
@@ -155,6 +183,12 @@ func updateSiteGroupProjection(c *gin.Context) {
 	}
 	if err := op.UpdateSiteGroupProjection(siteID, accountID, &req, c.Request.Context()); err != nil {
 		status := siteChannelMutationErrorStatus(err)
+		recordAuditFailure(c, "site_channel.group_projection.update", map[string]any{
+			"site_id":             siteID,
+			"account_id":          accountID,
+			"group_key":           req.GroupKey,
+			"projection_disabled": req.ProjectionDisabled,
+		}, err)
 		resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelProjectedSettingsFailed, "site group projection update failed", err).WithStatus(status))
 		return
 	}
@@ -167,6 +201,12 @@ func updateSiteGroupProjection(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.group_projection.update", map[string]any{
+		"site_id":             siteID,
+		"account_id":          accountID,
+		"group_key":           req.GroupKey,
+		"projection_disabled": req.ProjectionDisabled,
+	})
 	resp.Success(c, data)
 }
 
@@ -182,6 +222,14 @@ func updateSiteChannelModelRoutes(c *gin.Context) {
 	}
 	for _, item := range req {
 		if err := op.SiteModelRouteUpdate(accountID, item.GroupKey, item.ModelName, item.RouteType, model.SiteModelRouteSourceManualOverride, true, item.RouteRawPayload, c.Request.Context()); err != nil {
+			recordAuditFailure(c, "site_channel.model_routes.update", map[string]any{
+				"site_id":    siteID,
+				"account_id": accountID,
+				"count":      len(req),
+				"group_key":  item.GroupKey,
+				"model_name": item.ModelName,
+				"route_type": item.RouteType,
+			}, err)
 			resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(http.StatusInternalServerError))
 			return
 		}
@@ -195,6 +243,11 @@ func updateSiteChannelModelRoutes(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.model_routes.update", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"count":      len(req),
+	})
 	resp.Success(c, data)
 }
 
@@ -210,6 +263,14 @@ func updateSiteChannelModelDisabled(c *gin.Context) {
 	}
 	for _, item := range req {
 		if err := op.SiteModelDisabledUpdate(accountID, item.GroupKey, item.ModelName, item.Disabled, c.Request.Context()); err != nil {
+			recordAuditFailure(c, "site_channel.model_disabled.update", map[string]any{
+				"site_id":    siteID,
+				"account_id": accountID,
+				"count":      len(req),
+				"group_key":  item.GroupKey,
+				"model_name": item.ModelName,
+				"disabled":   item.Disabled,
+			}, err)
 			resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelModelDisableFailed, "site channel model disable failed", err).WithStatus(http.StatusInternalServerError))
 			return
 		}
@@ -223,6 +284,11 @@ func updateSiteChannelModelDisabled(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.model_disabled.update", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"count":      len(req),
+	})
 	resp.Success(c, data)
 }
 
@@ -238,6 +304,14 @@ func updateSiteChannelModelContext1M(c *gin.Context) {
 	}
 	for _, item := range req {
 		if err := op.SiteModelContext1MUpdate(accountID, item.GroupKey, item.ModelName, item.Context1M, c.Request.Context()); err != nil {
+			recordAuditFailure(c, "site_channel.model_context_1m.update", map[string]any{
+				"site_id":    siteID,
+				"account_id": accountID,
+				"count":      len(req),
+				"group_key":  item.GroupKey,
+				"model_name": item.ModelName,
+				"context_1m": item.Context1M,
+			}, err)
 			resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel model context 1m update failed", err).WithStatus(http.StatusInternalServerError))
 			return
 		}
@@ -247,6 +321,11 @@ func updateSiteChannelModelContext1M(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.model_context_1m.update", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"count":      len(req),
+	})
 	resp.Success(c, data)
 }
 
@@ -262,6 +341,11 @@ func updateSiteProjectedChannelSettings(c *gin.Context) {
 	}
 	if err := op.UpdateSiteProjectedChannelSettings(siteID, accountID, req, c.Request.Context()); err != nil {
 		status := siteChannelMutationErrorStatus(err)
+		recordAuditFailure(c, "site_channel.projected_channel_settings.update", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+			"count":      len(req),
+		}, err)
 		resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelProjectedSettingsFailed, "site projected channel settings update failed", err).WithStatus(status))
 		return
 	}
@@ -270,6 +354,11 @@ func updateSiteProjectedChannelSettings(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.projected_channel_settings.update", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"count":      len(req),
+	})
 	resp.Success(c, data)
 }
 
@@ -285,6 +374,12 @@ func addSiteManualModels(c *gin.Context) {
 	}
 	if err := op.SiteManualModelsAdd(siteID, accountID, &req, c.Request.Context()); err != nil {
 		status := siteChannelMutationErrorStatus(err)
+		recordAuditFailure(c, "site_channel.manual_models.add", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+			"group_key":  req.GroupKey,
+			"count":      len(req.Models),
+		}, err)
 		resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelManualModelFailed, "site manual model update failed", err).WithStatus(status))
 		return
 	}
@@ -297,6 +392,12 @@ func addSiteManualModels(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.manual_models.add", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"group_key":  req.GroupKey,
+		"count":      len(req.Models),
+	})
 	resp.Success(c, data)
 }
 
@@ -312,6 +413,12 @@ func deleteSiteManualModel(c *gin.Context) {
 	}
 	if err := op.SiteManualModelDelete(siteID, accountID, &req, c.Request.Context()); err != nil {
 		status := siteChannelMutationErrorStatus(err)
+		recordAuditFailure(c, "site_channel.manual_models.delete", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+			"group_key":  req.GroupKey,
+			"model_name": req.ModelName,
+		}, err)
 		resp.ErrorWithAppError(c, status, apperror.Wrap(op.CodeSiteChannelManualModelFailed, "site manual model update failed", err).WithStatus(status))
 		return
 	}
@@ -324,6 +431,12 @@ func deleteSiteManualModel(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.manual_models.delete", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+		"group_key":  req.GroupKey,
+		"model_name": req.ModelName,
+	})
 	resp.Success(c, data)
 }
 
@@ -333,6 +446,10 @@ func resetSiteChannelModelRoutes(c *gin.Context) {
 		return
 	}
 	if err := op.SiteChannelResetAccountRoutes(siteID, accountID, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site_channel.model_routes.reset", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelRouteUpdateFailed, "site channel route update failed", err).WithStatus(http.StatusInternalServerError))
 		return
 	}
@@ -345,6 +462,10 @@ func resetSiteChannelModelRoutes(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_channel.model_routes.reset", map[string]any{
+		"site_id":    siteID,
+		"account_id": accountID,
+	})
 	resp.Success(c, data)
 }
 

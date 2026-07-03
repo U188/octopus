@@ -84,6 +84,7 @@ func importAllAPIHub(c *gin.Context) {
 
 	result, syncAccountIDs, err := op.SiteImportAllAPIHub(c.Request.Context(), body)
 	if err != nil {
+		recordAuditFailure(c, "site.import_all_api_hub", nil, err)
 		resp.ErrorWithAppError(c, http.StatusBadRequest, err)
 		return
 	}
@@ -97,6 +98,12 @@ func importAllAPIHub(c *gin.Context) {
 		})
 	}
 
+	recordAuditSuccess(c, "site.import_all_api_hub", map[string]any{
+		"created_sites":    result.CreatedSites,
+		"created_accounts": result.CreatedAccounts,
+		"updated_accounts": result.UpdatedAccounts,
+		"sync_accounts":    len(syncAccountIDs),
+	})
 	resp.Success(c, result)
 }
 
@@ -109,10 +116,16 @@ func importMetAPI(c *gin.Context) {
 
 	result, err := op.SiteImportMetAPI(c.Request.Context(), body)
 	if err != nil {
+		recordAuditFailure(c, "site.import_metapi", nil, err)
 		resp.ErrorWithAppError(c, http.StatusBadRequest, err)
 		return
 	}
 
+	recordAuditSuccess(c, "site.import_metapi", map[string]any{
+		"created_sites":    result.CreatedSites,
+		"created_accounts": result.CreatedAccounts,
+		"updated_accounts": result.UpdatedAccounts,
+	})
 	resp.Success(c, result)
 }
 
@@ -144,9 +157,19 @@ func createSite(c *gin.Context) {
 		return
 	}
 	if err := op.SiteCreate(&site, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site.create", map[string]any{
+			"name":     site.Name,
+			"platform": site.Platform,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site.create", map[string]any{
+		"id":       site.ID,
+		"name":     site.Name,
+		"platform": site.Platform,
+		"enabled":  site.Enabled,
+	})
 	resp.Success(c, site)
 }
 
@@ -158,6 +181,9 @@ func updateSite(c *gin.Context) {
 	}
 	site, err := op.SiteUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "site.update", map[string]any{
+			"id": req.ID,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -168,6 +194,12 @@ func updateSite(c *gin.Context) {
 		if err := sitesvc.ProjectSite(ctx, siteID); err != nil {
 			log.Warnf("background ProjectSite failed (site=%d): %v", siteID, err)
 		}
+	})
+	recordAuditSuccess(c, "site.update", map[string]any{
+		"id":       site.ID,
+		"name":     site.Name,
+		"platform": site.Platform,
+		"enabled":  site.Enabled,
 	})
 	resp.Success(c, site)
 }
@@ -182,6 +214,10 @@ func enableSite(c *gin.Context) {
 		return
 	}
 	if err := op.SiteEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site.enable", map[string]any{
+			"id":      request.ID,
+			"enabled": request.Enabled,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -193,6 +229,10 @@ func enableSite(c *gin.Context) {
 			log.Warnf("background ProjectSite failed (site=%d): %v", siteID, err)
 		}
 	})
+	recordAuditSuccess(c, "site.enable", map[string]any{
+		"id":      request.ID,
+		"enabled": request.Enabled,
+	})
 	resp.Success(c, nil)
 }
 
@@ -203,9 +243,15 @@ func deleteSite(c *gin.Context) {
 		return
 	}
 	if err := sitesvc.DeleteSite(c.Request.Context(), idNum); err != nil {
+		recordAuditFailure(c, "site.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 
@@ -216,9 +262,15 @@ func archiveSite(c *gin.Context) {
 		return
 	}
 	if err := sitesvc.ArchiveSite(c.Request.Context(), idNum); err != nil {
+		recordAuditFailure(c, "site.archive", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site.archive", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 
@@ -229,9 +281,15 @@ func restoreSite(c *gin.Context) {
 		return
 	}
 	if err := sitesvc.RestoreSite(c.Request.Context(), idNum); err != nil {
+		recordAuditFailure(c, "site.restore", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site.restore", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 
@@ -255,6 +313,10 @@ func createSiteAccount(c *gin.Context) {
 		return
 	}
 	if err := op.SiteAccountCreate(&account, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site_account.create", map[string]any{
+			"site_id": account.SiteID,
+			"name":    account.Name,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -274,6 +336,14 @@ func createSiteAccount(c *gin.Context) {
 			}
 		})
 	}
+	recordAuditSuccess(c, "site_account.create", map[string]any{
+		"id":              createdAccount.ID,
+		"site_id":         createdAccount.SiteID,
+		"name":            createdAccount.Name,
+		"credential_type": createdAccount.CredentialType,
+		"enabled":         createdAccount.Enabled,
+		"auto_sync":       createdAccount.AutoSync,
+	})
 	resp.Success(c, createdAccount)
 }
 
@@ -285,6 +355,9 @@ func updateSiteAccount(c *gin.Context) {
 	}
 	account, err := op.SiteAccountUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "site_account.update", map[string]any{
+			"id": req.ID,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -308,6 +381,14 @@ func updateSiteAccount(c *gin.Context) {
 			}
 		}
 	})
+	recordAuditSuccess(c, "site_account.update", map[string]any{
+		"id":              account.ID,
+		"site_id":         account.SiteID,
+		"name":            account.Name,
+		"credential_type": account.CredentialType,
+		"enabled":         account.Enabled,
+		"auto_sync":       account.AutoSync,
+	})
 	resp.Success(c, account)
 }
 
@@ -321,6 +402,10 @@ func enableSiteAccount(c *gin.Context) {
 		return
 	}
 	if err := op.SiteAccountEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "site_account.enable", map[string]any{
+			"id":      request.ID,
+			"enabled": request.Enabled,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -333,6 +418,10 @@ func enableSiteAccount(c *gin.Context) {
 			log.Warnf("background ProjectAccount failed (account=%d): %v", accountID, err)
 		}
 	})
+	recordAuditSuccess(c, "site_account.enable", map[string]any{
+		"id":      request.ID,
+		"enabled": request.Enabled,
+	})
 	resp.Success(c, nil)
 }
 
@@ -343,9 +432,15 @@ func deleteSiteAccount(c *gin.Context) {
 		return
 	}
 	if err := sitesvc.DeleteSiteAccount(c.Request.Context(), idNum); err != nil {
+		recordAuditFailure(c, "site_account.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "site_account.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 
@@ -358,12 +453,21 @@ func syncSiteAccount(c *gin.Context) {
 	result, err := sitesvc.SyncAccount(c.Request.Context(), idNum)
 	if err != nil {
 		if result != nil {
+			recordAuditFailure(c, "site_account.sync", map[string]any{
+				"id": idNum,
+			}, err)
 			resp.Success(c, result)
 			return
 		}
+		recordAuditFailure(c, "site_account.sync", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
+	recordAuditSuccess(c, "site_account.sync", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, result)
 }
 
@@ -375,9 +479,15 @@ func checkinSiteAccount(c *gin.Context) {
 	}
 	result, err := sitesvc.CheckinAccount(c.Request.Context(), idNum)
 	if err != nil {
+		recordAuditFailure(c, "site_account.checkin", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
+	recordAuditSuccess(c, "site_account.checkin", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, result)
 }
 
@@ -436,6 +546,7 @@ func syncAllSiteAccounts(c *gin.Context) {
 	safe.Go("site-sync-all", func() {
 		sitesvc.SyncAllWithOptions(context.Background(), sitesync.SiteBatchOptions{Trigger: sitesync.SiteBatchTriggerManual})
 	})
+	recordAuditSuccess(c, "site_account.sync_all", nil)
 	resp.Success(c, nil)
 }
 
@@ -443,6 +554,7 @@ func checkinAllSiteAccounts(c *gin.Context) {
 	safe.Go("site-checkin-all", func() {
 		sitesvc.CheckinAllWithOptions(context.Background(), sitesync.SiteBatchOptions{Trigger: sitesync.SiteBatchTriggerManual})
 	})
+	recordAuditSuccess(c, "site_account.checkin_all", nil)
 	resp.Success(c, nil)
 }
 
@@ -496,10 +608,20 @@ func batchSite(c *gin.Context) {
 
 	result, affected, err := op.SiteBatchApply(&req, sitesvc.DeleteSite, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "site.batch", map[string]any{
+			"action": req.Action,
+			"count":  len(req.IDs),
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	projectSitesAsync(affected)
+	recordAuditSuccess(c, "site.batch", map[string]any{
+		"action":        req.Action,
+		"count":         len(req.IDs),
+		"success_count": len(result.SuccessIDs),
+		"failed_count":  len(result.FailedItems),
+	})
 	resp.Success(c, result)
 }
 
@@ -541,10 +663,26 @@ func batchEditSite(c *gin.Context) {
 
 	result, affected, err := op.SiteBatchEdit(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "site.batch_edit", map[string]any{
+			"count":             len(req.IDs),
+			"add_tags_count":    len(req.AddTags),
+			"remove_tags_count": len(req.RemoveTags),
+			"upserts_count":     len(req.Upserts),
+			"delete_keys_count": len(req.DeleteKeys),
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	projectSitesAsync(affected)
+	recordAuditSuccess(c, "site.batch_edit", map[string]any{
+		"count":             len(req.IDs),
+		"success_count":     len(result.SuccessIDs),
+		"failed_count":      len(result.FailedItems),
+		"add_tags_count":    len(req.AddTags),
+		"remove_tags_count": len(req.RemoveTags),
+		"upserts_count":     len(req.Upserts),
+		"delete_keys_count": len(req.DeleteKeys),
+	})
 	resp.Success(c, result)
 }
 

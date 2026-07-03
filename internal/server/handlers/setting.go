@@ -165,6 +165,11 @@ func exportDB(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		wrapper := &countingResponseWriter{ResponseWriter: c.Writer}
 		if err := op.DBExportZip(c.Request.Context(), wrapper, includeLogs, includeStats); err != nil {
+			recordAuditFailure(c, "database.export", map[string]any{
+				"format":        format,
+				"include_logs":  includeLogs,
+				"include_stats": includeStats,
+			}, err)
 			if wrapper.bytesWritten == 0 {
 				c.Header("Content-Type", "application/json")
 				c.Header("Content-Disposition", "")
@@ -174,18 +179,34 @@ func exportDB(c *gin.Context) {
 			// Headers already sent; we can't switch to a JSON error. Log it and
 			// let the client surface the truncated download.
 			log.Warnf("zip export failed mid-stream: %v", err)
+			return
 		}
+		recordAuditSuccess(c, "database.export", map[string]any{
+			"format":        format,
+			"include_logs":  includeLogs,
+			"include_stats": includeStats,
+		})
 		return
 	}
 
 	dump, err := op.DBExportAll(c.Request.Context(), includeLogs, includeStats)
 	if err != nil {
+		recordAuditFailure(c, "database.export", map[string]any{
+			"format":        format,
+			"include_logs":  includeLogs,
+			"include_stats": includeStats,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	c.Header("Content-Type", "application/json")
 	c.Header("Content-Disposition", "attachment; filename=\"octopus-export-"+time.Now().Format("20060102150405")+".json\"")
+	recordAuditSuccess(c, "database.export", map[string]any{
+		"format":        format,
+		"include_logs":  includeLogs,
+		"include_stats": includeStats,
+	})
 	c.JSON(http.StatusOK, dump)
 }
 

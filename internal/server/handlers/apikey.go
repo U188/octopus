@@ -86,9 +86,16 @@ func createAPIKey(c *gin.Context) {
 		return
 	}
 	if err := op.APIKeyCreate(&req, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "apikey.create", map[string]any{
+			"name": req.Name,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "apikey.create", map[string]any{
+		"id":   req.ID,
+		"name": req.Name,
+	})
 	resp.Success(c, req)
 }
 
@@ -121,9 +128,17 @@ func updateAPIKey(c *gin.Context) {
 		return
 	}
 	if err := op.APIKeyUpdate(&req, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "apikey.update", map[string]any{
+			"id":   req.ID,
+			"name": req.Name,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "apikey.update", map[string]any{
+		"id":   req.ID,
+		"name": req.Name,
+	})
 	resp.Success(c, req)
 }
 
@@ -135,9 +150,15 @@ func deleteAPIKey(c *gin.Context) {
 		return
 	}
 	if err := op.APIKeyDelete(idNum, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "apikey.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "apikey.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 

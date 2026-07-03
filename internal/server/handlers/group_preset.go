@@ -87,9 +87,18 @@ func createGroupPreset(c *gin.Context) {
 	}
 	preset, err := op.GroupPresetCreate(groupID, req.Name, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group_preset.create", map[string]any{
+			"group_id": groupID,
+			"name":     req.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetCreateFailed, "group preset create failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.create", map[string]any{
+		"id":       preset.ID,
+		"group_id": groupID,
+		"name":     preset.Name,
+	})
 	resp.Success(c, preset)
 }
 
@@ -105,9 +114,18 @@ func createBlankGroupPreset(c *gin.Context) {
 	}
 	preset, err := op.GroupPresetCreateBlank(groupID, req.Name, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group_preset.create_blank", map[string]any{
+			"group_id": groupID,
+			"name":     req.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetCreateBlankFailed, "group preset create blank failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.create_blank", map[string]any{
+		"id":       preset.ID,
+		"group_id": groupID,
+		"name":     preset.Name,
+	})
 	resp.Success(c, preset)
 }
 
@@ -123,9 +141,18 @@ func cloneGroupPreset(c *gin.Context) {
 	}
 	preset, err := op.GroupPresetClone(id, req.Name, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group_preset.clone", map[string]any{
+			"id":   id,
+			"name": req.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetCloneFailed, "group preset clone failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.clone", map[string]any{
+		"source_id": id,
+		"id":        preset.ID,
+		"name":      preset.Name,
+	})
 	resp.Success(c, preset)
 }
 
@@ -135,9 +162,15 @@ func activateGroupPreset(c *gin.Context) {
 		return
 	}
 	if err := op.GroupPresetActivate(id, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group_preset.activate", map[string]any{
+			"id": id,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetActivateFailed, "group preset activate failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.activate", map[string]any{
+		"id": id,
+	})
 	resp.Success(c, "group preset activated")
 }
 
@@ -159,9 +192,16 @@ func updateGroupPreset(c *gin.Context) {
 	}
 	preset, err := op.GroupPresetUpdate(id, &req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group_preset.update", map[string]any{
+			"id": id,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetUpdateFailed, "group preset update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.update", map[string]any{
+		"id":   preset.ID,
+		"name": preset.Name,
+	})
 	resp.Success(c, preset)
 }
 
@@ -171,9 +211,15 @@ func deleteGroupPreset(c *gin.Context) {
 		return
 	}
 	if err := op.GroupPresetDelete(id, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group_preset.delete", map[string]any{
+			"id": id,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPresetDeleteFailed, "group preset delete failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group_preset.delete", map[string]any{
+		"id": id,
+	})
 	resp.Success(c, "group preset deleted")
 }
 
@@ -192,8 +238,16 @@ func setGroupPin(c *gin.Context) {
 		return
 	}
 	if err := op.GroupSetPinned(id, *req.Pinned, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group.pin", map[string]any{
+			"id":     id,
+			"pinned": *req.Pinned,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupPinFailed, "group pin failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group.pin", map[string]any{
+		"id":     id,
+		"pinned": *req.Pinned,
+	})
 	resp.Success(c, "group pin updated")
 }

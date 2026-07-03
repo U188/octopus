@@ -121,6 +121,9 @@ func runGroupHealth(c *gin.Context) {
 	}
 	running, err := defaultGroupHealthService.GetRunningSnapshotByGroupID(c.Request.Context(), groupID)
 	if err == nil {
+		recordAuditFailure(c, "group_health.run", map[string]any{
+			"group_id": groupID,
+		}, grouphealth.ErrGroupHealthAlreadyRunning)
 		c.JSON(http.StatusConflict, resp.ResponseStruct{
 			Code:    http.StatusConflict,
 			Message: grouphealth.ErrGroupHealthAlreadyRunning.Error(),
@@ -129,6 +132,9 @@ func runGroupHealth(c *gin.Context) {
 		return
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		recordAuditFailure(c, "group_health.run", map[string]any{
+			"group_id": groupID,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -144,6 +150,10 @@ func runGroupHealth(c *gin.Context) {
 		_ = defaultGroupHealthService.RunGroupHealth(runCtx, groupID, probeMode)
 	})
 
+	recordAuditSuccess(c, "group_health.run", map[string]any{
+		"group_id":   groupID,
+		"probe_mode": probeMode,
+	})
 	c.JSON(http.StatusAccepted, resp.ResponseStruct{
 		Code:    http.StatusAccepted,
 		Message: "accepted",
@@ -169,6 +179,9 @@ func runAllGroupHealth(c *gin.Context) {
 		defaultGroupHealthService.RunAllGroupHealth(runCtx, 2, probeMode)
 	})
 
+	recordAuditSuccess(c, "group_health.run_all", map[string]any{
+		"probe_mode": probeMode,
+	})
 	c.JSON(http.StatusAccepted, resp.ResponseStruct{
 		Code:    http.StatusAccepted,
 		Message: "accepted",

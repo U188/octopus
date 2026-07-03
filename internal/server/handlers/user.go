@@ -61,9 +61,11 @@ func changePassword(c *gin.Context) {
 		return
 	}
 	if err := op.UserChangePassword(user.OldPassword, user.NewPassword); err != nil {
+		recordAuditFailure(c, "user.change_password", nil, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
+	recordAuditSuccess(c, "user.change_password", nil)
 	resp.Success(c, "password changed successfully")
 }
 
@@ -74,9 +76,15 @@ func changeUsername(c *gin.Context) {
 		return
 	}
 	if err := op.UserChangeUsername(user.NewUsername); err != nil {
+		recordAuditFailure(c, "user.change_username", map[string]any{
+			"new_username": user.NewUsername,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "user.change_username", map[string]any{
+		"new_username": user.NewUsername,
+	})
 	resp.Success(c, "username changed successfully")
 }
 

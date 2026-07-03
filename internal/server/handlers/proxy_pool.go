@@ -74,9 +74,17 @@ func createProxyConfiguration(c *gin.Context) {
 		Remark:  req.Remark,
 	}
 	if err := op.ProxyConfigurationCreate(&item, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "proxy_pool.create", map[string]any{
+			"name": item.Name,
+		}, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "proxy_pool.create", map[string]any{
+		"id":      item.ID,
+		"name":    item.Name,
+		"enabled": item.Enabled,
+	})
 	resp.Success(c, item)
 }
 
@@ -88,9 +96,17 @@ func updateProxyConfiguration(c *gin.Context) {
 	}
 	item, err := op.ProxyConfigurationUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "proxy_pool.update", map[string]any{
+			"id": req.ID,
+		}, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "proxy_pool.update", map[string]any{
+		"id":      item.ID,
+		"name":    item.Name,
+		"enabled": item.Enabled,
+	})
 	resp.Success(c, item)
 }
 
@@ -101,9 +117,15 @@ func deleteProxyConfiguration(c *gin.Context) {
 		return
 	}
 	if err := op.ProxyConfigurationDelete(idNum, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "proxy_pool.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	recordAuditSuccess(c, "proxy_pool.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 

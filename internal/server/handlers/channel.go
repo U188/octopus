@@ -120,6 +120,10 @@ func createChannel(c *gin.Context) {
 		channel.ProxyConfigID = nil
 	}
 	if err := op.ChannelCreate(&channel, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "channel.create", map[string]any{
+			"name": channel.Name,
+			"type": channel.Type,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelCreateFailed, "channel create failed", err))
 		return
 	}
@@ -135,6 +139,11 @@ func createChannel(c *gin.Context) {
 		helper.ChannelBaseUrlDelayUpdate(&createdChannel, ctx)
 		helper.ChannelAutoGroup(&createdChannel, ctx)
 	})
+	recordAuditSuccess(c, "channel.create", map[string]any{
+		"id":   channel.ID,
+		"name": channel.Name,
+		"type": channel.Type,
+	})
 	resp.Success(c, channel)
 }
 
@@ -146,6 +155,9 @@ func updateChannel(c *gin.Context) {
 	}
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "channel.update", map[string]any{
+			"id": req.ID,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
 		return
 	}
@@ -161,6 +173,11 @@ func updateChannel(c *gin.Context) {
 		helper.ChannelBaseUrlDelayUpdate(&updatedChannel, ctx)
 		helper.ChannelAutoGroup(&updatedChannel, ctx)
 	})
+	recordAuditSuccess(c, "channel.update", map[string]any{
+		"id":   channel.ID,
+		"name": channel.Name,
+		"type": channel.Type,
+	})
 	resp.Success(c, channel)
 }
 
@@ -174,9 +191,17 @@ func enableChannel(c *gin.Context) {
 		return
 	}
 	if err := op.ChannelEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "channel.enable", map[string]any{
+			"id":      request.ID,
+			"enabled": request.Enabled,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "channel.enable", map[string]any{
+		"id":      request.ID,
+		"enabled": request.Enabled,
+	})
 	resp.Success(c, nil)
 }
 
@@ -189,9 +214,15 @@ func clearResponsesToolAutoDenylist(c *gin.Context) {
 		return
 	}
 	if err := op.ChannelClearResponsesToolAutoDenylist(request.ID, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "channel.responses_tool_auto_denylist.clear", map[string]any{
+			"id": request.ID,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelUpdateFailed, "channel update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "channel.responses_tool_auto_denylist.clear", map[string]any{
+		"id": request.ID,
+	})
 	resp.Success(c, nil)
 }
 
@@ -203,9 +234,15 @@ func deleteChannel(c *gin.Context) {
 		return
 	}
 	if err := op.ChannelDel(idNum, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "channel.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, channelError(codeChannelDeleteFailed, "channel delete failed", err))
 		return
 	}
+	recordAuditSuccess(c, "channel.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, nil)
 }
 func fetchModel(c *gin.Context) {
@@ -224,6 +261,7 @@ func fetchModel(c *gin.Context) {
 
 func syncChannel(c *gin.Context) {
 	task.SyncModelsTask()
+	recordAuditSuccess(c, "channel.sync_models", nil)
 	resp.Success(c, nil)
 }
 

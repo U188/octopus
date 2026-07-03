@@ -59,9 +59,16 @@ func createGroup(c *gin.Context) {
 		}
 	}
 	if err := op.GroupCreate(&group, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group.create", map[string]any{
+			"name": group.Name,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupCreateFailed, "group create failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group.create", map[string]any{
+		"id":   group.ID,
+		"name": group.Name,
+	})
 	resp.Success(c, group)
 }
 
@@ -80,9 +87,16 @@ func updateGroup(c *gin.Context) {
 	}
 	group, err := op.GroupUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group.update", map[string]any{
+			"id": req.ID,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupUpdateFailed, "group update failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group.update", map[string]any{
+		"id":   group.ID,
+		"name": group.Name,
+	})
 	resp.Success(c, group)
 }
 
@@ -94,8 +108,14 @@ func deleteGroup(c *gin.Context) {
 		return
 	}
 	if err := op.GroupDel(idNum, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group.delete", map[string]any{
+			"id": idNum,
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, groupError(codeGroupDeleteFailed, "group delete failed", err))
 		return
 	}
+	recordAuditSuccess(c, "group.delete", map[string]any{
+		"id": idNum,
+	})
 	resp.Success(c, "group deleted successfully")
 }

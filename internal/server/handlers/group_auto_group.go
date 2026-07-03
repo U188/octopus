@@ -37,9 +37,16 @@ func updateGroupAutoGroupConfig(c *gin.Context) {
 	}
 	config, err := op.GroupAutoGroupConfigUpdate(&req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, "group_auto_group.config.update", nil, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
+	recordAuditSuccess(c, "group_auto_group.config.update", map[string]any{
+		"projected_global_auto_group": config.ProjectedGlobalAutoGroup,
+		"sources_count":               len(config.Sources),
+		"updated_items_count":         len(req.Items),
+		"run_now":                     req.RunNow,
+	})
 	resp.Success(c, config)
 }
 
@@ -50,8 +57,14 @@ func runGroupAutoGroup(c *gin.Context) {
 		return
 	}
 	if err := op.RunGroupAutoGroup(req.ChannelIDs, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "group_auto_group.run", map[string]any{
+			"channel_count": len(req.ChannelIDs),
+		}, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
+	recordAuditSuccess(c, "group_auto_group.run", map[string]any{
+		"channel_count": len(req.ChannelIDs),
+	})
 	resp.Success(c, nil)
 }
