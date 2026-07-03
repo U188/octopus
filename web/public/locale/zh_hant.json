@@ -467,7 +467,11 @@
             "updateNow": "立即更新",
             "updating": "更新中...",
             "updateSuccess": "更新成功，服務即將重啟",
-            "updateFailed": "更新失敗"
+            "updateFailed": "更新失敗",
+            "restartNow": "重啟服務",
+            "restarting": "重啟中...",
+            "restartSuccess": "服務正在重啟",
+            "restartFailed": "重啟失敗"
         },
         "log": {
             "title": "歷史日誌",

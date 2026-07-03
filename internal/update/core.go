@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/U188/octopus/internal/utils/log"
 	"github.com/U188/octopus/internal/utils/shutdown"
@@ -42,6 +43,21 @@ func UpdateCore() error {
 
 	log.Infof("update core success")
 	go restartExecutable(execPath)
+	return nil
+}
+
+func RestartCore(delay time.Duration) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Warnf("get executable path failed: %v", err)
+		return err
+	}
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		restartExecutable(execPath)
+	}()
 	return nil
 }
 

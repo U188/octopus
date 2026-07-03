@@ -1,10 +1,10 @@
 'use client';
 
-import { ExternalLink, Info, RefreshCw } from 'lucide-react';
+import { ExternalLink, Info, Power, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import packageInfo from '../../../../package.json';
-import { useLatestVersion, useUpdateCore, useVersionInfo } from '@/api/endpoints/update';
+import { useLatestVersion, useRestartCore, useUpdateCore, useVersionInfo } from '@/api/endpoints/update';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
@@ -17,6 +17,7 @@ export function SettingVersion() {
     const { data: versionInfo } = useVersionInfo();
     const { data: latestInfo, isLoading: latestLoading, refetch } = useLatestVersion();
     const updateCore = useUpdateCore();
+    const restartCore = useRestartCore();
 
     const backendVersion = versionInfo?.version ?? t('info.unknown');
     const latestVersion = latestInfo?.tag_name ?? (latestLoading ? '...' : t('info.unknown'));
@@ -27,6 +28,13 @@ export function SettingVersion() {
         updateCore.mutate(undefined, {
             onSuccess: () => toast.success(t('info.updateSuccess')),
             onError: () => toast.error(t('info.updateFailed')),
+        });
+    };
+
+    const onRestart = () => {
+        restartCore.mutate(undefined, {
+            onSuccess: () => toast.success(t('info.restartSuccess')),
+            onError: () => toast.error(t('info.restartFailed')),
         });
     };
 
@@ -98,6 +106,17 @@ export function SettingVersion() {
                     </Button>
                 </div>
             )}
+
+            <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl"
+                onClick={onRestart}
+                disabled={restartCore.isPending || updateCore.isPending}
+            >
+                <Power className="size-4" />
+                {restartCore.isPending ? t('info.restarting') : t('info.restartNow')}
+            </Button>
         </SettingCard>
     );
 }

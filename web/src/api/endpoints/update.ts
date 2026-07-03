@@ -42,3 +42,12 @@ export function useUpdateCore() {
         },
     });
 }
+
+export function useRestartCore() {
+    return useMutation({
+        mutationFn: () => apiClient.post<string>('/api/v1/update/restart', {}),
+        onError: (error) => {
+            logger.error('系统重启失败:', error);
+        },
+    });
+}

@@ -467,7 +467,11 @@
             "updateNow": "Update Now",
             "updating": "Updating...",
             "updateSuccess": "Update successful, service will restart shortly",
-            "updateFailed": "Update failed"
+            "updateFailed": "Update failed",
+            "restartNow": "Restart Service",
+            "restarting": "Restarting...",
+            "restartSuccess": "Service is restarting",
+            "restartFailed": "Restart failed"
         },
         "log": {
             "title": "History Logs",

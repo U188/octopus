@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/U188/octopus/internal/conf"
 	"github.com/U188/octopus/internal/server/middleware"
@@ -29,6 +30,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("", http.MethodPost).
 				Handle(updateFunc),
+		).
+		AddRoute(
+			router.NewRoute("/restart", http.MethodPost).
+				Handle(restartFunc),
 		)
 }
 
@@ -62,4 +67,12 @@ func updateFunc(c *gin.Context) {
 		return
 	}
 	resp.Success(c, "update success")
+}
+
+func restartFunc(c *gin.Context) {
+	if err := update.RestartCore(500 * time.Millisecond); err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, "restart scheduled")
 }
