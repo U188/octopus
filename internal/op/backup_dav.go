@@ -105,6 +105,30 @@ func WebDAVBackupList(ctx context.Context, cred model.WebDAVCredentials) ([]mode
 	return files, nil
 }
 
+func WebDAVValidateCredentials(ctx context.Context, cred model.WebDAVCredentials) error {
+	if err := validateWebDAVCredentials(cred); err != nil {
+		return err
+	}
+	reqBody := strings.NewReader(`<?xml version="1.0" encoding="utf-8" ?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>`)
+	req, err := http.NewRequestWithContext(ctx, "PROPFIND", strings.TrimRight(cred.URL, "/")+"/", reqBody)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(cred.Username, cred.Password)
+	req.Header.Set("Depth", "0")
+	req.Header.Set("Content-Type", "application/xml; charset=utf-8")
+
+	res, err := webDAVHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("webdav validate: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return webDAVStatusError("webdav validate", res)
+	}
+	return nil
+}
+
 func WebDAVBackupSQLite(ctx context.Context, req model.WebDAVBackupRequest) (*model.WebDAVBackupResult, error) {
 	if conf.AppConfig.Database.Type != "sqlite" {
 		return nil, fmt.Errorf("webdav database backup only supports sqlite")

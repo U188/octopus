@@ -79,6 +79,14 @@ func setSetting(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := validateWebDAVSettingCandidate(c.Request.Context(), setting); err != nil {
+		recordAudit(c, "setting.set", op.AuditStatusFailed, map[string]any{
+			"key":   setting.Key,
+			"value": redactedSettingValue(setting.Key, setting.Value),
+		}, err)
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
 		recordAudit(c, "setting.set", op.AuditStatusFailed, map[string]any{
 			"key":   setting.Key,
@@ -148,6 +156,30 @@ func setSetting(c *gin.Context) {
 		"value": redactedSettingValue(setting.Key, setting.Value),
 	}, nil)
 	resp.Success(c, setting)
+}
+
+func validateWebDAVSettingCandidate(ctx context.Context, setting model.Setting) error {
+	if setting.Key != model.SettingKeyWebDAVAutoBackupPassword &&
+		setting.Key != model.SettingKeyWebDAVAutoBackupEnabled {
+		return nil
+	}
+	if setting.Key == model.SettingKeyWebDAVAutoBackupEnabled && strings.TrimSpace(setting.Value) != "true" {
+		return nil
+	}
+	cred := resolveStoredWebDAVCredentials(model.WebDAVCredentials{})
+	switch setting.Key {
+	case model.SettingKeyWebDAVAutoBackupPassword:
+		cred.Password = setting.Value
+	}
+	if strings.TrimSpace(cred.URL) == "" || strings.TrimSpace(cred.Username) == "" || strings.TrimSpace(cred.Password) == "" {
+		return nil
+	}
+	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := op.WebDAVValidateCredentials(validateCtx, cred); err != nil {
+		return err
+	}
+	return nil
 }
 
 func exportDB(c *gin.Context) {
