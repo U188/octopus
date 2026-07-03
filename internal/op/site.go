@@ -30,6 +30,9 @@ func SiteList(ctx context.Context) ([]model.Site, error) {
 	for i := range sites {
 		normalizeSiteProxyFields(&sites[i])
 		hydrateSiteAccountCredentialViews(&sites[i])
+		if err := loadSiteAccountAssociations(ctx, sites[i].Accounts); err != nil {
+			return nil, err
+		}
 	}
 	return sites, nil
 }
@@ -51,6 +54,9 @@ func SiteListArchived(ctx context.Context) ([]model.Site, error) {
 	for i := range sites {
 		normalizeSiteProxyFields(&sites[i])
 		hydrateSiteAccountCredentialViews(&sites[i])
+		if err := loadSiteAccountAssociations(ctx, sites[i].Accounts); err != nil {
+			return nil, err
+		}
 	}
 	return sites, nil
 }
@@ -69,6 +75,9 @@ func SiteGet(id int, ctx context.Context) (*model.Site, error) {
 	}
 	normalizeSiteProxyFields(&site)
 	hydrateSiteAccountCredentialViews(&site)
+	if err := loadSiteAccountAssociations(ctx, site.Accounts); err != nil {
+		return nil, err
+	}
 	return &site, nil
 }
 
@@ -563,7 +572,53 @@ func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 	}
 	normalizeSiteAccountProxyFields(&account)
 	hydrateSiteAccountCredentialView(&account)
+	if err := loadSiteAccountAssociationsByID(ctx, &account); err != nil {
+		return nil, err
+	}
 	return &account, nil
+}
+
+func loadSiteAccountAssociations(ctx context.Context, accounts []model.SiteAccount) error {
+	for i := range accounts {
+		if err := loadSiteAccountAssociationsByID(ctx, &accounts[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadSiteAccountAssociationsByID(ctx context.Context, account *model.SiteAccount) error {
+	if account == nil || account.ID <= 0 {
+		return nil
+	}
+	conn := db.GetDB().WithContext(ctx)
+	if err := conn.Where("site_account_id = ? AND purpose = ?", account.ID, model.SiteCredentialPurposeChat).
+		Order("id ASC").
+		Find(&account.Tokens).Error; err != nil {
+		return err
+	}
+	if err := conn.Where("site_account_id = ? AND purpose <> ?", account.ID, model.SiteCredentialPurposeChat).
+		Order("id ASC").
+		Find(&account.Credentials).Error; err != nil {
+		return err
+	}
+	if err := conn.Where("site_account_id = ?", account.ID).
+		Order("id ASC").
+		Find(&account.UserGroups).Error; err != nil {
+		return err
+	}
+	if err := conn.Where("site_account_id = ?", account.ID).
+		Order("id ASC").
+		Find(&account.Models).Error; err != nil {
+		return err
+	}
+	if err := conn.Where("site_account_id = ?", account.ID).
+		Order("id ASC").
+		Find(&account.ChannelBindings).Error; err != nil {
+		return err
+	}
+	account.HydrateCredentialViews()
+	return nil
 }
 
 func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
