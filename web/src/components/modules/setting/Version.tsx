@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
 import { SettingCard } from './shared';
+import { ConfirmActionButton } from './ConfirmActionButton';
 
 const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || packageInfo.version;
 
@@ -96,27 +97,35 @@ export function SettingVersion() {
                 <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-3">
                     <div className="text-sm font-medium text-card-foreground">{t('info.newVersionAvailable')}</div>
                     <div className="text-xs text-muted-foreground">{t('info.newVersionAvailableHint')}</div>
-                    <Button
+                    <ConfirmActionButton
                         type="button"
                         className="w-full rounded-xl"
-                        onClick={onUpdate}
+                        onConfirm={onUpdate}
                         disabled={updateCore.isPending}
+                        title={t('danger.update.title')}
+                        description={t('danger.update.description')}
+                        confirmLabel={t('danger.confirm')}
+                        cancelLabel={t('danger.cancel')}
                     >
                         {updateCore.isPending ? t('info.updating') : t('info.updateNow')}
-                    </Button>
+                    </ConfirmActionButton>
                 </div>
             )}
 
-            <Button
+            <ConfirmActionButton
                 type="button"
                 variant="outline"
                 className="w-full rounded-xl"
-                onClick={onRestart}
+                onConfirm={onRestart}
                 disabled={restartCore.isPending || updateCore.isPending}
+                title={t('danger.restart.title')}
+                description={t('danger.restart.description')}
+                confirmLabel={t('danger.confirm')}
+                cancelLabel={t('danger.cancel')}
             >
                 <Power className="size-4" />
                 {restartCore.isPending ? t('info.restarting') : t('info.restartNow')}
-            </Button>
+            </ConfirmActionButton>
         </SettingCard>
     );
 }

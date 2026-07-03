@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/U188/octopus/internal/conf"
+	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	"github.com/U188/octopus/internal/server/router"
@@ -63,16 +64,32 @@ func getVersionInfo(c *gin.Context) {
 func updateFunc(c *gin.Context) {
 	err := update.UpdateCore()
 	if err != nil {
+		recordAudit(c, "system.update", op.AuditStatusFailed, map[string]any{
+			"version": conf.Version,
+			"commit":  conf.Commit,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAudit(c, "system.update", op.AuditStatusSuccess, map[string]any{
+		"version": conf.Version,
+		"commit":  conf.Commit,
+	}, nil)
 	resp.Success(c, "update success")
 }
 
 func restartFunc(c *gin.Context) {
 	if err := update.RestartCore(500 * time.Millisecond); err != nil {
+		recordAudit(c, "system.restart", op.AuditStatusFailed, map[string]any{
+			"version": conf.Version,
+			"commit":  conf.Commit,
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAudit(c, "system.restart", op.AuditStatusSuccess, map[string]any{
+		"version": conf.Version,
+		"commit":  conf.Commit,
+	}, nil)
 	resp.Success(c, "restart scheduled")
 }

@@ -254,9 +254,11 @@ func getLog(c *gin.Context) {
 
 func clearLog(c *gin.Context) {
 	if err := op.RelayLogClear(c.Request.Context()); err != nil {
+		recordAudit(c, "relay_log.clear", op.AuditStatusFailed, nil, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	recordAudit(c, "relay_log.clear", op.AuditStatusSuccess, nil, nil)
 	resp.Success(c, nil)
 }
 

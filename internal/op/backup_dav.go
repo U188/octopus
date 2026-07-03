@@ -23,6 +23,8 @@ import (
 
 var webDAVHTTPClient = &http.Client{Timeout: 30 * time.Minute}
 
+const webDAVAutoBackupPrefix = "octopus-auto-db-"
+
 func WebDAVBackupList(ctx context.Context, cred model.WebDAVCredentials) ([]model.WebDAVBackupFile, error) {
 	if err := validateWebDAVCredentials(cred); err != nil {
 		return nil, err
@@ -120,6 +122,47 @@ func WebDAVBackupSQLite(ctx context.Context, req model.WebDAVBackupRequest) (*mo
 	return &model.WebDAVBackupResult{Filename: filename, Size: stat.Size()}, nil
 }
 
+func WebDAVAutoBackupSQLite(ctx context.Context, cred model.WebDAVCredentials, retention int) (*model.WebDAVBackupResult, error) {
+	result, err := WebDAVBackupSQLite(ctx, model.WebDAVBackupRequest{
+		WebDAVCredentials: cred,
+		Filename:          webDAVAutoBackupPrefix + time.Now().Format("20060102150405") + ".db",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if retention > 0 {
+		if err := WebDAVPruneAutoBackups(ctx, cred, retention); err != nil {
+			return result, fmt.Errorf("backup succeeded but prune failed: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func WebDAVPruneAutoBackups(ctx context.Context, cred model.WebDAVCredentials, keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+	files, err := WebDAVBackupList(ctx, cred)
+	if err != nil {
+		return err
+	}
+	autoFiles := make([]model.WebDAVBackupFile, 0, len(files))
+	for _, file := range files {
+		if strings.HasPrefix(file.Name, webDAVAutoBackupPrefix) {
+			autoFiles = append(autoFiles, file)
+		}
+	}
+	if len(autoFiles) <= keep {
+		return nil
+	}
+	for _, file := range autoFiles[keep:] {
+		if err := WebDAVDeleteBackup(ctx, cred, file.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func WebDAVRestoreSQLite(ctx context.Context, req model.WebDAVRestoreRequest) (*model.WebDAVRestoreResult, error) {
 	if conf.AppConfig.Database.Type != "sqlite" {
 		return nil, fmt.Errorf("webdav database restore only supports sqlite")
@@ -157,6 +200,30 @@ func WebDAVRestoreSQLite(ctx context.Context, req model.WebDAVRestoreRequest) (*
 		RestorePending:  true,
 		RestartRequired: true,
 	}, nil
+}
+
+func WebDAVDeleteBackup(ctx context.Context, cred model.WebDAVCredentials, filename string) error {
+	if err := validateWebDAVCredentials(cred); err != nil {
+		return err
+	}
+	filename = strings.TrimSpace(filename)
+	if err := validateWebDAVFilename(filename); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, webDAVFileURL(cred.URL, filename), nil)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(cred.Username, cred.Password)
+	res, err := webDAVHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("webdav delete: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return webDAVStatusError("webdav delete", res)
+	}
+	return nil
 }
 
 func validateWebDAVCredentials(cred model.WebDAVCredentials) error {

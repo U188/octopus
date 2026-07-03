@@ -322,6 +322,30 @@
         },
         "saved": "Saved",
         "saveFailed": "Save failed",
+        "danger": {
+            "confirm": "Confirm",
+            "cancel": "Cancel",
+            "clearLogs": {
+                "title": "Clear history logs?",
+                "description": "Saved request logs will be deleted and cannot be restored from the page."
+            },
+            "import": {
+                "title": "Import database backup?",
+                "description": "The backup content will be incrementally written into the current database. Confirm that the file is trusted."
+            },
+            "davRestore": {
+                "title": "Restore database from WebDAV?",
+                "description": "A full database replacement file will be prepared and applied after service restart."
+            },
+            "update": {
+                "title": "Update service now?",
+                "description": "The current executable will be replaced, and the service will restart after a successful update."
+            },
+            "restart": {
+                "title": "Restart service?",
+                "description": "The service will be briefly unavailable, and in-flight requests may be interrupted."
+            }
+        },
         "backup": {
             "export": {
                 "title": "Export",
@@ -365,7 +389,25 @@
                 "restoreFailed": "DAV restore failed",
                 "noFile": "Select a remote backup file first",
                 "restoreWarning": "WebDAV restore replaces the whole database: the running database is not overwritten immediately; it is applied before the database opens after service restart."
+            },
+            "autoDav": {
+                "title": "WebDAV Auto Backup",
+                "enabled": "Enable auto backup",
+                "url": "WebDAV URL",
+                "username": "Username",
+                "password": "Password (leave blank to keep)",
+                "interval": "Backup interval (hours)",
+                "retention": "Retention count",
+                "hint": "Auto backup files use the octopus-auto-db- prefix. Retention only removes auto backup files."
             }
+        },
+        "audit": {
+            "title": "Operation Audit",
+            "loading": "Loading audit logs...",
+            "empty": "No audit logs",
+            "success": "Success",
+            "failed": "Failed",
+            "unknown": "Unknown"
         },
         "apiKey": {
             "title": "API Keys",

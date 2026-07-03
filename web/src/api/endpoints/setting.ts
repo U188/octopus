@@ -48,6 +48,12 @@ export const SettingKey = {
     TelegramBotProxyMode: 'telegram_bot_proxy_mode',
     TelegramBotProxyURL: 'telegram_bot_proxy_url',
     TelegramBotPollInterval: 'telegram_bot_poll_interval_seconds',
+    WebDAVAutoBackupEnabled: 'webdav_auto_backup_enabled',
+    WebDAVAutoBackupURL: 'webdav_auto_backup_url',
+    WebDAVAutoBackupUsername: 'webdav_auto_backup_username',
+    WebDAVAutoBackupPassword: 'webdav_auto_backup_password',
+    WebDAVAutoBackupIntervalHours: 'webdav_auto_backup_interval_hours',
+    WebDAVAutoBackupRetention: 'webdav_auto_backup_retention',
 } as const;
 
 /**

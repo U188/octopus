@@ -10,6 +10,7 @@ import { SettingSyncTasks } from './SyncTasks';
 import { SettingData } from './Data';
 import { SettingTelegram } from './Telegram';
 import { SettingVersion } from './Version';
+import { SettingAudit } from './Audit';
 
 export function Setting() {
     return (
@@ -24,6 +25,7 @@ export function Setting() {
                 <SettingReliability key="setting-reliability" />
                 <SettingSyncTasks key="setting-sync-tasks" />
                 <SettingData key="setting-data" />
+                <SettingAudit key="setting-audit" />
             </PageWrapper>
         </div>
     );

@@ -48,6 +48,12 @@ const (
 	SettingKeyTelegramBotProxyMode             SettingKey = "telegram_bot_proxy_mode"              // Telegram Bot 代理模式：direct/system/custom
 	SettingKeyTelegramBotProxyURL              SettingKey = "telegram_bot_proxy_url"               // Telegram Bot 自定义代理地址
 	SettingKeyTelegramBotPollInterval          SettingKey = "telegram_bot_poll_interval_seconds"   // Telegram Bot 异常重试/配置刷新间隔（秒）
+	SettingKeyWebDAVAutoBackupEnabled          SettingKey = "webdav_auto_backup_enabled"           // 是否启用 WebDAV 自动整库备份
+	SettingKeyWebDAVAutoBackupURL              SettingKey = "webdav_auto_backup_url"               // WebDAV 自动备份地址
+	SettingKeyWebDAVAutoBackupUsername         SettingKey = "webdav_auto_backup_username"          // WebDAV 自动备份用户名
+	SettingKeyWebDAVAutoBackupPassword         SettingKey = "webdav_auto_backup_password"          // WebDAV 自动备份密码
+	SettingKeyWebDAVAutoBackupIntervalHours    SettingKey = "webdav_auto_backup_interval_hours"    // WebDAV 自动备份间隔（小时）
+	SettingKeyWebDAVAutoBackupRetention        SettingKey = "webdav_auto_backup_retention"         // WebDAV 自动备份保留份数
 )
 
 type Setting struct {
@@ -95,6 +101,12 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyTelegramBotProxyMode, Value: "direct"},
 		{Key: SettingKeyTelegramBotProxyURL, Value: ""},
 		{Key: SettingKeyTelegramBotPollInterval, Value: "5"},
+		{Key: SettingKeyWebDAVAutoBackupEnabled, Value: "false"},
+		{Key: SettingKeyWebDAVAutoBackupURL, Value: ""},
+		{Key: SettingKeyWebDAVAutoBackupUsername, Value: ""},
+		{Key: SettingKeyWebDAVAutoBackupPassword, Value: ""},
+		{Key: SettingKeyWebDAVAutoBackupIntervalHours, Value: "24"},
+		{Key: SettingKeyWebDAVAutoBackupRetention, Value: "7"},
 	}
 }
 
@@ -139,11 +151,15 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled, SettingKeyWebDAVAutoBackupEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}
 		return nil
+	case SettingKeyWebDAVAutoBackupIntervalHours:
+		return validateIntMin(s.Value, 1)
+	case SettingKeyWebDAVAutoBackupRetention:
+		return validateIntRange(s.Value, 1, 100)
 	case SettingKeyTelegramBotPollInterval:
 		return validateIntRange(s.Value, 1, 60)
 	case SettingKeyTelegramBotProxyMode:
@@ -185,7 +201,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("proxy URL must have a host")
 		}
 		return nil
-	case SettingKeyApiBaseUrl, SettingKeyTelegramBotAPIBaseURL:
+	case SettingKeyApiBaseUrl, SettingKeyTelegramBotAPIBaseURL, SettingKeyWebDAVAutoBackupURL:
 		if s.Value == "" {
 			return nil
 		}
@@ -216,6 +232,15 @@ func (s *Setting) Validate() error {
 	}
 
 	return nil
+}
+
+func IsSensitiveSettingKey(key SettingKey) bool {
+	switch key {
+	case SettingKeyTelegramBotToken, SettingKeyWebDAVAutoBackupPassword:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateIntRange 校验 v 为整数且落在闭区间 [lo, hi]。

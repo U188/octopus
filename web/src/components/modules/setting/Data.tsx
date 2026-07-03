@@ -10,6 +10,7 @@ import { toast } from '@/components/common/Toast';
 import { SettingKey, useExportDB, useImportDB, useWebDAVBackupDB, useWebDAVBackupList, useWebDAVRestoreDB } from '@/api/endpoints/setting';
 import { useClearLogs } from '@/api/endpoints/log';
 import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
+import { ConfirmActionButton } from './ConfirmActionButton';
 
 export function SettingData() {
     const t = useTranslations('setting');
@@ -26,6 +27,12 @@ export function SettingData() {
     const davList = useWebDAVBackupList();
     const davBackup = useWebDAVBackupDB();
     const davRestore = useWebDAVRestoreDB();
+    const autoDAVEnabled = useSettingToggle(SettingKey.WebDAVAutoBackupEnabled);
+    const autoDAVURL = useSettingField(SettingKey.WebDAVAutoBackupURL);
+    const autoDAVUsername = useSettingField(SettingKey.WebDAVAutoBackupUsername);
+    const autoDAVPassword = useSettingField(SettingKey.WebDAVAutoBackupPassword);
+    const autoDAVInterval = useSettingField(SettingKey.WebDAVAutoBackupIntervalHours);
+    const autoDAVRetention = useSettingField(SettingKey.WebDAVAutoBackupRetention);
 
     const [includeStats, setIncludeStats] = useState(true);
     // 常规导出固定 JSON（可导入恢复）；含日志导出为 ZIP 流式归档，单独成按钮
@@ -173,15 +180,19 @@ export function SettingData() {
                 />
             </SettingRow>
             <SettingRow icon={Trash2} label={t('log.clear.label')}>
-                <Button
+                <ConfirmActionButton
                     variant="destructive"
                     size="sm"
-                    onClick={handleClearLogs}
+                    onConfirm={handleClearLogs}
                     disabled={clearLogs.isPending}
                     className="rounded-xl"
+                    title={t('danger.clearLogs.title')}
+                    description={t('danger.clearLogs.description')}
+                    confirmLabel={t('danger.confirm')}
+                    cancelLabel={t('danger.cancel')}
                 >
                     {clearLogs.isPending ? t('log.clear.clearing') : t('log.clear.button')}
-                </Button>
+                </ConfirmActionButton>
             </SettingRow>
 
             {/* 备份导出 */}
@@ -231,16 +242,20 @@ export function SettingData() {
                     className="rounded-xl"
                 />
 
-                <Button
+                <ConfirmActionButton
                     type="button"
                     variant="destructive"
                     className="w-full rounded-xl"
-                    onClick={onImport}
+                    onConfirm={onImport}
                     disabled={importDB.isPending}
+                    title={t('danger.import.title')}
+                    description={t('danger.import.description')}
+                    confirmLabel={t('danger.confirm')}
+                    cancelLabel={t('danger.cancel')}
                 >
                     <Upload className="size-4" />
                     {importDB.isPending ? t('backup.import.importing') : t('backup.import.button')}
-                </Button>
+                </ConfirmActionButton>
 
                 {rowsAffectedList.length > 0 && (
                     <div className="mt-2 space-y-1">
@@ -324,16 +339,20 @@ export function SettingData() {
                                 </option>
                             ))}
                         </select>
-                        <Button
+                        <ConfirmActionButton
                             type="button"
                             variant="destructive"
                             className="w-full rounded-xl"
-                            onClick={restoreFromDAV}
+                            onConfirm={restoreFromDAV}
                             disabled={davRestore.isPending}
+                            title={t('danger.davRestore.title')}
+                            description={t('danger.davRestore.description')}
+                            confirmLabel={t('danger.confirm')}
+                            cancelLabel={t('danger.cancel')}
                         >
                             <RotateCcw className="size-4" />
                             {davRestore.isPending ? t('backup.dav.restoring') : t('backup.dav.restore')}
-                        </Button>
+                        </ConfirmActionButton>
                     </div>
                 )}
 
@@ -347,6 +366,57 @@ export function SettingData() {
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                     {t('backup.dav.restoreWarning')}
                 </p>
+            </div>
+
+            <SettingSection title={t('backup.autoDav.title')} />
+            <div className="space-y-3">
+                <SettingRow label={t('backup.autoDav.enabled')}>
+                    <Switch checked={autoDAVEnabled.enabled} onCheckedChange={autoDAVEnabled.toggle} />
+                </SettingRow>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <Input
+                        value={autoDAVURL.value}
+                        onChange={(e) => autoDAVURL.setValue(e.target.value)}
+                        onBlur={autoDAVURL.save}
+                        placeholder={t('backup.autoDav.url')}
+                        className="rounded-xl sm:col-span-2"
+                    />
+                    <Input
+                        value={autoDAVUsername.value}
+                        onChange={(e) => autoDAVUsername.setValue(e.target.value)}
+                        onBlur={autoDAVUsername.save}
+                        placeholder={t('backup.autoDav.username')}
+                        className="rounded-xl"
+                    />
+                    <Input
+                        type="password"
+                        value={autoDAVPassword.value}
+                        onChange={(e) => autoDAVPassword.setValue(e.target.value)}
+                        onBlur={autoDAVPassword.save}
+                        placeholder={t('backup.autoDav.password')}
+                        className="rounded-xl"
+                    />
+                    <Input
+                        type="number"
+                        min={1}
+                        value={autoDAVInterval.value}
+                        onChange={(e) => autoDAVInterval.setValue(e.target.value)}
+                        onBlur={autoDAVInterval.save}
+                        placeholder={t('backup.autoDav.interval')}
+                        className="rounded-xl"
+                    />
+                    <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={autoDAVRetention.value}
+                        onChange={(e) => autoDAVRetention.setValue(e.target.value)}
+                        onBlur={autoDAVRetention.save}
+                        placeholder={t('backup.autoDav.retention')}
+                        className="rounded-xl"
+                    />
+                </div>
+                <p className="text-xs text-muted-foreground">{t('backup.autoDav.hint')}</p>
             </div>
         </SettingCard>
     );

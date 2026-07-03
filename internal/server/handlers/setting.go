@@ -80,6 +80,10 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
+		recordAudit(c, "setting.set", op.AuditStatusFailed, map[string]any{
+			"key":   setting.Key,
+			"value": redactedSettingValue(setting.Key, setting.Value),
+		}, err)
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -119,6 +123,13 @@ func setSetting(c *gin.Context) {
 			return
 		}
 		task.Update(string(setting.Key), time.Duration(minutes)*time.Minute)
+	case model.SettingKeyWebDAVAutoBackupIntervalHours:
+		hours, err := strconv.Atoi(setting.Value)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		task.Update(task.TaskWebDAVAutoBackup, time.Duration(hours)*time.Hour)
 	case model.SettingKeyProjectedChannelAutoGroupEnabled:
 		mode, _ := model.ParseAutoGroupSettingValue(setting.Value)
 		if mode != model.AutoGroupTypeNone && projectedAutoGroupQueued.CompareAndSwap(false, true) {
@@ -132,6 +143,10 @@ func setSetting(c *gin.Context) {
 			})
 		}
 	}
+	recordAudit(c, "setting.set", op.AuditStatusSuccess, map[string]any{
+		"key":   setting.Key,
+		"value": redactedSettingValue(setting.Key, setting.Value),
+	}, nil)
 	resp.Success(c, setting)
 }
 
@@ -213,6 +228,7 @@ func importDB(c *gin.Context) {
 
 	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
 	if err != nil {
+		recordAudit(c, "database.import", op.AuditStatusFailed, nil, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -221,6 +237,9 @@ func importDB(c *gin.Context) {
 		log.Warnf("cache refresh after import failed: %v", err)
 	}
 
+	recordAudit(c, "database.import", op.AuditStatusSuccess, map[string]any{
+		"rows_affected": result.RowsAffected,
+	}, nil)
 	resp.Success(c, result)
 }
 
@@ -246,9 +265,16 @@ func backupToWebDAV(c *gin.Context) {
 	}
 	result, err := op.WebDAVBackupSQLite(c.Request.Context(), req)
 	if err != nil {
+		recordAudit(c, "webdav.backup", op.AuditStatusFailed, map[string]any{
+			"filename": strings.TrimSpace(req.Filename),
+		}, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	recordAudit(c, "webdav.backup", op.AuditStatusSuccess, map[string]any{
+		"filename": result.Filename,
+		"size":     result.Size,
+	}, nil)
 	resp.Success(c, result)
 }
 
@@ -260,9 +286,17 @@ func restoreFromWebDAV(c *gin.Context) {
 	}
 	result, err := op.WebDAVRestoreSQLite(c.Request.Context(), req)
 	if err != nil {
+		recordAudit(c, "webdav.restore", op.AuditStatusFailed, map[string]any{
+			"filename": strings.TrimSpace(req.Filename),
+		}, err)
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	recordAudit(c, "webdav.restore", op.AuditStatusSuccess, map[string]any{
+		"filename":         result.Filename,
+		"size":             result.Size,
+		"restart_required": result.RestartRequired,
+	}, nil)
 	resp.Success(c, result)
 }
 

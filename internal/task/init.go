@@ -98,4 +98,10 @@ func Init() {
 		outlierIntervalMinutes = 2
 	}
 	Register(string(model.SettingKeyOutlierRetireInterval), time.Duration(outlierIntervalMinutes)*time.Minute, false, SiteOutlierRetireTask)
+
+	webDAVAutoBackupIntervalHours, err := op.SettingGetInt(model.SettingKeyWebDAVAutoBackupIntervalHours)
+	if err != nil || webDAVAutoBackupIntervalHours <= 0 {
+		webDAVAutoBackupIntervalHours = 24
+	}
+	Register(TaskWebDAVAutoBackup, time.Duration(webDAVAutoBackupIntervalHours)*time.Hour, false, WebDAVAutoBackupTask)
 }

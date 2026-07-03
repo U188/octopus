@@ -322,6 +322,30 @@
         },
         "saved": "已儲存",
         "saveFailed": "儲存失敗",
+        "danger": {
+            "confirm": "確認執行",
+            "cancel": "取消",
+            "clearLogs": {
+                "title": "清空歷史日誌？",
+                "description": "這會刪除目前保存的歷史請求日誌，刪除後無法從頁面復原。"
+            },
+            "import": {
+                "title": "匯入資料庫備份？",
+                "description": "匯入會把備份內容增量寫入目前資料庫，請確認檔案來源可信。"
+            },
+            "davRestore": {
+                "title": "從 WebDAV 復原資料庫？",
+                "description": "復原會準備整庫替換檔案，重啟服務後目前資料庫會被替換。"
+            },
+            "update": {
+                "title": "立即更新服務？",
+                "description": "更新會下載並替換目前程式，成功後服務會自動重啟。"
+            },
+            "restart": {
+                "title": "重啟服務？",
+                "description": "服務會短暫不可用，正在進行的請求可能會中斷。"
+            }
+        },
         "backup": {
             "export": {
                 "title": "匯出",
@@ -365,7 +389,25 @@
                 "restoreFailed": "DAV 復原失敗",
                 "noFile": "請先選擇遠端備份檔案",
                 "restoreWarning": "WebDAV 復原是整庫替換：目前執行中的資料庫不會立即被覆蓋，重啟服務後會在開啟資料庫前套用。"
+            },
+            "autoDav": {
+                "title": "WebDAV 自動備份",
+                "enabled": "啟用自動備份",
+                "url": "WebDAV 地址",
+                "username": "使用者名稱",
+                "password": "密碼（留空不修改）",
+                "interval": "備份間隔（小時）",
+                "retention": "保留份數",
+                "hint": "自動備份檔案使用 octopus-auto-db- 前綴，保留策略只清理自動備份檔案。"
             }
+        },
+        "audit": {
+            "title": "操作審計",
+            "loading": "正在載入審計記錄...",
+            "empty": "暫無審計記錄",
+            "success": "成功",
+            "failed": "失敗",
+            "unknown": "未知"
         },
         "apiKey": {
             "title": "API 金鑰",
