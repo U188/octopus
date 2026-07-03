@@ -212,6 +212,10 @@ build_frontend() {
     # Change to web directory
     cd "$web_dir" || return 1
 
+    # Ensure release metadata from NEXT_PUBLIC_APP_VERSION is not hidden by
+    # stale Next/Turbopack build output from a previous build.
+    rm -rf ".next" "out"
+
     # Install dependencies
     log_info "Installing frontend dependencies..."
     if ! pnpm install; then

@@ -3,7 +3,6 @@
 import { ExternalLink, Info, Power, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import packageInfo from '../../../../package.json';
 import { useLatestVersion, useRestartCore, useUpdateCore, useVersionInfo } from '@/api/endpoints/update';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +10,7 @@ import { toast } from '@/components/common/Toast';
 import { SettingCard } from './shared';
 import { ConfirmActionButton } from './ConfirmActionButton';
 
-const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || packageInfo.version;
+const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || '';
 
 export function SettingVersion() {
     const t = useTranslations('setting');
@@ -22,7 +21,7 @@ export function SettingVersion() {
 
     const backendVersion = versionInfo?.version ?? t('info.unknown');
     const latestVersion = latestInfo?.tag_name ?? (latestLoading ? '...' : t('info.unknown'));
-    const versionMismatch = Boolean(versionInfo?.version && versionInfo.version !== frontendVersion);
+    const versionMismatch = Boolean(frontendVersion && versionInfo?.version && versionInfo.version !== frontendVersion);
     const updateAvailable = Boolean(versionInfo?.version && latestInfo?.tag_name && compareVersions(latestInfo.tag_name, versionInfo.version) > 0);
 
     const onUpdate = () => {
@@ -49,7 +48,7 @@ export function SettingVersion() {
                     </div>
                 </InfoRow>
                 <InfoRow label="Frontend">
-                    <Badge variant="outline">{frontendVersion}</Badge>
+                    <Badge variant="outline">{frontendVersion || t('info.unknown')}</Badge>
                 </InfoRow>
                 <InfoRow label={t('info.latestVersion')}>
                     <div className="flex items-center justify-end gap-2">
