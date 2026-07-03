@@ -40,3 +40,41 @@ type DBImportResult struct {
 	// RowsAffected contains the rows affected for each table operation (insert/upsert depending on table).
 	RowsAffected map[string]int64 `json:"rows_affected"`
 }
+
+type WebDAVCredentials struct {
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type WebDAVBackupFile struct {
+	Name       string     `json:"name"`
+	Size       int64      `json:"size"`
+	ModifiedAt *time.Time `json:"modified_at,omitempty"`
+}
+
+type WebDAVBackupListRequest struct {
+	WebDAVCredentials
+}
+
+type WebDAVBackupRequest struct {
+	WebDAVCredentials
+	Filename string `json:"filename"`
+}
+
+type WebDAVBackupResult struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+}
+
+type WebDAVRestoreRequest struct {
+	WebDAVCredentials
+	Filename string `json:"filename"`
+}
+
+type WebDAVRestoreResult struct {
+	Filename        string `json:"filename"`
+	Size            int64  `json:"size"`
+	RestorePending  bool   `json:"restore_pending"`
+	RestartRequired bool   `json:"restart_required"`
+}

@@ -2,12 +2,12 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Calendar, Clock, Database, Download, FileArchive, ScrollText, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Calendar, Clock, Cloud, Database, Download, FileArchive, RefreshCw, RotateCcw, ScrollText, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/common/Toast';
-import { SettingKey, useExportDB, useImportDB } from '@/api/endpoints/setting';
+import { SettingKey, useExportDB, useImportDB, useWebDAVBackupDB, useWebDAVBackupList, useWebDAVRestoreDB } from '@/api/endpoints/setting';
 import { useClearLogs } from '@/api/endpoints/log';
 import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
@@ -23,6 +23,9 @@ export function SettingData() {
     // 备份导出/导入
     const exportDB = useExportDB();
     const importDB = useImportDB();
+    const davList = useWebDAVBackupList();
+    const davBackup = useWebDAVBackupDB();
+    const davRestore = useWebDAVRestoreDB();
 
     const [includeStats, setIncludeStats] = useState(true);
     // 常规导出固定 JSON（可导入恢复）；含日志导出为 ZIP 流式归档，单独成按钮
@@ -30,6 +33,17 @@ export function SettingData() {
 
     const [file, setFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [davURL, setDavURL] = useState('http://49.233.38.144:5244/dav');
+    const [davUsername, setDavUsername] = useState('u1888');
+    const [davPassword, setDavPassword] = useState('xm552297');
+    const [davFilename, setDavFilename] = useState('');
+    const [selectedDavFile, setSelectedDavFile] = useState('');
+
+    const davCredentials = useMemo(() => ({
+        url: davURL.trim(),
+        username: davUsername.trim(),
+        password: davPassword,
+    }), [davPassword, davURL, davUsername]);
 
     const rowsAffected = importDB.data?.rows_affected ?? null;
     const rowsAffectedList = useMemo(() => {
@@ -79,6 +93,52 @@ export function SettingData() {
             toast.error(e instanceof Error ? e.message : t('backup.export.failed'));
         } finally {
             setExportingKind(null);
+        }
+    };
+
+    const refreshDAVBackups = async () => {
+        try {
+            const files = await davList.mutateAsync(davCredentials);
+            if (!selectedDavFile && files[0]) {
+                setSelectedDavFile(files[0].name);
+            }
+            toast.success(t('backup.dav.listSuccess'));
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('backup.dav.listFailed'));
+        }
+    };
+
+    const backupToDAV = async () => {
+        try {
+            const result = await davBackup.mutateAsync({
+                ...davCredentials,
+                filename: davFilename.trim() || undefined,
+            });
+            setSelectedDavFile(result.filename);
+            toast.success(t('backup.dav.backupSuccess'));
+            try {
+                await davList.mutateAsync(davCredentials);
+            } catch {
+                // Backup already succeeded; the next manual refresh can recover the list.
+            }
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('backup.dav.backupFailed'));
+        }
+    };
+
+    const restoreFromDAV = async () => {
+        if (!selectedDavFile) {
+            toast.error(t('backup.dav.noFile'));
+            return;
+        }
+        try {
+            await davRestore.mutateAsync({
+                ...davCredentials,
+                filename: selectedDavFile,
+            });
+            toast.success(t('backup.dav.restoreSuccess'));
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('backup.dav.restoreFailed'));
         }
     };
 
@@ -196,6 +256,116 @@ export function SettingData() {
                     </div>
                 )}
             </div>
+
+            {/* WebDAV 整库备份 */}
+            <SettingSection title={t('backup.dav.title')} />
+            <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                    <Input
+                        value={davURL}
+                        onChange={(e) => setDavURL(e.target.value)}
+                        placeholder={t('backup.dav.url')}
+                        className="rounded-xl sm:col-span-3"
+                    />
+                    <Input
+                        value={davUsername}
+                        onChange={(e) => setDavUsername(e.target.value)}
+                        placeholder={t('backup.dav.username')}
+                        className="rounded-xl"
+                    />
+                    <Input
+                        type="password"
+                        value={davPassword}
+                        onChange={(e) => setDavPassword(e.target.value)}
+                        placeholder={t('backup.dav.password')}
+                        className="rounded-xl"
+                    />
+                    <Input
+                        value={davFilename}
+                        onChange={(e) => setDavFilename(e.target.value)}
+                        placeholder={t('backup.dav.filename')}
+                        className="rounded-xl"
+                    />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={refreshDAVBackups}
+                        disabled={davList.isPending}
+                    >
+                        <RefreshCw className="size-4" />
+                        {davList.isPending ? t('backup.dav.listing') : t('backup.dav.list')}
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={backupToDAV}
+                        disabled={davBackup.isPending || davList.isPending}
+                    >
+                        <Cloud className="size-4" />
+                        {davBackup.isPending ? t('backup.dav.backingUp') : t('backup.dav.backup')}
+                    </Button>
+                </div>
+
+                {(davList.data?.length ?? 0) > 0 && (
+                    <div className="space-y-2">
+                        <select
+                            value={selectedDavFile}
+                            onChange={(e) => setSelectedDavFile(e.target.value)}
+                            className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                        >
+                            {davList.data?.map((item) => (
+                                <option key={item.name} value={item.name}>
+                                    {item.name} · {formatBytes(item.size)}{item.modified_at ? ` · ${formatDate(item.modified_at)}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            className="w-full rounded-xl"
+                            onClick={restoreFromDAV}
+                            disabled={davRestore.isPending}
+                        >
+                            <RotateCcw className="size-4" />
+                            {davRestore.isPending ? t('backup.dav.restoring') : t('backup.dav.restore')}
+                        </Button>
+                    </div>
+                )}
+
+                {davList.data && davList.data.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+                        {t('backup.dav.empty')}
+                    </div>
+                )}
+
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                    {t('backup.dav.restoreWarning')}
+                </p>
+            </div>
         </SettingCard>
     );
+}
+
+function formatBytes(size: number) {
+    if (!Number.isFinite(size) || size <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = size;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit++;
+    }
+    return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatDate(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
 }

@@ -41,6 +41,12 @@ var startCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		shutdown.Init(log.Logger)
+		if conf.AppConfig.Database.Type == "sqlite" {
+			if err := db.ApplyPendingSQLiteRestore(conf.AppConfig.Database.Path); err != nil {
+				log.Errorf("sqlite restore error: %v", err)
+				os.Exit(1)
+			}
+		}
 		if err := db.InitDB(conf.AppConfig.Database.Type, conf.AppConfig.Database.Path, conf.IsDebug()); err != nil {
 			log.Errorf("database init error: %v", err)
 			os.Exit(1)

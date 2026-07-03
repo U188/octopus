@@ -42,6 +42,21 @@ func init() {
 		AddRoute(
 			router.NewRoute("/import", http.MethodPost).
 				Handle(importDB),
+		).
+		AddRoute(
+			router.NewRoute("/dav/list", http.MethodPost).
+				Use(middleware.RequireJSON()).
+				Handle(listWebDAVBackups),
+		).
+		AddRoute(
+			router.NewRoute("/dav/backup", http.MethodPost).
+				Use(middleware.RequireJSON()).
+				Handle(backupToWebDAV),
+		).
+		AddRoute(
+			router.NewRoute("/dav/restore", http.MethodPost).
+				Use(middleware.RequireJSON()).
+				Handle(restoreFromWebDAV),
 		)
 }
 
@@ -206,6 +221,48 @@ func importDB(c *gin.Context) {
 		log.Warnf("cache refresh after import failed: %v", err)
 	}
 
+	resp.Success(c, result)
+}
+
+func listWebDAVBackups(c *gin.Context) {
+	var req model.WebDAVBackupListRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	files, err := op.WebDAVBackupList(c.Request.Context(), req.WebDAVCredentials)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, files)
+}
+
+func backupToWebDAV(c *gin.Context) {
+	var req model.WebDAVBackupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := op.WebDAVBackupSQLite(c.Request.Context(), req)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, result)
+}
+
+func restoreFromWebDAV(c *gin.Context) {
+	var req model.WebDAVRestoreRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := op.WebDAVRestoreSQLite(c.Request.Context(), req)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	resp.Success(c, result)
 }
 

@@ -9,6 +9,7 @@ import { SettingReliability } from './Reliability';
 import { SettingSyncTasks } from './SyncTasks';
 import { SettingData } from './Data';
 import { SettingTelegram } from './Telegram';
+import { SettingVersion } from './Version';
 
 export function Setting() {
     return (
@@ -17,6 +18,7 @@ export function Setting() {
                 <SettingAPIKey key="setting-apikey" />
                 <SettingAppearance key="setting-appearance" />
                 <SettingNetwork key="setting-network" />
+                <SettingVersion key="setting-version" />
                 <SettingTelegram key="setting-telegram" />
                 <SettingAccount key="setting-account" />
                 <SettingReliability key="setting-reliability" />

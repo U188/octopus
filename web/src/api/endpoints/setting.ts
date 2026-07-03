@@ -128,6 +128,38 @@ export interface DBExportOptions {
     format?: 'json' | 'zip';
 }
 
+export interface WebDAVCredentials {
+    url: string;
+    username: string;
+    password: string;
+}
+
+export interface WebDAVBackupFile {
+    name: string;
+    size: number;
+    modified_at?: string;
+}
+
+export interface WebDAVBackupRequest extends WebDAVCredentials {
+    filename?: string;
+}
+
+export interface WebDAVBackupResult {
+    filename: string;
+    size: number;
+}
+
+export interface WebDAVRestoreRequest extends WebDAVCredentials {
+    filename: string;
+}
+
+export interface WebDAVRestoreResult {
+    filename: string;
+    size: number;
+    restore_pending: boolean;
+    restart_required: boolean;
+}
+
 type ApiResponse<T> = {
     code?: number;
     message?: string;
@@ -254,3 +286,35 @@ export function useImportDB() {
     });
 }
 
+export function useWebDAVBackupList() {
+    return useMutation({
+        mutationFn: async (credentials: WebDAVCredentials) => {
+            return apiClient.post<WebDAVBackupFile[]>('/api/v1/setting/dav/list', credentials);
+        },
+        onError: (error) => {
+            logger.error('获取 WebDAV 备份列表失败:', error);
+        },
+    });
+}
+
+export function useWebDAVBackupDB() {
+    return useMutation({
+        mutationFn: async (data: WebDAVBackupRequest) => {
+            return apiClient.post<WebDAVBackupResult>('/api/v1/setting/dav/backup', data);
+        },
+        onError: (error) => {
+            logger.error('WebDAV 备份数据库失败:', error);
+        },
+    });
+}
+
+export function useWebDAVRestoreDB() {
+    return useMutation({
+        mutationFn: async (data: WebDAVRestoreRequest) => {
+            return apiClient.post<WebDAVRestoreResult>('/api/v1/setting/dav/restore', data);
+        },
+        onError: (error) => {
+            logger.error('WebDAV 恢复数据库失败:', error);
+        },
+    });
+}

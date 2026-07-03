@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	updateUrl    = "https://github.com/U188/octopus/releases/latest/download"
-	updateApiUrl = "https://api.github.com/repos/U188/octopus/releases/latest"
+	updateUrl    = "https://github.com/u188/octopus/releases/latest/download"
+	updateApiUrl = "https://api.github.com/repos/u188/octopus/releases/latest"
 )
 
 type LatestInfo struct {

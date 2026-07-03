@@ -343,6 +343,28 @@
                 "success": "导入成功",
                 "failed": "导入失败",
                 "result": "导入结果"
+            },
+            "dav": {
+                "title": "WebDAV 整库备份",
+                "url": "WebDAV 地址",
+                "username": "用户名",
+                "password": "密码",
+                "filename": "文件名（留空自动生成）",
+                "list": "刷新远端备份",
+                "listing": "刷新中...",
+                "empty": "远端目录暂无数据库备份文件",
+                "listSuccess": "已刷新远端备份",
+                "listFailed": "刷新远端备份失败",
+                "backup": "备份数据库到 DAV",
+                "backingUp": "备份中...",
+                "backupSuccess": "数据库已备份到 DAV",
+                "backupFailed": "DAV 备份失败",
+                "restore": "从 DAV 恢复数据库",
+                "restoring": "恢复中...",
+                "restoreSuccess": "恢复文件已准备好，重启服务后生效",
+                "restoreFailed": "DAV 恢复失败",
+                "noFile": "请先选择远端备份文件",
+                "restoreWarning": "WebDAV 恢复是整库替换：当前运行中的数据库不会立即被覆盖，重启服务后会在打开数据库前应用。"
             }
         },
         "apiKey": {

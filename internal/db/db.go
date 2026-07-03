@@ -1,7 +1,10 @@
 package db
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +18,122 @@ import (
 )
 
 var db *gorm.DB
+
+func ApplyPendingSQLiteRestore(path string) error {
+	pendingPath := SQLitePendingRestorePath(path)
+	if _, err := os.Stat(pendingPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat pending sqlite restore: %w", err)
+	}
+	if err := ValidateSQLiteDatabaseFile(pendingPath); err != nil {
+		return fmt.Errorf("validate pending sqlite restore: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create sqlite database directory: %w", err)
+	}
+
+	ts := time.Now().Format("20060102150405")
+	backupPath := path + ".before-restore-" + ts
+	if _, err := os.Stat(path); err == nil {
+		if err := os.Rename(path, backupPath); err != nil {
+			return fmt.Errorf("backup current sqlite database: %w", err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat current sqlite database: %w", err)
+	}
+
+	for _, suffix := range []string{"-wal", "-shm"} {
+		currentAux := path + suffix
+		if _, err := os.Stat(currentAux); err == nil {
+			_ = os.Rename(currentAux, backupPath+suffix)
+		}
+	}
+
+	if err := os.Rename(pendingPath, path); err != nil {
+		if _, statErr := os.Stat(backupPath); statErr == nil {
+			_ = os.Rename(backupPath, path)
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if _, statErr := os.Stat(backupPath + suffix); statErr == nil {
+				_ = os.Rename(backupPath+suffix, path+suffix)
+			}
+		}
+		return fmt.Errorf("install sqlite restore: %w", err)
+	}
+	return nil
+}
+
+func SQLitePendingRestorePath(path string) string {
+	return path + ".restore"
+}
+
+func CreateSQLiteSnapshot(ctx context.Context, dest string) error {
+	if db == nil {
+		return fmt.Errorf("database is not initialized")
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return fmt.Errorf("create sqlite snapshot directory: %w", err)
+	}
+	_ = os.Remove(dest)
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return fmt.Errorf("resolve sqlite snapshot path: %w", err)
+	}
+	if err := db.WithContext(ctx).Exec("VACUUM INTO " + quoteSQLiteString(absDest)).Error; err != nil {
+		return fmt.Errorf("create sqlite snapshot: %w", err)
+	}
+	return nil
+}
+
+func ScheduleSQLiteRestore(dbPath, restorePath string) error {
+	if err := ValidateSQLiteDatabaseFile(restorePath); err != nil {
+		return err
+	}
+	pendingPath := SQLitePendingRestorePath(dbPath)
+	if err := os.MkdirAll(filepath.Dir(pendingPath), 0755); err != nil {
+		return fmt.Errorf("create sqlite restore directory: %w", err)
+	}
+	_ = os.Remove(pendingPath)
+	if err := os.Rename(restorePath, pendingPath); err != nil {
+		return fmt.Errorf("schedule sqlite restore: %w", err)
+	}
+	return nil
+}
+
+func ValidateSQLiteDatabaseFile(path string) error {
+	conn, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		return fmt.Errorf("open sqlite database: %w", err)
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return fmt.Errorf("get sqlite database handle: %w", err)
+	}
+	defer sqlDB.Close()
+
+	var integrity string
+	if err := conn.Raw("PRAGMA integrity_check").Scan(&integrity).Error; err != nil {
+		return fmt.Errorf("run sqlite integrity_check: %w", err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("sqlite integrity_check failed: %s", integrity)
+	}
+
+	var requiredTables int64
+	if err := conn.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'settings')").Scan(&requiredTables).Error; err != nil {
+		return fmt.Errorf("inspect sqlite tables: %w", err)
+	}
+	if requiredTables != 2 {
+		return fmt.Errorf("sqlite database is not an octopus backup")
+	}
+	return nil
+}
+
+func quoteSQLiteString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
 
 func InitDB(dbType, dsn string, debug bool) error {
 	var err error
