@@ -624,7 +624,7 @@ func SiteGroupDelete(siteID int, accountID int, groupKey string, ctx context.Con
 		return fmt.Errorf("group key is required")
 	}
 	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("site_account_id = ? AND group_key = ?", accountID, targetGroupKey).Delete(&model.SiteToken{}).Error; err != nil {
+		if err := tx.Where("site_account_id = ? AND purpose = ? AND group_key = ?", accountID, model.SiteCredentialPurposeChat, targetGroupKey).Delete(&model.SiteToken{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("site_account_id = ? AND group_key = ?", accountID, targetGroupKey).Delete(&model.SiteModel{}).Error; err != nil {
@@ -664,7 +664,7 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 
 	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existingTokens []model.SiteToken
-		if err := tx.Where("site_account_id = ? AND group_key = ?", accountID, targetGroupKey).Find(&existingTokens).Error; err != nil {
+		if err := tx.Where("site_account_id = ? AND purpose = ? AND group_key = ?", accountID, model.SiteCredentialPurposeChat, targetGroupKey).Find(&existingTokens).Error; err != nil {
 			return err
 		}
 
@@ -680,6 +680,7 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 			}
 			row := model.SiteToken{
 				SiteAccountID: accountID,
+				Purpose:       model.SiteCredentialPurposeChat,
 				Name:          strings.TrimSpace(item.Name),
 				Token:         normalizedToken,
 				GroupKey:      targetGroupKey,
@@ -718,13 +719,13 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 						return fmt.Errorf("新 Key 与已有脱敏 Key 模式不匹配，请确认输入")
 					}
 				}
-				updates["token"] = normalizedToken
+				updates["value"] = normalizedToken
 				updates["value_status"] = model.NormalizeSiteTokenValueStatus(existing.ValueStatus, normalizedToken)
 			}
 			if len(updates) == 0 {
 				continue
 			}
-			if err := tx.Model(&model.SiteToken{}).Where("id = ? AND site_account_id = ? AND group_key = ?", item.ID, accountID, targetGroupKey).Updates(updates).Error; err != nil {
+			if err := tx.Model(&model.SiteToken{}).Where("id = ? AND site_account_id = ? AND purpose = ? AND group_key = ?", item.ID, accountID, model.SiteCredentialPurposeChat, targetGroupKey).Updates(updates).Error; err != nil {
 				return err
 			}
 		}
@@ -737,7 +738,7 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 				}
 			}
 			if len(deletableIDs) > 0 {
-				if err := tx.Where("id IN ? AND site_account_id = ? AND group_key = ?", deletableIDs, accountID, targetGroupKey).Delete(&model.SiteToken{}).Error; err != nil {
+				if err := tx.Where("id IN ? AND site_account_id = ? AND purpose = ? AND group_key = ?", deletableIDs, accountID, model.SiteCredentialPurposeChat, targetGroupKey).Delete(&model.SiteToken{}).Error; err != nil {
 					return err
 				}
 			}
@@ -760,7 +761,7 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 
 func siteGroupHasReadyTokenTx(tx *gorm.DB, accountID int, groupKey string) (bool, error) {
 	var tokens []model.SiteToken
-	if err := tx.Where("site_account_id = ? AND group_key = ?", accountID, model.NormalizeSiteGroupKey(groupKey)).Find(&tokens).Error; err != nil {
+	if err := tx.Where("site_account_id = ? AND purpose = ? AND group_key = ?", accountID, model.SiteCredentialPurposeChat, model.NormalizeSiteGroupKey(groupKey)).Find(&tokens).Error; err != nil {
 		return false, err
 	}
 	for _, token := range tokens {

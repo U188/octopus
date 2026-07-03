@@ -2,6 +2,7 @@ package sitesync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -78,7 +79,7 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 		}
 
 		var existingTokens []model.SiteToken
-		if err := tx.Where("site_account_id = ?", accountID).Order("id ASC").Find(&existingTokens).Error; err != nil {
+		if err := tx.Where("site_account_id = ? AND purpose = ?", accountID, model.SiteCredentialPurposeChat).Order("id ASC").Find(&existingTokens).Error; err != nil {
 			return err
 		}
 
@@ -100,11 +101,13 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 			"balance_used":      snapshot.balanceUsed,
 			"today_income":      snapshot.todayIncome,
 		}
-		if strings.TrimSpace(snapshot.accessToken) != "" {
-			updatePayload["access_token"] = strings.TrimSpace(snapshot.accessToken)
-		}
 		if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountID).Updates(updatePayload).Error; err != nil {
 			return err
+		}
+		if strings.TrimSpace(snapshot.accessToken) != "" {
+			if err := upsertSessionCredentialTx(tx, accountID, strings.TrimSpace(snapshot.accessToken), 0); err != nil {
+				return err
+			}
 		}
 
 		groupResultMap := make(map[string]siteGroupSyncResult, len(snapshot.groupResults))
@@ -135,10 +138,13 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 				return err
 			}
 		}
-		if err := tx.Where("site_account_id = ?", accountID).Delete(&model.SiteToken{}).Error; err != nil {
+		if err := tx.Where("site_account_id = ? AND purpose = ? AND (source IS NULL OR source <> ?)", accountID, model.SiteCredentialPurposeChat, "account").Delete(&model.SiteToken{}).Error; err != nil {
 			return err
 		}
 		if len(mergedTokens) > 0 {
+			for i := range mergedTokens {
+				mergedTokens[i].Purpose = model.SiteCredentialPurposeChat
+			}
 			if err := tx.Create(&mergedTokens).Error; err != nil {
 				return err
 			}
@@ -673,10 +679,15 @@ func updateAccountSyncState(ctx context.Context, accountID int, status model.Sit
 		"last_sync_status":  status,
 		"last_sync_message": sanitizeSiteStatusText(message),
 	}
-	if strings.TrimSpace(accessToken) != "" {
-		updatePayload["access_token"] = strings.TrimSpace(accessToken)
-	}
-	return db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", accountID).Updates(updatePayload).Error
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountID).Updates(updatePayload).Error; err != nil {
+			return err
+		}
+		if strings.TrimSpace(accessToken) != "" {
+			return upsertSessionCredentialTx(tx, accountID, strings.TrimSpace(accessToken), 0)
+		}
+		return nil
+	})
 }
 
 func updateAccountCheckinState(ctx context.Context, account *model.SiteAccount, status model.SiteExecutionStatus, message string, success bool, accessToken string) error {
@@ -699,8 +710,48 @@ func updateAccountCheckinState(ctx context.Context, account *model.SiteAccount, 
 		account.NextAutoCheckinAt = nil
 		updatePayload["next_auto_checkin_at"] = nil
 	}
-	if strings.TrimSpace(accessToken) != "" {
-		updatePayload["access_token"] = strings.TrimSpace(accessToken)
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updatePayload).Error; err != nil {
+			return err
+		}
+		if strings.TrimSpace(accessToken) != "" {
+			return upsertSessionCredentialTx(tx, account.ID, strings.TrimSpace(accessToken), account.TokenExpiresAt)
+		}
+		return nil
+	})
+}
+
+func upsertSessionCredentialTx(tx *gorm.DB, accountID int, accessToken string, expiresAt int64) error {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return nil
 	}
-	return db.GetDB().WithContext(ctx).Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updatePayload).Error
+	var existing model.SiteCredential
+	err := tx.Where("site_account_id = ? AND purpose = ?", accountID, model.SiteCredentialPurposeSession).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	row := model.SiteCredential{
+		SiteAccountID: accountID,
+		Purpose:       model.SiteCredentialPurposeSession,
+		Name:          "session",
+		Token:         accessToken,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Enabled:       true,
+		Source:        "sync",
+		ExpiresAt:     expiresAt,
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return tx.Create(&row).Error
+	}
+	updates := map[string]any{
+		"value":        row.Token,
+		"value_status": row.ValueStatus,
+		"enabled":      row.Enabled,
+		"source":       row.Source,
+	}
+	if expiresAt > 0 {
+		updates["expires_at"] = expiresAt
+	}
+	return tx.Model(&model.SiteCredential{}).Where("id = ?", existing.ID).Updates(updates).Error
 }

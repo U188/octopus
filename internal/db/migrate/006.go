@@ -1,10 +1,6 @@
 package migrate
 
-import (
-	"fmt"
-
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 func init() {
 	RegisterAfterAutoMigration(Migration{
@@ -13,27 +9,10 @@ func init() {
 	})
 }
 
-// 006:
-// - add site_accounts.refresh_token if missing
-// - add site_accounts.token_expires_at if missing
+// 006 used to add Sub2API refresh fields to site_accounts. Credentials now live
+// in site_credentials, so this migration intentionally remains a no-op while
+// preserving the version record for existing databases.
 func migrateSiteAccountsAddSub2APIRefreshFields(db *gorm.DB) error {
-	if db == nil {
-		return fmt.Errorf("db is nil")
-	}
-	if !db.Migrator().HasTable("site_accounts") {
-		return nil
-	}
-
-	if !db.Migrator().HasColumn("site_accounts", "refresh_token") {
-		if err := db.Exec("ALTER TABLE site_accounts ADD COLUMN refresh_token TEXT NOT NULL DEFAULT ''").Error; err != nil {
-			return fmt.Errorf("failed to add site_accounts.refresh_token: %w", err)
-		}
-	}
-	if !db.Migrator().HasColumn("site_accounts", "token_expires_at") {
-		if err := db.Exec("ALTER TABLE site_accounts ADD COLUMN token_expires_at INTEGER NOT NULL DEFAULT 0").Error; err != nil {
-			return fmt.Errorf("failed to add site_accounts.token_expires_at: %w", err)
-		}
-	}
-
+	_ = db
 	return nil
 }

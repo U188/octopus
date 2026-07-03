@@ -663,7 +663,7 @@ func replaceMetAPIAccountData(tx *gorm.DB, accountID int, data metAPIImportAccou
 		}
 	}
 
-	if err := tx.Where("site_account_id = ?", accountID).Delete(&model.SiteToken{}).Error; err != nil {
+	if err := tx.Where("site_account_id = ? AND purpose = ? AND (source IS NULL OR source <> ?)", accountID, model.SiteCredentialPurposeChat, "account").Delete(&model.SiteToken{}).Error; err != nil {
 		return 0, 0, 0, 0, err
 	}
 	if len(tokens) > 0 {
@@ -731,6 +731,7 @@ func prepareMetAPIImportedTokens(accountID int, tokens []model.SiteToken) []mode
 		}
 		seen[key] = model.SiteToken{
 			SiteAccountID: accountID,
+			Purpose:       model.SiteCredentialPurposeChat,
 			Name:          firstNonEmptyString(token.Name, groupKey),
 			Token:         tokenValue,
 			ValueStatus:   valueStatus,
@@ -849,40 +850,30 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 		if err := created.Validate(); err != nil {
 			return nil, false, false, err
 		}
-		if err := tx.Model(&model.SiteAccount{}).Create(map[string]any{
-			"site_id":                       created.SiteID,
-			"name":                          created.Name,
-			"credential_type":               created.CredentialType,
-			"username":                      created.Username,
-			"password":                      created.Password,
-			"access_token":                  created.AccessToken,
-			"api_key":                       created.APIKey,
-			"refresh_token":                 created.RefreshToken,
-			"token_expires_at":              created.TokenExpiresAt,
-			"platform_user_id":              created.PlatformUserID,
-			"proxy_mode":                    created.ProxyMode,
-			"proxy_config_id":               created.ProxyConfigID,
-			"account_proxy":                 nil,
-			"enabled":                       created.Enabled,
-			"auto_sync":                     created.AutoSync,
-			"auto_checkin":                  created.AutoCheckin,
-			"random_checkin":                created.RandomCheckin,
-			"checkin_interval_hours":        created.CheckinIntervalHours,
-			"checkin_random_window_minutes": created.CheckinRandomWindowMinutes,
-			"balance":                       created.Balance,
-			"balance_used":                  created.BalanceUsed,
-			"last_sync_status":              model.SiteExecutionStatusIdle,
-			"last_checkin_status":           model.SiteExecutionStatusIdle,
-		}).Error; err != nil {
+		created.LastSyncStatus = model.SiteExecutionStatusIdle
+		created.LastCheckinStatus = model.SiteExecutionStatusIdle
+		if err := tx.Omit("Tokens", "Credentials").Create(&created).Error; err != nil {
 			return nil, false, false, fmt.Errorf("create site account failed: %w", err)
 		}
-		accountRecord, err = findImportedAccount(tx, siteRecord.ID, input)
-		if err != nil {
+		defaultOverrides := map[string]any{}
+		if !input.Enabled {
+			defaultOverrides["enabled"] = false
+		}
+		if !input.AutoSync {
+			defaultOverrides["auto_sync"] = false
+		}
+		if !input.AutoCheckin {
+			defaultOverrides["auto_checkin"] = false
+		}
+		if len(defaultOverrides) > 0 {
+			if err := tx.Model(&model.SiteAccount{}).Where("id = ?", created.ID).Updates(defaultOverrides).Error; err != nil {
+				return nil, false, false, fmt.Errorf("update imported site account defaults failed: %w", err)
+			}
+		}
+		if err := persistAccountFieldCredentialsTx(tx, created.ID, created.AccessToken, created.APIKey, created.RefreshToken, created.TokenExpiresAt, true, true, true, true); err != nil {
 			return nil, false, false, err
 		}
-		if accountRecord == nil {
-			return nil, false, false, fmt.Errorf("created site account could not be reloaded")
-		}
+		accountRecord = &created
 		return accountRecord, true, false, nil
 	}
 
@@ -909,10 +900,6 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 		"credential_type":  merged.CredentialType,
 		"username":         merged.Username,
 		"password":         merged.Password,
-		"access_token":     merged.AccessToken,
-		"api_key":          merged.APIKey,
-		"refresh_token":    merged.RefreshToken,
-		"token_expires_at": merged.TokenExpiresAt,
 		"platform_user_id": merged.PlatformUserID,
 		"proxy_mode":       merged.ProxyMode,
 		"proxy_config_id":  merged.ProxyConfigID,
@@ -921,6 +908,9 @@ func upsertImportedAccount(tx *gorm.DB, siteRecord *model.Site, input importedAc
 	}
 	if err := tx.Model(&model.SiteAccount{}).Where("id = ?", accountRecord.ID).Updates(updates).Error; err != nil {
 		return nil, false, false, fmt.Errorf("update site account failed: %w", err)
+	}
+	if err := persistAccountFieldCredentialsTx(tx, accountRecord.ID, merged.AccessToken, merged.APIKey, merged.RefreshToken, merged.TokenExpiresAt, true, true, true, true); err != nil {
+		return nil, false, false, err
 	}
 	accountRecord.Name = merged.Name
 	accountRecord.CredentialType = merged.CredentialType
@@ -1001,6 +991,25 @@ func findImportedAccount(tx *gorm.DB, siteID int, input importedAccountInput) (*
 		}
 		return &accountRecord, nil
 	}
+	findByCredential := func(purpose model.SiteCredentialPurpose, value string) (*model.SiteAccount, error) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, nil
+		}
+		var accountRecord model.SiteAccount
+		err := tx.Table("site_accounts").
+			Select("site_accounts.*").
+			Joins("JOIN site_credentials ON site_credentials.site_account_id = site_accounts.id").
+			Where("site_accounts.site_id = ? AND site_accounts.credential_type = ? AND site_credentials.purpose = ? AND site_credentials.value = ?", siteID, input.CredentialType, purpose, value).
+			First(&accountRecord).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &accountRecord, nil
+	}
 
 	switch input.CredentialType {
 	case model.SiteCredentialTypeUsernamePassword:
@@ -1011,18 +1020,14 @@ func findImportedAccount(tx *gorm.DB, siteID int, input importedAccountInput) (*
 			}
 		}
 	case model.SiteCredentialTypeAccessToken:
-		if input.AccessToken != "" {
-			record, err := findByQuery("site_id = ? AND credential_type = ? AND access_token = ?", siteID, input.CredentialType, strings.TrimSpace(input.AccessToken))
-			if record != nil || err != nil {
-				return record, err
-			}
+		record, err := findByCredential(model.SiteCredentialPurposeSession, input.AccessToken)
+		if record != nil || err != nil {
+			return record, err
 		}
 	case model.SiteCredentialTypeAPIKey:
-		if input.APIKey != "" {
-			record, err := findByQuery("site_id = ? AND credential_type = ? AND api_key = ?", siteID, input.CredentialType, strings.TrimSpace(input.APIKey))
-			if record != nil || err != nil {
-				return record, err
-			}
+		record, err := findByCredential(model.SiteCredentialPurposeChat, input.APIKey)
+		if record != nil || err != nil {
+			return record, err
 		}
 	}
 

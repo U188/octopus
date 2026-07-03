@@ -859,7 +859,7 @@ func TestProjectAccountSkipsMaskedPendingTokens(t *testing.T) {
 	_, account := createProjectionFixture(t, ctx)
 
 	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteToken{}).Where("site_account_id = ?", account.ID).Updates(map[string]any{
-		"token":        "sk-ab***xyz",
+		"value":        "sk-ab***xyz",
 		"value_status": model.SiteTokenValueStatusMaskedPending,
 		"enabled":      false,
 	}).Error; err != nil {

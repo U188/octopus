@@ -313,7 +313,7 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 		len(dump.Channels) == 0 &&
 		len(dump.Sites) == 0 &&
 		len(dump.SiteAccounts) == 0 &&
-		len(dump.SiteTokens) == 0 &&
+		len(dump.SiteCredentials) == 0 &&
 		len(dump.SiteUserGroups) == 0 &&
 		len(dump.SiteModels) == 0 &&
 		len(dump.SiteChannelBindings) == 0 &&

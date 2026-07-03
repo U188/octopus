@@ -17,7 +17,8 @@ func SiteList(ctx context.Context) ([]model.Site, error) {
 	var sites []model.Site
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Accounts").
-		Preload("Accounts.Tokens").
+		Preload("Accounts.Tokens", "purpose = ?", model.SiteCredentialPurposeChat).
+		Preload("Accounts.Credentials", "purpose <> ?", model.SiteCredentialPurposeChat).
 		Preload("Accounts.UserGroups").
 		Preload("Accounts.Models").
 		Preload("Accounts.ChannelBindings").
@@ -28,6 +29,7 @@ func SiteList(ctx context.Context) ([]model.Site, error) {
 	}
 	for i := range sites {
 		normalizeSiteProxyFields(&sites[i])
+		hydrateSiteAccountCredentialViews(&sites[i])
 	}
 	return sites, nil
 }
@@ -36,7 +38,8 @@ func SiteListArchived(ctx context.Context) ([]model.Site, error) {
 	var sites []model.Site
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Accounts").
-		Preload("Accounts.Tokens").
+		Preload("Accounts.Tokens", "purpose = ?", model.SiteCredentialPurposeChat).
+		Preload("Accounts.Credentials", "purpose <> ?", model.SiteCredentialPurposeChat).
 		Preload("Accounts.UserGroups").
 		Preload("Accounts.Models").
 		Preload("Accounts.ChannelBindings").
@@ -47,6 +50,7 @@ func SiteListArchived(ctx context.Context) ([]model.Site, error) {
 	}
 	for i := range sites {
 		normalizeSiteProxyFields(&sites[i])
+		hydrateSiteAccountCredentialViews(&sites[i])
 	}
 	return sites, nil
 }
@@ -55,7 +59,8 @@ func SiteGet(id int, ctx context.Context) (*model.Site, error) {
 	var site model.Site
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Accounts").
-		Preload("Accounts.Tokens").
+		Preload("Accounts.Tokens", "purpose = ?", model.SiteCredentialPurposeChat).
+		Preload("Accounts.Credentials", "purpose <> ?", model.SiteCredentialPurposeChat).
 		Preload("Accounts.UserGroups").
 		Preload("Accounts.Models").
 		Preload("Accounts.ChannelBindings").
@@ -63,6 +68,7 @@ func SiteGet(id int, ctx context.Context) (*model.Site, error) {
 		return nil, err
 	}
 	normalizeSiteProxyFields(&site)
+	hydrateSiteAccountCredentialViews(&site)
 	return &site, nil
 }
 
@@ -82,6 +88,57 @@ func normalizeSiteProxyFields(site *model.Site) {
 	for i := range site.Accounts {
 		normalizeSiteAccountProxyFields(&site.Accounts[i])
 	}
+}
+
+func hydrateSiteAccountCredentialViews(site *model.Site) {
+	if site == nil {
+		return
+	}
+	for i := range site.Accounts {
+		hydrateSiteAccountCredentialView(&site.Accounts[i])
+	}
+}
+
+func hydrateSiteAccountCredentialView(account *model.SiteAccount) {
+	if account == nil {
+		return
+	}
+	account.AccessToken = ""
+	account.APIKey = ""
+	account.RefreshToken = ""
+	account.TokenExpiresAt = 0
+	for _, credential := range account.Credentials {
+		if !credential.Enabled && credential.Purpose != model.SiteCredentialPurposeSession && credential.Purpose != model.SiteCredentialPurposeRefresh {
+			continue
+		}
+		switch credential.Purpose {
+		case model.SiteCredentialPurposeSession:
+			if account.AccessToken == "" {
+				account.AccessToken = strings.TrimSpace(credential.Token)
+				account.TokenExpiresAt = credential.ExpiresAt
+			}
+		case model.SiteCredentialPurposeRefresh:
+			if account.RefreshToken == "" {
+				account.RefreshToken = strings.TrimSpace(credential.Token)
+			}
+		}
+	}
+	account.APIKey = firstAccountAPIKeyCredential(account.Tokens)
+}
+
+func firstAccountAPIKeyCredential(tokens []model.SiteToken) string {
+	for _, token := range tokens {
+		if token.Purpose != "" && token.Purpose != model.SiteCredentialPurposeChat {
+			continue
+		}
+		if strings.TrimSpace(token.Source) != "account" {
+			continue
+		}
+		if token.IsDefault || model.NormalizeSiteGroupKey(token.GroupKey) == model.SiteDefaultGroupKey {
+			return strings.TrimSpace(token.Token)
+		}
+	}
+	return ""
 }
 
 func normalizeSiteAccountProxyFields(account *model.SiteAccount) {
@@ -496,7 +553,8 @@ func SiteRestore(id int, ctx context.Context) error {
 func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 	var account model.SiteAccount
 	if err := db.GetDB().WithContext(ctx).
-		Preload("Tokens").
+		Preload("Tokens", "purpose = ?", model.SiteCredentialPurposeChat).
+		Preload("Credentials", "purpose <> ?", model.SiteCredentialPurposeChat).
 		Preload("UserGroups").
 		Preload("Models").
 		Preload("ChannelBindings").
@@ -504,6 +562,7 @@ func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 		return nil, err
 	}
 	normalizeSiteAccountProxyFields(&account)
+	hydrateSiteAccountCredentialView(&account)
 	return &account, nil
 }
 
@@ -534,10 +593,13 @@ func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 			updates["auto_checkin"] = false
 		}
 		err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Create(account).Error; err != nil {
+			if err := tx.Omit("Tokens", "Credentials").Create(account).Error; err != nil {
 				return err
 			}
-			return tx.Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error
+			if err := tx.Model(&model.SiteAccount{}).Where("id = ?", account.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+			return persistAccountFieldCredentialsTx(tx, account.ID, account.AccessToken, account.APIKey, account.RefreshToken, account.TokenExpiresAt, true, true, true, true)
 		})
 		if account.EnabledSet {
 			account.Enabled = explicitEnabled
@@ -550,7 +612,12 @@ func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 		}
 		return err
 	}
-	return db.GetDB().WithContext(ctx).Create(account).Error
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("Tokens", "Credentials").Create(account).Error; err != nil {
+			return err
+		}
+		return persistAccountFieldCredentialsTx(tx, account.ID, account.AccessToken, account.APIKey, account.RefreshToken, account.TokenExpiresAt, true, true, true, true)
+	})
 }
 
 func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context) (*model.SiteAccount, error) {
@@ -561,6 +628,9 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	var account model.SiteAccount
 	if err := db.GetDB().WithContext(ctx).First(&account, req.ID).Error; err != nil {
 		return nil, fmt.Errorf("site account not found")
+	}
+	if loaded, err := SiteAccountGet(req.ID, ctx); err == nil {
+		account = *loaded
 	}
 
 	merged := account
@@ -585,19 +655,15 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	}
 	if req.AccessToken != nil {
 		merged.AccessToken = *req.AccessToken
-		selectFields = append(selectFields, "access_token")
 	}
 	if req.APIKey != nil {
 		merged.APIKey = *req.APIKey
-		selectFields = append(selectFields, "api_key")
 	}
 	if req.RefreshToken != nil {
 		merged.RefreshToken = *req.RefreshToken
-		selectFields = append(selectFields, "refresh_token")
 	}
 	if req.TokenExpiresAt != nil {
 		merged.TokenExpiresAt = *req.TokenExpiresAt
-		selectFields = append(selectFields, "token_expires_at")
 	}
 	if req.PlatformUserIDSet {
 		merged.PlatformUserID = req.PlatformUserID
@@ -702,16 +768,122 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		updates.CheckinRandomWindowMinutes = merged.CheckinRandomWindowMinutes
 	}
 
-	if len(selectFields) > 0 {
-		if err := db.GetDB().WithContext(ctx).
-			Model(&model.SiteAccount{}).
-			Where("id = ?", req.ID).
-			Select(selectFields).
-			Updates(&updates).Error; err != nil {
-			return nil, fmt.Errorf("failed to update site account: %w", err)
+	if len(selectFields) > 0 || req.AccessToken != nil || req.APIKey != nil || req.RefreshToken != nil || req.TokenExpiresAt != nil {
+		if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if len(selectFields) > 0 {
+				if err := tx.
+					Model(&model.SiteAccount{}).
+					Where("id = ?", req.ID).
+					Select(selectFields).
+					Updates(&updates).Error; err != nil {
+					return fmt.Errorf("failed to update site account: %w", err)
+				}
+			}
+			return persistAccountFieldCredentialsTx(
+				tx,
+				req.ID,
+				merged.AccessToken,
+				merged.APIKey,
+				merged.RefreshToken,
+				merged.TokenExpiresAt,
+				req.AccessToken != nil,
+				req.APIKey != nil,
+				req.RefreshToken != nil,
+				req.TokenExpiresAt != nil,
+			)
+		}); err != nil {
+			return nil, err
 		}
 	}
 	return SiteAccountGet(req.ID, ctx)
+}
+
+func persistAccountFieldCredentialsTx(tx *gorm.DB, accountID int, accessToken string, apiKey string, refreshToken string, tokenExpiresAt int64, setAccessToken bool, setAPIKey bool, setRefreshToken bool, setTokenExpiresAt bool) error {
+	if tx == nil {
+		return fmt.Errorf("db transaction is nil")
+	}
+	if setAccessToken || setTokenExpiresAt {
+		if err := replaceAccountCredentialTx(tx, model.SiteCredential{
+			SiteAccountID: accountID,
+			Purpose:       model.SiteCredentialPurposeSession,
+			Name:          "session",
+			Token:         strings.TrimSpace(accessToken),
+			ValueStatus:   model.SiteTokenValueStatusReady,
+			Enabled:       true,
+			Source:        "account",
+			ExpiresAt:     tokenExpiresAt,
+		}, setAccessToken); err != nil {
+			return err
+		}
+	}
+	if setAPIKey {
+		if err := tx.Where("site_account_id = ? AND purpose = ? AND source = ?", accountID, model.SiteCredentialPurposeChat, "account").Delete(&model.SiteCredential{}).Error; err != nil {
+			return err
+		}
+		apiKey = strings.TrimSpace(apiKey)
+		if apiKey != "" {
+			row := model.SiteCredential{
+				SiteAccountID: accountID,
+				Purpose:       model.SiteCredentialPurposeChat,
+				Name:          "account",
+				Token:         apiKey,
+				ValueStatus:   model.SiteTokenValueStatusReady,
+				GroupKey:      model.SiteDefaultGroupKey,
+				GroupName:     model.SiteDefaultGroupName,
+				Enabled:       true,
+				Source:        "account",
+				IsDefault:     true,
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if setRefreshToken {
+		if err := replaceAccountCredentialTx(tx, model.SiteCredential{
+			SiteAccountID: accountID,
+			Purpose:       model.SiteCredentialPurposeRefresh,
+			Name:          "refresh",
+			Token:         strings.TrimSpace(refreshToken),
+			ValueStatus:   model.SiteTokenValueStatusReady,
+			Enabled:       true,
+			Source:        "account",
+		}, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceAccountCredentialTx(tx *gorm.DB, row model.SiteCredential, replaceValue bool) error {
+	if row.SiteAccountID == 0 || row.Purpose == "" {
+		return fmt.Errorf("invalid site credential")
+	}
+	var existing model.SiteCredential
+	err := tx.Where("site_account_id = ? AND purpose = ?", row.SiteAccountID, row.Purpose).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if strings.TrimSpace(row.Token) == "" && replaceValue {
+		return tx.Where("site_account_id = ? AND purpose = ?", row.SiteAccountID, row.Purpose).Delete(&model.SiteCredential{}).Error
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if strings.TrimSpace(row.Token) == "" {
+			return nil
+		}
+		return tx.Create(&row).Error
+	}
+	updates := map[string]any{
+		"name":         row.Name,
+		"enabled":      row.Enabled,
+		"source":       row.Source,
+		"value_status": row.ValueStatus,
+		"expires_at":   row.ExpiresAt,
+	}
+	if replaceValue {
+		updates["value"] = strings.TrimSpace(row.Token)
+	}
+	return tx.Model(&model.SiteCredential{}).Where("id = ?", existing.ID).Updates(updates).Error
 }
 
 func SiteAccountEnabled(id int, enabled bool, ctx context.Context) error {
@@ -739,6 +911,9 @@ func SiteAccountDel(id int, ctx context.Context) error {
 			return err
 		}
 		if err := tx.Where("site_account_id = ?", id).Delete(&model.SiteToken{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("site_account_id = ?", id).Delete(&model.SiteCredential{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("site_account_id = ?", id).Delete(&model.SiteUserGroup{}).Error; err != nil {

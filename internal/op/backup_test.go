@@ -305,7 +305,7 @@ func TestDBExportThenImportRoundtrip(t *testing.T) {
 
 func buildTestDump() *model.DBDump {
 	return &model.DBDump{
-		Version:      1,
+		Version:      dbDumpVersion,
 		IncludeLogs:  false,
 		IncludeStats: false,
 		Channels: []model.Channel{
@@ -318,9 +318,14 @@ func buildTestDump() *model.DBDump {
 			{ID: 1, Name: "test-site", Platform: model.SitePlatformNewAPI, BaseURL: "https://example.com", Enabled: true},
 		},
 		SiteAccounts: []model.SiteAccount{
-			{ID: 1, SiteID: 1, Name: "account-1", CredentialType: model.SiteCredentialTypeAPIKey, APIKey: "sk-1", Enabled: true, AutoSync: true},
-			{ID: 2, SiteID: 1, Name: "account-2", CredentialType: model.SiteCredentialTypeAPIKey, APIKey: "sk-2", Enabled: true, AutoSync: true},
-			{ID: 3, SiteID: 1, Name: "account-3", CredentialType: model.SiteCredentialTypeAPIKey, APIKey: "sk-3", Enabled: true, AutoSync: true},
+			{ID: 1, SiteID: 1, Name: "account-1", CredentialType: model.SiteCredentialTypeAPIKey, Enabled: true, AutoSync: true},
+			{ID: 2, SiteID: 1, Name: "account-2", CredentialType: model.SiteCredentialTypeAPIKey, Enabled: true, AutoSync: true},
+			{ID: 3, SiteID: 1, Name: "account-3", CredentialType: model.SiteCredentialTypeAPIKey, Enabled: true, AutoSync: true},
+		},
+		SiteCredentials: []model.SiteCredential{
+			{ID: 1, SiteAccountID: 1, Purpose: model.SiteCredentialPurposeChat, Name: "account", Token: "sk-1", ValueStatus: model.SiteTokenValueStatusReady, GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "account", IsDefault: true},
+			{ID: 2, SiteAccountID: 2, Purpose: model.SiteCredentialPurposeChat, Name: "account", Token: "sk-2", ValueStatus: model.SiteTokenValueStatusReady, GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "account", IsDefault: true},
+			{ID: 3, SiteAccountID: 3, Purpose: model.SiteCredentialPurposeChat, Name: "account", Token: "sk-3", ValueStatus: model.SiteTokenValueStatusReady, GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "account", IsDefault: true},
 		},
 		Groups: []model.Group{
 			{ID: 1, Name: "test-group", Mode: 0},

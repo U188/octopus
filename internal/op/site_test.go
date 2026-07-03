@@ -889,7 +889,9 @@ func TestSiteImportMetAPIImportsSiteBasics(t *testing.T) {
 	}
 
 	var tokenCount int64
-	if err := dbpkg.GetDB().Model(&model.SiteToken{}).Where("site_account_id = ?", managed.ID).Count(&tokenCount).Error; err != nil {
+	if err := dbpkg.GetDB().Model(&model.SiteToken{}).
+		Where("site_account_id = ? AND purpose = ? AND (source IS NULL OR source <> ?)", managed.ID, model.SiteCredentialPurposeChat, "account").
+		Count(&tokenCount).Error; err != nil {
 		t.Fatalf("count imported tokens failed: %v", err)
 	}
 	if tokenCount != 2 {

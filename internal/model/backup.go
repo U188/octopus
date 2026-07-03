@@ -15,7 +15,7 @@ type DBDump struct {
 	ProxyConfigurations []ProxyConfiguration `json:"proxy_configurations,omitempty"`
 	Sites               []Site               `json:"sites,omitempty"`
 	SiteAccounts        []SiteAccount        `json:"site_accounts,omitempty"`
-	SiteTokens          []SiteToken          `json:"site_tokens,omitempty"`
+	SiteCredentials     []SiteCredential     `json:"site_credentials,omitempty"`
 	SiteUserGroups      []SiteUserGroup      `json:"site_user_groups,omitempty"`
 	SiteModels          []SiteModel          `json:"site_models,omitempty"`
 	SiteChannelBindings []SiteChannelBinding `json:"site_channel_bindings,omitempty"`

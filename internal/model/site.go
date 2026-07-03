@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/U188/octopus/internal/transformer/outbound"
+	"gorm.io/gorm"
 )
 
 type SitePlatform string
@@ -29,6 +30,14 @@ const (
 	SiteCredentialTypeUsernamePassword SiteCredentialType = "username_password"
 	SiteCredentialTypeAccessToken      SiteCredentialType = "access_token"
 	SiteCredentialTypeAPIKey           SiteCredentialType = "api_key"
+)
+
+type SiteCredentialPurpose string
+
+const (
+	SiteCredentialPurposeSession SiteCredentialPurpose = "session"
+	SiteCredentialPurposeChat    SiteCredentialPurpose = "chat"
+	SiteCredentialPurposeRefresh SiteCredentialPurpose = "refresh"
 )
 
 type SiteExecutionStatus string
@@ -218,10 +227,10 @@ type SiteAccount struct {
 	CredentialType             SiteCredentialType   `json:"credential_type" gorm:"type:varchar(32);not null"`
 	Username                   string               `json:"username"`
 	Password                   string               `json:"password"`
-	AccessToken                string               `json:"access_token"`
-	APIKey                     string               `json:"api_key"`
-	RefreshToken               string               `json:"refresh_token"`
-	TokenExpiresAt             int64                `json:"token_expires_at" gorm:"default:0"`
+	AccessToken                string               `json:"access_token" gorm:"-"`
+	APIKey                     string               `json:"api_key" gorm:"-"`
+	RefreshToken               string               `json:"refresh_token" gorm:"-"`
+	TokenExpiresAt             int64                `json:"token_expires_at" gorm:"-"`
 	PlatformUserID             *int                 `json:"platform_user_id"`
 	ProxyMode                  ProxyUsageMode       `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
 	ProxyConfigID              *int                 `json:"proxy_config_id"`
@@ -246,6 +255,7 @@ type SiteAccount struct {
 	LastSyncMessage            string               `json:"last_sync_message"`
 	LastCheckinMessage         string               `json:"last_checkin_message"`
 	Tokens                     []SiteToken          `json:"tokens,omitempty" gorm:"foreignKey:SiteAccountID"`
+	Credentials                []SiteCredential     `json:"-" gorm:"foreignKey:SiteAccountID"`
 	UserGroups                 []SiteUserGroup      `json:"user_groups,omitempty" gorm:"foreignKey:SiteAccountID"`
 	Models                     []SiteModel          `json:"models,omitempty" gorm:"foreignKey:SiteAccountID"`
 	ChannelBindings            []SiteChannelBinding `json:"channel_bindings,omitempty" gorm:"foreignKey:SiteAccountID"`
@@ -273,6 +283,68 @@ func (a *SiteAccount) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (a *SiteAccount) AfterFind(tx *gorm.DB) error {
+	if a == nil || tx == nil || a.ID == 0 {
+		return nil
+	}
+	var credentials []SiteCredential
+	if err := tx.Session(&gorm.Session{NewDB: true}).
+		Where("site_account_id = ?", a.ID).
+		Order("id ASC").
+		Find(&credentials).Error; err != nil {
+		return nil
+	}
+	a.Tokens = a.Tokens[:0]
+	a.Credentials = a.Credentials[:0]
+	for _, credential := range credentials {
+		if credential.Purpose == "" {
+			credential.Purpose = SiteCredentialPurposeChat
+		}
+		if credential.Purpose == SiteCredentialPurposeChat {
+			a.Tokens = append(a.Tokens, credential)
+		} else {
+			a.Credentials = append(a.Credentials, credential)
+		}
+	}
+	a.HydrateCredentialViews()
+	return nil
+}
+
+func (a *SiteAccount) HydrateCredentialViews() {
+	if a == nil {
+		return
+	}
+	a.AccessToken = ""
+	a.APIKey = ""
+	a.RefreshToken = ""
+	a.TokenExpiresAt = 0
+	for _, credential := range a.Credentials {
+		switch credential.Purpose {
+		case SiteCredentialPurposeSession:
+			if a.AccessToken == "" {
+				a.AccessToken = strings.TrimSpace(credential.Token)
+				a.TokenExpiresAt = credential.ExpiresAt
+			}
+		case SiteCredentialPurposeRefresh:
+			if a.RefreshToken == "" {
+				a.RefreshToken = strings.TrimSpace(credential.Token)
+			}
+		}
+	}
+	for _, token := range a.Tokens {
+		if token.Purpose != "" && token.Purpose != SiteCredentialPurposeChat {
+			continue
+		}
+		if strings.TrimSpace(token.Source) != "account" {
+			continue
+		}
+		if token.IsDefault || NormalizeSiteGroupKey(token.GroupKey) == SiteDefaultGroupKey {
+			a.APIKey = strings.TrimSpace(token.Token)
+			return
+		}
+	}
+}
+
 type SiteTokenValueStatus string
 
 const (
@@ -280,19 +352,27 @@ const (
 	SiteTokenValueStatusMaskedPending SiteTokenValueStatus = "masked_pending"
 )
 
-type SiteToken struct {
-	ID            int                  `json:"id" gorm:"primaryKey"`
-	SiteAccountID int                  `json:"site_account_id" gorm:"index;not null"`
-	Name          string               `json:"name"`
-	Token         string               `json:"token" gorm:"not null"`
-	ValueStatus   SiteTokenValueStatus `json:"value_status" gorm:"type:varchar(32);not null;default:'ready'"`
-	GroupKey      string               `json:"group_key" gorm:"size:128;index"`
-	GroupName     string               `json:"group_name"`
-	Enabled       bool                 `json:"enabled" gorm:"default:true"`
-	Source        string               `json:"source"`
-	IsDefault     bool                 `json:"is_default" gorm:"default:false"`
-	LastSyncAt    *time.Time           `json:"last_sync_at"`
+type SiteCredential struct {
+	ID            int                   `json:"id" gorm:"primaryKey"`
+	SiteAccountID int                   `json:"site_account_id" gorm:"index;not null"`
+	Purpose       SiteCredentialPurpose `json:"purpose" gorm:"type:varchar(32);not null;default:'chat';index"`
+	Name          string                `json:"name"`
+	Token         string                `json:"token" gorm:"column:value;not null"`
+	ValueStatus   SiteTokenValueStatus  `json:"value_status" gorm:"type:varchar(32);not null;default:'ready'"`
+	GroupKey      string                `json:"group_key" gorm:"size:128;index"`
+	GroupName     string                `json:"group_name"`
+	Enabled       bool                  `json:"enabled" gorm:"default:true"`
+	Source        string                `json:"source"`
+	IsDefault     bool                  `json:"is_default" gorm:"default:false"`
+	ExpiresAt     int64                 `json:"expires_at" gorm:"default:0"`
+	LastSyncAt    *time.Time            `json:"last_sync_at"`
 }
+
+func (SiteCredential) TableName() string {
+	return "site_credentials"
+}
+
+type SiteToken = SiteCredential
 
 type SiteUserGroup struct {
 	ID                      int                      `json:"id" gorm:"primaryKey"`

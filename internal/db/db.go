@@ -192,7 +192,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.ProxyConfiguration{},
 		&model.Site{},
 		&model.SiteAccount{},
-		&model.SiteToken{},
+		&model.SiteCredential{},
 		&model.SiteUserGroup{},
 		&model.SiteModel{},
 		&model.SiteChannelBinding{},

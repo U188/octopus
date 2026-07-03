@@ -2,12 +2,14 @@ package sitesync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"gorm.io/gorm"
 )
 
 const sub2APIAccessTokenRefreshLead = 5 * time.Minute
@@ -113,19 +115,47 @@ func refreshSub2APIManagedSession(ctx context.Context, siteRecord *model.Site, a
 	account.TokenExpiresAt = refreshed.TokenExpiresAt
 
 	if account.ID > 0 {
-		if err := db.GetDB().WithContext(ctx).
-			Model(&model.SiteAccount{}).
-			Where("id = ?", account.ID).
-			Updates(map[string]any{
-				"access_token":     refreshed.AccessToken,
-				"refresh_token":    refreshed.RefreshToken,
-				"token_expires_at": refreshed.TokenExpiresAt,
-			}).Error; err != nil {
+		if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := upsertSessionCredentialTx(tx, account.ID, refreshed.AccessToken, refreshed.TokenExpiresAt); err != nil {
+				return err
+			}
+			return upsertRefreshCredentialTx(tx, account.ID, refreshed.RefreshToken)
+		}); err != nil {
 			return "", fmt.Errorf("failed to persist sub2api refreshed session: %w", err)
 		}
 	}
 
 	return refreshed.AccessToken, nil
+}
+
+func upsertRefreshCredentialTx(tx *gorm.DB, accountID int, refreshToken string) error {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return nil
+	}
+	var existing model.SiteCredential
+	err := tx.Where("site_account_id = ? AND purpose = ?", accountID, model.SiteCredentialPurposeRefresh).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	row := model.SiteCredential{
+		SiteAccountID: accountID,
+		Purpose:       model.SiteCredentialPurposeRefresh,
+		Name:          "refresh",
+		Token:         refreshToken,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Enabled:       true,
+		Source:        "sync",
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return tx.Create(&row).Error
+	}
+	return tx.Model(&model.SiteCredential{}).Where("id = ?", existing.ID).Updates(map[string]any{
+		"value":        row.Token,
+		"value_status": row.ValueStatus,
+		"enabled":      row.Enabled,
+		"source":       row.Source,
+	}).Error
 }
 
 func parseSub2APIRefreshPayload(payload map[string]any) (sub2APIRefreshedCredentials, bool) {

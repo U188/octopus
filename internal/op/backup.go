@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	dbDumpVersion = 1
+	dbDumpVersion = 2
 
 	// Keep import batches small enough for SQLite builds with low SQL variable limits.
 	// Some exported tables (for example relay_logs) have many columns, so a conservative
@@ -52,8 +52,8 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 	if err := conn.Find(&d.SiteAccounts).Error; err != nil {
 		return nil, fmt.Errorf("export site_accounts: %w", err)
 	}
-	if err := conn.Find(&d.SiteTokens).Error; err != nil {
-		return nil, fmt.Errorf("export site_tokens: %w", err)
+	if err := conn.Find(&d.SiteCredentials).Error; err != nil {
+		return nil, fmt.Errorf("export site_credentials: %w", err)
 	}
 	if err := conn.Find(&d.SiteUserGroups).Error; err != nil {
 		return nil, fmt.Errorf("export site_user_groups: %w", err)
@@ -307,23 +307,23 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			res.RowsAffected["site_accounts"]++
 		}
 
-		// 6. SiteTokens (remap site_account_id, dedup by site_account_id+token+group_key)
-		for i := range dump.SiteTokens {
-			token := dump.SiteTokens[i]
-			token.ID = 0
-			if newID, ok := accountIDMap[token.SiteAccountID]; ok {
-				token.SiteAccountID = newID
+		// 6. SiteCredentials (remap site_account_id, dedup by account+purpose+value+group_key)
+		for i := range dump.SiteCredentials {
+			credential := dump.SiteCredentials[i]
+			credential.ID = 0
+			if newID, ok := accountIDMap[credential.SiteAccountID]; ok {
+				credential.SiteAccountID = newID
 			}
-			var existing model.SiteToken
-			if err := tx.Where("site_account_id = ? AND token = ? AND group_key = ?", token.SiteAccountID, token.Token, token.GroupKey).First(&existing).Error; err == nil {
+			var existing model.SiteCredential
+			if err := tx.Where("site_account_id = ? AND purpose = ? AND value = ? AND group_key = ?", credential.SiteAccountID, credential.Purpose, credential.Token, credential.GroupKey).First(&existing).Error; err == nil {
 				continue
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("import site_tokens: %w", err)
+				return fmt.Errorf("import site_credentials: %w", err)
 			}
-			if err := tx.Create(&token).Error; err != nil {
-				return fmt.Errorf("import site_tokens: %w", err)
+			if err := tx.Create(&credential).Error; err != nil {
+				return fmt.Errorf("import site_credentials: %w", err)
 			}
-			res.RowsAffected["site_tokens"]++
+			res.RowsAffected["site_credentials"]++
 		}
 
 		// 7. SiteUserGroups (remap site_account_id, dedup by uniqueIndex)
@@ -817,7 +817,7 @@ func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats boo
 	if err := writeZipTable(ctx, zw, conn, "site_accounts.json", &[]model.SiteAccount{}); err != nil {
 		return err
 	}
-	if err := writeZipTable(ctx, zw, conn, "site_tokens.json", &[]model.SiteToken{}); err != nil {
+	if err := writeZipTable(ctx, zw, conn, "site_credentials.json", &[]model.SiteCredential{}); err != nil {
 		return err
 	}
 	if err := writeZipTable(ctx, zw, conn, "site_user_groups.json", &[]model.SiteUserGroup{}); err != nil {
