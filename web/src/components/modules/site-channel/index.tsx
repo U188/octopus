@@ -1313,7 +1313,7 @@ function SiteAccountPanel({
     const [editingProjectedGroup, setEditingProjectedGroup] = useState<SiteChannelGroup | null>(null);
     const [editingAdvancedGroup, setEditingAdvancedGroup] = useState<SiteChannelGroup | null>(null);
     const [selectedAdvancedChannelId, setSelectedAdvancedChannelId] = useState<number | null>(null);
-    const [advancedForm, setAdvancedForm] = useState<Record<number, { param_override: string }>>({});
+    const [advancedForm, setAdvancedForm] = useState<Record<number, { param_override: string; responses_tool_denylist: string }>>({});
     const [addingManualGroup, setAddingManualGroup] = useState<SiteChannelGroup | null>(null);
     const [manualModelsInput, setManualModelsInput] = useState('');
     const [manualModelRouteType, setManualModelRouteType] = useState<SiteModelRouteType>('openai_chat');
@@ -1661,10 +1661,11 @@ function SiteAccountPanel({
     };
 
     const handleOpenAdvancedSettings = (group: SiteChannelGroup) => {
-        const form: Record<number, { param_override: string }> = {};
+        const form: Record<number, { param_override: string; responses_tool_denylist: string }> = {};
         group.projected_channels.forEach((channel) => {
             form[channel.channel_id] = {
                 param_override: channel.param_override ?? '',
+                responses_tool_denylist: (channel.responses_tool_denylist ?? []).join('\n'),
             };
         });
         setEditingAdvancedGroup(group);
@@ -1738,7 +1739,14 @@ function SiteAccountPanel({
     const handleAdvancedParamChange = (channelId: number, value: string) => {
         setAdvancedForm((current) => ({
             ...current,
-            [channelId]: { ...(current[channelId] ?? { param_override: '' }), param_override: value },
+            [channelId]: { ...(current[channelId] ?? { param_override: '', responses_tool_denylist: '' }), param_override: value },
+        }));
+    };
+
+    const handleAdvancedResponsesToolDenylistChange = (channelId: number, value: string) => {
+        setAdvancedForm((current) => ({
+            ...current,
+            [channelId]: { ...(current[channelId] ?? { param_override: '', responses_tool_denylist: '' }), responses_tool_denylist: value },
         }));
     };
 
@@ -1772,6 +1780,7 @@ function SiteAccountPanel({
             channel_id: channel.channel_id,
             auto_group: channel.auto_group,
             param_override: advancedForm[channel.channel_id]?.param_override?.trim() ?? '',
+            responses_tool_denylist: parseToolDenylist(advancedForm[channel.channel_id]?.responses_tool_denylist ?? ''),
         }));
         advancedMutation.mutate(payload, {
             onSuccess: () => {
@@ -2408,7 +2417,10 @@ function SiteAccountPanel({
 
                             {selectedAdvancedChannel ? (() => {
                                 const channel = selectedAdvancedChannel;
-                                const form = advancedForm[channel.channel_id] ?? { param_override: channel.param_override ?? '' };
+                                const form = advancedForm[channel.channel_id] ?? {
+                                    param_override: channel.param_override ?? '',
+                                    responses_tool_denylist: (channel.responses_tool_denylist ?? []).join('\n'),
+                                };
                                 return (
                                     <div className="space-y-4 rounded-2xl border border-border/60 bg-muted/10 p-4">
                                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2426,6 +2438,15 @@ function SiteAccountPanel({
                                                     onChange={(event) => handleAdvancedParamChange(channel.channel_id, event.target.value)}
                                                     placeholder={t('siteChannel.advanced.paramOverridePlaceholder')}
                                                     className="min-h-40 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                />
+                                            </label>
+                                            <label className="grid gap-2 text-sm">
+                                                <span className="font-medium">{t('siteChannel.advanced.responsesToolDenylist')}</span>
+                                                <textarea
+                                                    value={form.responses_tool_denylist}
+                                                    onChange={(event) => handleAdvancedResponsesToolDenylistChange(channel.channel_id, event.target.value)}
+                                                    placeholder={t('siteChannel.advanced.responsesToolDenylistPlaceholder')}
+                                                    className="min-h-24 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                                 />
                                             </label>
                                         </div>
@@ -3386,4 +3407,8 @@ function SiteChannelGrid({
             renderItem={renderCard}
         />
     );
+}
+
+function parseToolDenylist(value: string): string[] {
+    return Array.from(new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }

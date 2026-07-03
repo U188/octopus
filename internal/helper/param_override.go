@@ -57,3 +57,84 @@ func ApplyParamOverride(request *http.Request, paramOverride *string) error {
 	}
 	return nil
 }
+
+// ApplyResponsesToolDenylist removes unsupported OpenAI Responses tools from a
+// JSON request body before it is sent to a channel with narrower capabilities.
+func ApplyResponsesToolDenylist(request *http.Request, toolDenylist []string) error {
+	if request == nil || request.Body == nil || len(toolDenylist) == 0 {
+		return nil
+	}
+	deny := make(map[string]struct{}, len(toolDenylist))
+	for _, item := range toolDenylist {
+		value := strings.ToLower(strings.TrimSpace(item))
+		if value != "" {
+			deny[value] = struct{}{}
+		}
+	}
+	if len(deny) == 0 {
+		return nil
+	}
+
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read request body: %w", err)
+	}
+	restoreBody := func(next []byte) {
+		request.Body = io.NopCloser(bytes.NewReader(next))
+		request.ContentLength = int64(len(next))
+		request.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(next)), nil
+		}
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		restoreBody(body)
+		return nil
+	}
+	rawTools, ok := payload["tools"].([]any)
+	if !ok || len(rawTools) == 0 {
+		restoreBody(body)
+		return nil
+	}
+
+	filtered := make([]any, 0, len(rawTools))
+	removed := false
+	for _, rawTool := range rawTools {
+		toolMap, ok := rawTool.(map[string]any)
+		if !ok {
+			filtered = append(filtered, rawTool)
+			continue
+		}
+		toolType, _ := toolMap["type"].(string)
+		if _, denyTool := deny[strings.ToLower(strings.TrimSpace(toolType))]; denyTool {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, rawTool)
+	}
+	if !removed {
+		restoreBody(body)
+		return nil
+	}
+
+	if len(filtered) == 0 {
+		delete(payload, "tools")
+		delete(payload, "tool_choice")
+	} else {
+		payload["tools"] = filtered
+		if choice, ok := payload["tool_choice"].(map[string]any); ok {
+			choiceType, _ := choice["type"].(string)
+			if _, denyChoice := deny[strings.ToLower(strings.TrimSpace(choiceType))]; denyChoice {
+				delete(payload, "tool_choice")
+			}
+		}
+	}
+
+	modifiedBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body with responses tool denylist: %w", err)
+	}
+	restoreBody(modifiedBody)
+	return nil
+}

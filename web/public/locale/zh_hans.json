@@ -966,6 +966,8 @@
             "wsModeOff": "关闭",
             "matchRegex": "匹配正则",
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式",
+            "responsesToolDenylist": "Responses 禁用工具",
+            "responsesToolDenylistPlaceholder": "可选：逗号或换行分隔，例如 image_generation, web_search",
             "remark": "备注"
         }
     },
@@ -990,6 +992,8 @@
             "empty": "当前分组暂无投影渠道",
             "paramOverride": "参数覆盖 JSON",
             "paramOverridePlaceholder": "留空表示清除；非空时必须是 JSON 对象，例如：{\"temperature\":0.7,\"max_tokens\":4096}",
+            "responsesToolDenylist": "Responses 禁用工具",
+            "responsesToolDenylistPlaceholder": "逗号或换行分隔；用于移除上游不支持的工具，例如 image_generation",
             "cancel": "取消",
             "save": "保存",
             "saving": "保存中...",

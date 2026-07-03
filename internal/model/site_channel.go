@@ -66,13 +66,14 @@ type SiteSourceKey struct {
 }
 
 type SiteProjectedChannelSettings struct {
-	ChannelID      int                `json:"channel_id"`
-	ChannelName    string             `json:"channel_name"`
-	RouteType      SiteModelRouteType `json:"route_type"`
-	AutoGroup      AutoGroupType      `json:"auto_group"`
-	EffectiveGroup AutoGroupType      `json:"effective_auto_group"`
-	ParamOverride  string             `json:"param_override"`
-	GlobalOverride bool               `json:"global_override"`
+	ChannelID             int                `json:"channel_id"`
+	ChannelName           string             `json:"channel_name"`
+	RouteType             SiteModelRouteType `json:"route_type"`
+	AutoGroup             AutoGroupType      `json:"auto_group"`
+	EffectiveGroup        AutoGroupType      `json:"effective_auto_group"`
+	ParamOverride         string             `json:"param_override"`
+	ResponsesToolDenylist []string           `json:"responses_tool_denylist"`
+	GlobalOverride        bool               `json:"global_override"`
 }
 
 type SiteProjectedKey struct {
@@ -135,9 +136,10 @@ type SiteModelContext1MUpdateRequest struct {
 }
 
 type SiteProjectedChannelSettingsUpdateRequest struct {
-	ChannelID     int           `json:"channel_id" binding:"required"`
-	AutoGroup     AutoGroupType `json:"auto_group"`
-	ParamOverride string        `json:"param_override"`
+	ChannelID             int           `json:"channel_id" binding:"required"`
+	AutoGroup             AutoGroupType `json:"auto_group"`
+	ParamOverride         string        `json:"param_override"`
+	ResponsesToolDenylist []string      `json:"responses_tool_denylist"`
 }
 
 type SiteManualModelAddRequest struct {

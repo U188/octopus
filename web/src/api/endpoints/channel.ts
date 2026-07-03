@@ -76,6 +76,7 @@ export type Channel = {
     ws_mode: ChannelWSMode;
     codex_mode: boolean;
     claude_mode: boolean;
+    responses_tool_denylist: string[];
     param_override?: string | null;
     match_regex?: string | null;
     managed: boolean;
@@ -109,6 +110,7 @@ export type CreateChannelRequest = {
     ws_mode?: ChannelWSMode;
     codex_mode?: boolean;
     claude_mode?: boolean;
+    responses_tool_denylist?: string[];
     param_override?: string | null;
     match_regex?: string | null;
 };
@@ -132,6 +134,7 @@ export type UpdateChannelRequest = {
     ws_mode?: ChannelWSMode;
     codex_mode?: boolean;
     claude_mode?: boolean;
+    responses_tool_denylist?: string[];
     param_override?: string | null;
     match_regex?: string | null;
     // keys diff
@@ -177,6 +180,7 @@ export function useChannelList() {
                 ws_mode: item.ws_mode ?? 'inherit',
                 codex_mode: item.codex_mode ?? false,
                 claude_mode: item.claude_mode ?? false,
+                responses_tool_denylist: Array.isArray(item.responses_tool_denylist) ? item.responses_tool_denylist : [],
                 keys: item.keys ?? [],
                 proxy_mode: item.proxy_mode ?? 'direct',
                 proxy_config_id: item.proxy_config_id ?? null,

@@ -35,6 +35,7 @@ export interface ChannelFormData {
     proxy_mode: Channel['proxy_mode'];
     proxy_config_id: number | null;
     param_override: string;
+    responses_tool_denylist: string;
     keys: ChannelKeyFormItem[];
     model: string;
     custom_model: string;
@@ -574,6 +575,19 @@ export function ChannelForm({
                                 onChange={(e) => onFormDataChange({ ...formData, param_override: e.target.value })}
                                 placeholder={t('paramOverridePlaceholder')}
                                 className="min-h-28 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label htmlFor={`${idPrefix}-responses-tool-denylist`} className="text-sm font-medium text-card-foreground">
+                                {t('responsesToolDenylist')}
+                            </label>
+                            <textarea
+                                id={`${idPrefix}-responses-tool-denylist`}
+                                value={formData.responses_tool_denylist}
+                                onChange={(e) => onFormDataChange({ ...formData, responses_tool_denylist: e.target.value })}
+                                placeholder={t('responsesToolDenylistPlaceholder')}
+                                className="min-h-20 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             />
                         </div>
                     </AccordionContent>

@@ -72,6 +72,7 @@ export type SiteProjectedChannelSettings = {
     auto_group: AutoGroupType;
     effective_auto_group: AutoGroupType;
     param_override: string;
+    responses_tool_denylist: string[];
     global_override: boolean;
 };
 
@@ -267,6 +268,7 @@ function normalizeProjectedChannel(channel: Partial<SiteProjectedChannelSettings
         auto_group: normalizeAutoGroup(channel?.auto_group),
         effective_auto_group: normalizeAutoGroup(channel?.effective_auto_group),
         param_override: typeof channel?.param_override === 'string' ? channel.param_override : '',
+        responses_tool_denylist: Array.isArray(channel?.responses_tool_denylist) ? channel.responses_tool_denylist.filter((item): item is string => typeof item === 'string') : [],
         global_override: channel?.global_override === true,
     };
 }
@@ -363,6 +365,7 @@ export type SiteProjectedChannelSettingsUpdateRequest = {
     channel_id: number;
     auto_group: AutoGroupType;
     param_override: string;
+    responses_tool_denylist: string[];
 };
 
 export type SiteManualModelAddEntry = {

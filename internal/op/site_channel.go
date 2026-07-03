@@ -236,13 +236,14 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		}
 		globalAutoGroup := ProjectedChannelGlobalAutoGroupEnabled()
 		group.ProjectedChannels = append(group.ProjectedChannels, model.SiteProjectedChannelSettings{
-			ChannelID:      channel.ID,
-			ChannelName:    channel.Name,
-			RouteType:      routeType,
-			AutoGroup:      channel.AutoGroup,
-			EffectiveGroup: EffectiveProjectedChannelAutoGroup(*channel),
-			ParamOverride:  paramOverride,
-			GlobalOverride: globalAutoGroup,
+			ChannelID:             channel.ID,
+			ChannelName:           channel.Name,
+			RouteType:             routeType,
+			AutoGroup:             channel.AutoGroup,
+			EffectiveGroup:        EffectiveProjectedChannelAutoGroup(*channel),
+			ParamOverride:         paramOverride,
+			ResponsesToolDenylist: normalizeResponsesToolDenylist(channel.ResponsesToolDenylist),
+			GlobalOverride:        globalAutoGroup,
 		})
 		for _, key := range channel.Keys {
 			group.ProjectedKeys = append(group.ProjectedKeys, model.SiteProjectedKey{
@@ -442,7 +443,8 @@ func UpdateSiteProjectedChannelSettings(siteID int, accountID int, req []model.S
 		}
 		paramOverride := strings.TrimSpace(item.ParamOverride)
 		updates := map[string]any{
-			"auto_group": item.AutoGroup,
+			"auto_group":              item.AutoGroup,
+			"responses_tool_denylist": normalizeResponsesToolDenylist(item.ResponsesToolDenylist),
 		}
 		if paramOverride == "" {
 			updates["param_override"] = nil

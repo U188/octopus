@@ -874,9 +874,13 @@ func (ra *relayAttempt) getStreamWriter() StreamWriter {
 	return ra.c.Writer
 }
 
-// applyParamOverride merges channel-level JSON request overrides and records the final upstream payload.
+// applyParamOverride merges channel-level JSON request overrides, applies channel capability filters,
+// and records the final upstream payload.
 func (ra *relayAttempt) applyParamOverride(outboundRequest *http.Request) error {
 	if err := helper.ApplyParamOverride(outboundRequest, ra.channel.ParamOverride); err != nil {
+		return err
+	}
+	if err := helper.ApplyResponsesToolDenylist(outboundRequest, ra.channel.ResponsesToolDenylist); err != nil {
 		return err
 	}
 	if requestBody, readErr := readOutboundRequestBody(outboundRequest); readErr == nil {

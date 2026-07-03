@@ -52,6 +52,7 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
+	channel.ResponsesToolDenylist = normalizeResponsesToolDenylist(channel.ResponsesToolDenylist)
 	if err := channel.ProxyMode.Validate(false); err != nil {
 		return err
 	}
@@ -274,6 +275,10 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		selectFields = append(selectFields, "claude_mode")
 		updates.ClaudeMode = *req.ClaudeMode
 	}
+	if req.ResponsesToolDenylist != nil {
+		selectFields = append(selectFields, "responses_tool_denylist")
+		updates.ResponsesToolDenylist = normalizeResponsesToolDenylist(*req.ResponsesToolDenylist)
+	}
 	if req.ParamOverride != nil {
 		selectFields = append(selectFields, "param_override")
 		updates.ParamOverride = req.ParamOverride
@@ -355,6 +360,29 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	channelCache.Set(req.ID, channel)
 	resetBalancerStateForChannel(req.ID)
 	return &channel, nil
+}
+
+func normalizeResponsesToolDenylist(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		value := strings.ToLower(strings.TrimSpace(item))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func ChannelEnabled(id int, enabled bool, ctx context.Context) error {

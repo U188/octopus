@@ -46,6 +46,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         proxy_mode: channel.proxy_mode ?? 'direct',
         proxy_config_id: channel.proxy_config_id ?? null,
         param_override: channel.param_override ?? '',
+        responses_tool_denylist: (channel.responses_tool_denylist ?? []).join('\n'),
         keys: channel.keys.length > 0
             ? channel.keys.map((k) => ({
                 id: k.id,
@@ -113,6 +114,12 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (nextParamOverride !== curParamOverride) {
             // Empty string means "clear" for patch semantics; backend maps it to NULL.
             req.param_override = nextParamOverride;
+        }
+
+        const nextResponsesToolDenylist = parseToolDenylist(formData.responses_tool_denylist);
+        const curResponsesToolDenylist = parseToolDenylist((channel.responses_tool_denylist ?? []).join('\n'));
+        if (JSON.stringify(nextResponsesToolDenylist) !== JSON.stringify(curResponsesToolDenylist)) {
+            req.responses_tool_denylist = nextResponsesToolDenylist;
         }
 
         const nextMatchRegex = formData.match_regex.trim();
@@ -526,4 +533,8 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
             </MorphingDialogDescription>
         </>
     );
+}
+
+function parseToolDenylist(value: string): string[] {
+    return Array.from(new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }

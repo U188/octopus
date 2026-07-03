@@ -22,6 +22,7 @@ export function CreateDialogContent() {
         proxy_mode: 'direct',
         proxy_config_id: null,
         param_override: '',
+        responses_tool_denylist: '',
         keys: [{ enabled: true, channel_key: '', remark: '' }],
         model: '',
         custom_model: '',
@@ -47,6 +48,7 @@ export function CreateDialogContent() {
             .filter((h) => h.header_key && h.header_value !== '');
 
         const paramOverride = formData.param_override.trim();
+        const responsesToolDenylist = parseToolDenylist(formData.responses_tool_denylist);
         if (formData.proxy_mode === 'pool' && !formData.proxy_config_id) {
             toast.error(tProxy('selectRequired'));
             return;
@@ -66,6 +68,7 @@ export function CreateDialogContent() {
                 auto_group: formData.auto_group,
                 custom_header: normalizedHeaders,
                 ws_mode: formData.ws_mode,
+                responses_tool_denylist: responsesToolDenylist,
                 param_override: paramOverride,
                 match_regex: formData.match_regex.trim(),
             },
@@ -80,6 +83,7 @@ export function CreateDialogContent() {
                         proxy_mode: 'direct',
                         proxy_config_id: null,
                         param_override: '',
+                        responses_tool_denylist: '',
                         keys: [{ enabled: true, channel_key: '', remark: '' }],
                         model: '',
                         custom_model: '',
@@ -121,4 +125,8 @@ export function CreateDialogContent() {
             </MorphingDialogDescription>
         </div>
     );
+}
+
+function parseToolDenylist(value: string): string[] {
+    return Array.from(new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }

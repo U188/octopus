@@ -911,6 +911,88 @@ func TestHandlerAppliesChannelParamOverride(t *testing.T) {
 	}
 }
 
+func TestHandlerAppliesResponsesToolDenylistToOpenAIResponsesPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body failed: %v", err)
+		}
+		capturedBody = append([]byte(nil), body...)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","created_at":1,"model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"status":"completed"}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name:     "relay-responses-tool-denylist",
+		Type:     outbound.OutboundTypeOpenAIResponse,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:    "gpt-5.5",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+		ResponsesToolDenylist: []string{
+			"image_generation",
+			"web_search",
+		},
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	group := &model.Group{Name: "relay-responses-tool-denylist-group", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: channel.ID, ModelName: "gpt-5.5", Priority: 1, Weight: 1}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	requestBody := `{
+		"model":"relay-responses-tool-denylist-group",
+		"input":"hello",
+		"tools":[
+			{"type":"function","name":"run","parameters":{"type":"object"}},
+			{"type":"image_generation"},
+			{"type":"web_search"}
+		],
+		"tool_choice":"auto"
+	}`
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("api_key_id", 7)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	Handler(inbound.InboundTypeOpenAIResponse, c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected relay handler to succeed, got status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(capturedBody, &payload); err != nil {
+		t.Fatalf("unmarshal upstream request failed: %v", err)
+	}
+	tools, ok := payload["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected only one allowed tool to remain, got %#v", payload["tools"])
+	}
+	tool, ok := tools[0].(map[string]any)
+	if !ok || tool["type"] != "function" {
+		t.Fatalf("expected function tool to remain, got %#v", tools[0])
+	}
+	bodyText := string(capturedBody)
+	if strings.Contains(bodyText, "image_generation") || strings.Contains(bodyText, "web_search") {
+		t.Fatalf("expected denied tools to be removed from upstream body, got %s", bodyText)
+	}
+	if payload["model"] != "gpt-5.5" {
+		t.Fatalf("expected upstream model to be rewritten, got %#v", payload["model"])
+	}
+}
+
 func TestRelayMetricsUsesResponseModelForCostLookup(t *testing.T) {
 	metrics := NewRelayMetrics(0, "alias-model", nil, &transformerModel.InternalLLMRequest{Model: "alias-model"})
 	metrics.StartTime = time.Now()
