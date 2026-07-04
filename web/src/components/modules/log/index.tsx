@@ -19,7 +19,7 @@ type LogFilters = {
     endTime?: number;
 };
 
-const LOG_PAGE_SIZE = 10;
+const LOG_PAGE_SIZE = 30;
 
 function useDebouncedValue<T>(value: T, delay = 200) {
     const [debounced, setDebounced] = useState(value);

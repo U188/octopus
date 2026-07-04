@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,6 +45,8 @@ var relayLogSubscribersLock sync.RWMutex
 
 var relayLogStreamTokens = make(map[string]struct{})
 var relayLogStreamTokensLock sync.RWMutex
+
+var ErrRelayLogQueueFull = errors.New("relay log queue full")
 
 func RelayLogStreamTokenCreate() (string, error) {
 	bytes := make([]byte, 32)
@@ -308,7 +311,9 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	if !enabled {
 		return nil
 	}
-	enqueueRelayLogPending(relayLog)
+	if !enqueueRelayLogPending(relayLog) {
+		return ErrRelayLogQueueFull
+	}
 	_ = ctx // kept for API compatibility; DB writes are handled by the background writer.
 	return nil
 }

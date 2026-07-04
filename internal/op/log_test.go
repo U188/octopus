@@ -56,6 +56,31 @@ func TestRelayLogAddQueuesWithoutDBWrite(t *testing.T) {
 	}
 }
 
+func TestRelayLogAddReturnsErrorWhenQueueFull(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	if err := settingRefreshCache(ctx); err != nil {
+		t.Fatalf("settingRefreshCache failed: %v", err)
+	}
+	resetRelayLogStateForTest()
+
+	for i := 0; i < relayLogQueueSize; i++ {
+		if err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true}); err != nil {
+			t.Fatalf("RelayLogAdd failed before queue was full at %d: %v", i, err)
+		}
+	}
+
+	err := RelayLogAdd(ctx, model.RelayLog{Time: time.Now().Unix(), RequestModelName: "gpt-4o-mini", Success: true})
+	if !errors.Is(err, ErrRelayLogQueueFull) {
+		t.Fatalf("expected ErrRelayLogQueueFull, got %v", err)
+	}
+	if got := RelayLogPendingLen(); got != relayLogQueueSize {
+		t.Fatalf("expected pending queue to remain capped at %d, got %d", relayLogQueueSize, got)
+	}
+	if got := RelayLogDroppedTotal(); got != 1 {
+		t.Fatalf("expected dropped total 1, got %d", got)
+	}
+}
+
 func TestRelayLogListDefaultsToLightFieldsAndNoContentKeyword(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 	if err := settingRefreshCache(ctx); err != nil {

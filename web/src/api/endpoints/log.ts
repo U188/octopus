@@ -314,7 +314,7 @@ export function useLogs(options: UseLogsOptions = {}) {
             }
         }
 
-        merged.sort((a, b) => b.time - a.time);
+        merged.sort((a, b) => (b.time - a.time) || (b.id - a.id));
         return merged;
     }, [logsQuery.data]);
 
