@@ -406,16 +406,16 @@ func (r *Runner) handleCommand(ctx context.Context, text string) response {
 
 func (r *Runner) helpResponse() response {
 	return response{
-		Text: strings.TrimSpace(`Octopus Telegram Bot
+		Text: strings.TrimSpace(`🐙 Octopus Bot
 
-主菜单：
-- 站点管理：新增站点、编辑站点、启停站点
-- 渠道管理：查看站点投影渠道、路由组和模型
-- 分组管理：把多个渠道模型合并成一个对外模型组，支持轮询/随机/故障转移/加权
-- 运维：账号同步、签到、测试对话
-- 监控：错误日志、站点概览、/report、/balance、/top
+📍 站点：新增、编辑、启停
+🧭 渠道：站点投影、路由组、模型
+🧩 分组：多个渠道模型合并为对外模型
+🛠 运维：同步、签到、测试对话
+📊 监控：日志、报告、余额、排行
 
-渠道管理里的“路由组”指站点来源组，例如 claude、ds；分组管理里的“分组”指可被 API key 调用的模型组。`),
+路由组：站点来源组，例如 claude、ds
+分组：API key 可调用的对外模型组`),
 		Buttons: mainMenuButtons(),
 	}
 }
@@ -890,14 +890,14 @@ func (r *Runner) modelGroupsMenu(ctx context.Context) response {
 		return strings.ToLower(groups[i].Name) < strings.ToLower(groups[j].Name)
 	})
 	var b strings.Builder
-	b.WriteString("分组管理\n把多个渠道模型合并成一个对外模型组，客户端请求分组名即可按模式调度组内模型。")
+	b.WriteString("🧩 分组管理\n对外模型组按模式调度组内渠道模型。")
 	buttons := make([][]inlineButton, 0, len(groups)+4)
 	for _, group := range groups {
-		fmt.Fprintf(&b, "\n#%d %s mode=%s items=%d", group.ID, group.Name, groupModeLabel(group.Mode), len(group.Items))
+		fmt.Fprintf(&b, "\n\n#%d %s\n模式 %s｜模型 %s", group.ID, group.Name, groupModeLabel(group.Mode), formatInt(len(group.Items)))
 		buttons = append(buttons, []inlineButton{{Text: fmt.Sprintf("#%d %s", group.ID, trimForButton(group.Name, 22)), Data: fmt.Sprintf("mg:view:%d", group.ID)}})
 	}
 	if len(groups) == 0 {
-		b.WriteString("\n暂无分组")
+		b.WriteString("\n\n暂无分组")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "创建分组", Data: "mg:create"}})
 	buttons = append(buttons, []inlineButton{{Text: "渠道管理", Data: "group_mgmt"}, {Text: "主页", Data: "home"}})
@@ -910,18 +910,18 @@ func (r *Runner) modelGroupMenu(ctx context.Context, groupID int) response {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: [][]inlineButton{{{Text: "返回分组管理", Data: "model_groups"}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "分组 #%d %s\n对外模型名：%s\n模式：%s\n模型数：%d", group.ID, group.Name, group.Name, groupModeLabel(group.Mode), len(group.Items))
+	fmt.Fprintf(&b, "🧩 分组 #%d｜%s\n对外模型 %s\n模式 %s｜模型 %s", group.ID, group.Name, group.Name, groupModeLabel(group.Mode), formatInt(len(group.Items)))
 	if group.MatchRegex != "" {
-		fmt.Fprintf(&b, "\n匹配正则：%s", group.MatchRegex)
+		fmt.Fprintf(&b, "\n匹配 %s", group.MatchRegex)
 	}
 	if group.FirstTokenTimeOut > 0 {
-		fmt.Fprintf(&b, "\n首 token 超时：%ds", group.FirstTokenTimeOut)
+		fmt.Fprintf(&b, "\n首字超时 %ds", group.FirstTokenTimeOut)
 	}
 	if group.SessionKeepTime > 0 {
-		fmt.Fprintf(&b, "\n会话保持：%ds", group.SessionKeepTime)
+		fmt.Fprintf(&b, "\n会话保持 %ds", group.SessionKeepTime)
 	}
 	if len(group.Items) > 0 {
-		b.WriteString("\n\n组内模型:")
+		b.WriteString("\n\n🤖 组内模型")
 		items := append([]model.GroupItem(nil), group.Items...)
 		sort.Slice(items, func(i, j int) bool {
 			if items[i].Priority != items[j].Priority {
@@ -937,7 +937,7 @@ func (r *Runner) modelGroupMenu(ctx context.Context, groupID int) response {
 			if channel, err := op.ChannelGet(item.ChannelID, ctx); err == nil {
 				channelName = channel.Name
 			}
-			fmt.Fprintf(&b, "\n- #%d %s / %s priority=%d weight=%d", item.ID, channelName, item.ModelName, item.Priority, item.Weight)
+			fmt.Fprintf(&b, "\n#%d %s / %s\n   优先级 %d｜权重 %d", item.ID, shortReportName(channelName, 28), shortReportName(item.ModelName, 44), item.Priority, item.Weight)
 		}
 	}
 	buttons := [][]inlineButton{
@@ -1024,19 +1024,19 @@ func (r *Runner) modelGroupAddChannelMenu(ctx context.Context, groupID int) resp
 	}
 	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
 	var b strings.Builder
-	fmt.Fprintf(&b, "添加分组模型\n分组：%s\n先选择渠道，再发送模型名。", group.Name)
+	fmt.Fprintf(&b, "➕ 添加分组模型\n分组 %s\n先选择渠道，再发送模型名。", group.Name)
 	buttons := make([][]inlineButton, 0, len(channels)+2)
 	for _, ch := range channels {
 		models := splitModelCSV(ch.Model, ch.CustomModel)
 		modelHint := ""
 		if len(models) > 0 {
-			modelHint = " models=" + strings.Join(limitStrings(models, 3), ",")
+			modelHint = "｜模型 " + strings.Join(limitStrings(models, 3), ",")
 		}
-		fmt.Fprintf(&b, "\n#%d %s enabled=%t%s", ch.ID, ch.Name, ch.Enabled, modelHint)
+		fmt.Fprintf(&b, "\n\n%s #%d %s%s", enabledBadge(ch.Enabled), ch.ID, ch.Name, modelHint)
 		buttons = append(buttons, []inlineButton{{Text: fmt.Sprintf("#%d %s", ch.ID, trimForButton(ch.Name, 20)), Data: fmt.Sprintf("mg:add:ch:%d:%d", group.ID, ch.ID)}})
 	}
 	if len(channels) == 0 {
-		b.WriteString("\n暂无渠道")
+		b.WriteString("\n\n暂无渠道")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "返回分组", Data: fmt.Sprintf("mg:view:%d", group.ID)}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -1072,17 +1072,23 @@ func (r *Runner) sitesMenu(ctx context.Context) response {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	b.WriteString("站点管理")
+	b.WriteString("📍 站点管理")
 	buttons := make([][]inlineButton, 0, len(sites)+2)
 	for _, site := range sites {
-		fmt.Fprintf(&b, "\n#%d %s [%s] accounts=%d enabled=%t", site.ID, site.Name, site.Platform, len(site.Accounts), site.Enabled)
+		fmt.Fprintf(&b, "\n\n%s #%d %s\n平台 %s｜账号 %s",
+			enabledBadge(site.Enabled),
+			site.ID,
+			site.Name,
+			site.Platform,
+			formatInt(len(site.Accounts)),
+		)
 		buttons = append(buttons, []inlineButton{
 			{Text: fmt.Sprintf("#%d %s", site.ID, trimForButton(site.Name, 18)), Data: fmt.Sprintf("site:%d", site.ID)},
 			{Text: "编辑", Data: fmt.Sprintf("site:edit:%d", site.ID)},
 		})
 	}
 	if len(sites) == 0 {
-		b.WriteString("\n暂无站点")
+		b.WriteString("\n\n暂无站点")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "新增站点", Data: "site:add"}})
 	buttons = append(buttons, []inlineButton{{Text: "渠道管理", Data: "group_mgmt"}, {Text: "运维", Data: "ops"}})
@@ -1096,23 +1102,23 @@ func (r *Runner) groupManagementMenu(ctx context.Context) response {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	b.WriteString("渠道管理")
+	b.WriteString("🧭 渠道管理")
 	buttons := make([][]inlineButton, 0, 16)
 	groupCount := 0
 	for _, site := range cards {
 		for _, account := range site.Accounts {
 			for _, group := range account.Groups {
 				groupCount++
-				fmt.Fprintf(&b, "\n- %s | #%d %s / #%d %s | models=%d keys=%d/%d projection=%s",
+				fmt.Fprintf(&b, "\n\n%s %s\n#%d %s / #%d %s\n模型 %s｜Key %s/%s",
+					projectionBadge(!group.ProjectionDisabled),
 					group.GroupKey,
 					site.SiteID,
 					site.SiteName,
 					account.AccountID,
 					account.AccountName,
-					len(group.Models),
-					group.EnabledKeyCount,
-					group.KeyCount,
-					onOff(!group.ProjectionDisabled),
+					formatInt(len(group.Models)),
+					formatInt(group.EnabledKeyCount),
+					formatInt(group.KeyCount),
 				)
 				buttons = append(buttons, []inlineButton{{
 					Text: fmt.Sprintf("%s | %s/%s", trimForButton(group.GroupKey, 10), trimForButton(site.SiteName, 8), trimForButton(account.AccountName, 8)),
@@ -1122,7 +1128,7 @@ func (r *Runner) groupManagementMenu(ctx context.Context) response {
 		}
 	}
 	if groupCount == 0 {
-		b.WriteString("\n暂无路由组")
+		b.WriteString("\n\n暂无路由组")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "创建路由组", Data: "group:create"}})
 	buttons = append(buttons, []inlineButton{{Text: "站点管理", Data: "site_mgmt"}, {Text: "运维", Data: "ops"}})
@@ -1136,17 +1142,17 @@ func (r *Runner) groupCreateSiteMenu(ctx context.Context) response {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	b.WriteString("创建路由组\n先选择站点")
+	b.WriteString("➕ 创建路由组\n先选择站点")
 	buttons := make([][]inlineButton, 0, len(sites)+2)
 	for _, site := range sites {
-		fmt.Fprintf(&b, "\n- #%d %s [%s] accounts=%d", site.ID, site.Name, site.Platform, len(site.Accounts))
+		fmt.Fprintf(&b, "\n\n#%d %s\n平台 %s｜账号 %s", site.ID, site.Name, site.Platform, formatInt(len(site.Accounts)))
 		buttons = append(buttons, []inlineButton{{
 			Text: fmt.Sprintf("#%d %s", site.ID, trimForButton(site.Name, 22)),
 			Data: fmt.Sprintf("group:create:site:%d", site.ID),
 		}})
 	}
 	if len(sites) == 0 {
-		b.WriteString("\n暂无站点")
+		b.WriteString("\n\n暂无站点")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "新增站点", Data: "site:add"}})
 	buttons = append(buttons, []inlineButton{{Text: "返回渠道管理", Data: "group_mgmt"}, {Text: "主页", Data: "home"}})
@@ -1159,17 +1165,17 @@ func (r *Runner) groupCreateAccountMenu(ctx context.Context, siteID int) respons
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "创建路由组\n站点：#%d %s", site.ID, site.Name)
+	fmt.Fprintf(&b, "➕ 创建路由组\n站点 #%d %s", site.ID, site.Name)
 	buttons := make([][]inlineButton, 0, len(site.Accounts)+2)
 	for _, account := range site.Accounts {
-		fmt.Fprintf(&b, "\n- #%d %s enabled=%t groups=%d models=%d", account.ID, account.Name, account.Enabled, len(account.UserGroups), len(account.Models))
+		fmt.Fprintf(&b, "\n\n%s #%d %s\n路由组 %s｜模型 %s", enabledBadge(account.Enabled), account.ID, account.Name, formatInt(len(account.UserGroups)), formatInt(len(account.Models)))
 		buttons = append(buttons, []inlineButton{{
 			Text: fmt.Sprintf("#%d %s", account.ID, trimForButton(account.Name, 22)),
 			Data: fmt.Sprintf("group:create:acct:%d:%d", site.ID, account.ID),
 		}})
 	}
 	if len(site.Accounts) == 0 {
-		b.WriteString("\n该站点暂无账号")
+		b.WriteString("\n\n该站点暂无账号")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "返回站点选择", Data: "group:create"}, {Text: "返回站点详情", Data: fmt.Sprintf("site:%d", site.ID)}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
@@ -1178,12 +1184,11 @@ func (r *Runner) groupCreateAccountMenu(ctx context.Context, siteID int) respons
 
 func (r *Runner) opsMenu() response {
 	return response{
-		Text: strings.TrimSpace(`运维
+		Text: strings.TrimSpace(`🛠 运维
 
-- 从站点或账号页进入，可执行同步、签到
-- 从路由组页进入，可执行测试对话
-- 可直接查看报告、余额和排行
-- 这里保留快捷入口到站点和渠道管理`),
+📊 报告、余额、排行
+🔄 账号同步、签到
+🧪 路由组测试对话`),
 		Buttons: [][]inlineButton{
 			{{Text: "运维报告", Data: "ops:report"}, {Text: "余额", Data: "ops:balance"}, {Text: "Top", Data: "ops:top"}},
 			{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},
@@ -1210,7 +1215,14 @@ func (r *Runner) monitorMenu(ctx context.Context) response {
 		}
 	}
 	logSummary := r.listLogs(ctx, "")
-	text := fmt.Sprintf("监控概览\n站点：%d（停用 %d）\n账号：%d\n路由组：%d\n模型：%d\n\n%s", siteCount, disabledSiteCount, accountCount, groupCount, modelCount, logSummary)
+	text := fmt.Sprintf("📊 监控概览\n\n站点 %s（停用 %s）｜账号 %s\n路由组 %s｜模型 %s\n\n%s",
+		formatInt(siteCount),
+		formatInt(disabledSiteCount),
+		formatInt(accountCount),
+		formatInt(groupCount),
+		formatInt(modelCount),
+		logSummary,
+	)
 	return response{
 		Text: text,
 		Buttons: [][]inlineButton{
@@ -1227,10 +1239,26 @@ func (r *Runner) siteMenu(ctx context.Context, siteID int) response {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "站点 #%d %s\n平台：%s\nBaseURL：%s\n启用：%t\nCodex：%t Claude：%t\n账号：%d", site.ID, site.Name, site.Platform, site.BaseURL, site.Enabled, site.CodexMode, site.ClaudeMode, len(site.Accounts))
+	fmt.Fprintf(&b, "📍 站点 #%d｜%s\n%s｜平台 %s\nCodex %s｜Claude %s\n账号 %s\n%s",
+		site.ID,
+		site.Name,
+		enabledText(site.Enabled),
+		site.Platform,
+		onOffLabel(site.CodexMode),
+		onOffLabel(site.ClaudeMode),
+		formatInt(len(site.Accounts)),
+		site.BaseURL,
+	)
 	buttons := make([][]inlineButton, 0, len(site.Accounts)+1)
 	for _, account := range site.Accounts {
-		fmt.Fprintf(&b, "\n- account #%d %s enabled=%t groups=%d keys=%d models=%d", account.ID, account.Name, account.Enabled, len(account.UserGroups), len(account.Tokens), len(account.Models))
+		fmt.Fprintf(&b, "\n\n%s 账号 #%d %s\n路由组 %s｜Key %s｜模型 %s",
+			enabledBadge(account.Enabled),
+			account.ID,
+			account.Name,
+			formatInt(len(account.UserGroups)),
+			formatInt(len(account.Tokens)),
+			formatInt(len(account.Models)),
+		)
 		buttons = append(buttons, []inlineButton{{Text: fmt.Sprintf("#%d %s", account.ID, trimForButton(account.Name, 22)), Data: fmt.Sprintf("acct:%d:%d", site.ID, account.ID)}})
 	}
 	buttons = append(buttons, []inlineButton{{Text: "编辑站点", Data: fmt.Sprintf("site:edit:%d", site.ID)}, {Text: "返回站点管理", Data: "site_mgmt"}})
@@ -1244,7 +1272,15 @@ func (r *Runner) siteEditMenu(ctx context.Context, siteID int) response {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "编辑站点 #%d %s\n平台：%s\nBaseURL：%s\n启用：%t\nCodex：%t Claude：%t", site.ID, site.Name, site.Platform, site.BaseURL, site.Enabled, site.CodexMode, site.ClaudeMode)
+	fmt.Fprintf(&b, "⚙️ 编辑站点 #%d｜%s\n%s｜平台 %s\nCodex %s｜Claude %s\n%s",
+		site.ID,
+		site.Name,
+		enabledText(site.Enabled),
+		site.Platform,
+		onOffLabel(site.CodexMode),
+		onOffLabel(site.ClaudeMode),
+		site.BaseURL,
+	)
 	buttons := [][]inlineButton{
 		{{Text: "改名称", Data: fmt.Sprintf("site:name:%d", site.ID)}, {Text: "改 BaseURL", Data: fmt.Sprintf("site:base:%d", site.ID)}},
 		{{Text: siteEnabledLabel(site.Enabled), Data: fmt.Sprintf("site:toggle:%d", site.ID)}},
@@ -1260,9 +1296,23 @@ func (r *Runner) accountMenu(ctx context.Context, siteID int, accountID int) res
 		return response{Text: "读取账号失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "账号 #%d %s\n启用：%t 自动同步：%t\n路由组：%d 模型：%d", account.AccountID, account.AccountName, account.Enabled, account.AutoSync, account.GroupCount, account.ModelCount)
+	fmt.Fprintf(&b, "👤 账号 #%d｜%s\n%s｜自动同步 %s\n路由组 %s｜模型 %s",
+		account.AccountID,
+		account.AccountName,
+		enabledText(account.Enabled),
+		onOffLabel(account.AutoSync),
+		formatInt(account.GroupCount),
+		formatInt(account.ModelCount),
+	)
 	for _, group := range account.Groups {
-		fmt.Fprintf(&b, "\n- %s projection=%s keys=%d/%d models=%d status=%s", group.GroupKey, onOff(!group.ProjectionDisabled), group.EnabledKeyCount, group.KeyCount, len(group.Models), group.ModelSyncStatus)
+		fmt.Fprintf(&b, "\n\n%s %s\nKey %s/%s｜模型 %s｜%s",
+			projectionBadge(!group.ProjectionDisabled),
+			group.GroupKey,
+			formatInt(group.EnabledKeyCount),
+			formatInt(group.KeyCount),
+			formatInt(len(group.Models)),
+			modelSyncBadge(group.ModelSyncStatus),
+		)
 	}
 	buttons := [][]inlineButton{
 		{{Text: "路由组模型", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}},
@@ -1278,10 +1328,17 @@ func (r *Runner) groupsMenu(ctx context.Context, siteID int, accountID int) resp
 		return response{Text: "读取路由组失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "账号 #%d 路由组列表（如 claude、ds）", accountID)
+	fmt.Fprintf(&b, "🧭 账号 #%d 路由组", accountID)
 	buttons := make([][]inlineButton, 0, len(account.Groups)+2)
 	for _, group := range account.Groups {
-		fmt.Fprintf(&b, "\n- %s projection=%s keys=%d/%d models=%d status=%s", group.GroupKey, onOff(!group.ProjectionDisabled), group.EnabledKeyCount, group.KeyCount, len(group.Models), group.ModelSyncStatus)
+		fmt.Fprintf(&b, "\n\n%s %s\nKey %s/%s｜模型 %s｜%s",
+			projectionBadge(!group.ProjectionDisabled),
+			group.GroupKey,
+			formatInt(group.EnabledKeyCount),
+			formatInt(group.KeyCount),
+			formatInt(len(group.Models)),
+			modelSyncBadge(group.ModelSyncStatus),
+		)
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(group.GroupKey, 28), Data: groupCallbackData(siteID, accountID, group.GroupKey)}})
 	}
 	buttons = append(buttons, []inlineButton{{Text: "新增路由组", Data: fmt.Sprintf("group:create:acct:%d:%d", siteID, accountID)}})
@@ -1300,14 +1357,21 @@ func (r *Runner) groupMenu(ctx context.Context, siteID int, accountID int, group
 		return response{Text: "路由组不存在：" + groupKey, Buttons: [][]inlineButton{{{Text: "返回路由组列表", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "路由组 [%s]\n投影：%s\nKey：%d/%d\n模型：%d\n状态：%s", group.GroupKey, onOff(!group.ProjectionDisabled), group.EnabledKeyCount, group.KeyCount, len(group.Models), group.ModelSyncStatus)
+	fmt.Fprintf(&b, "🧭 路由组｜%s\n%s\nKey %s/%s｜模型 %s｜%s",
+		group.GroupKey,
+		projectionBadge(!group.ProjectionDisabled),
+		formatInt(group.EnabledKeyCount),
+		formatInt(group.KeyCount),
+		formatInt(len(group.Models)),
+		modelSyncBadge(group.ModelSyncStatus),
+	)
 	if group.ProjectionSuspended {
-		fmt.Fprintf(&b, "\n系统暂停：%s", firstNonEmpty(group.ProjectionSuspendReason, "unknown"))
+		fmt.Fprintf(&b, "\n⏸ 系统暂停：%s", firstNonEmpty(group.ProjectionSuspendReason, "unknown"))
 	}
 	if len(group.SourceKeys) > 0 {
-		b.WriteString("\n\nKeys:")
+		b.WriteString("\n\n🔑 Keys")
 		for _, key := range group.SourceKeys {
-			fmt.Fprintf(&b, "\n- #%d %s enabled=%t status=%s", key.ID, firstNonEmpty(key.Name, key.TokenMasked), key.Enabled, key.ValueStatus)
+			fmt.Fprintf(&b, "\n%s #%d %s｜%s", enabledBadge(key.Enabled), key.ID, firstNonEmpty(key.Name, key.TokenMasked), key.ValueStatus)
 		}
 	}
 	buttons := [][]inlineButton{
@@ -1329,7 +1393,12 @@ func (r *Runner) groupSettingsMenu(ctx context.Context, siteID int, accountID in
 		return response{Text: "路由组不存在：" + groupKey, Buttons: [][]inlineButton{{{Text: "返回路由组列表", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "路由组 [%s] 更多设置\n投影：%s\nKey：%d/%d", group.GroupKey, onOff(!group.ProjectionDisabled), group.EnabledKeyCount, group.KeyCount)
+	fmt.Fprintf(&b, "⚙️ 路由组设置｜%s\n%s\nKey %s/%s",
+		group.GroupKey,
+		projectionBadge(!group.ProjectionDisabled),
+		formatInt(group.EnabledKeyCount),
+		formatInt(group.KeyCount),
+	)
 	buttons := [][]inlineButton{
 		{{Text: "添加 Key", Data: fmt.Sprintf("key:add:%d:%d:%s", siteID, accountID, group.GroupKey)}},
 		{{Text: projectionToggleLabel(group.ProjectionDisabled), Data: fmt.Sprintf("proj:toggle:%d:%d:%s", siteID, accountID, group.GroupKey)}},
@@ -1365,11 +1434,20 @@ func (r *Runner) modelListMenu(ctx context.Context, siteID int, accountID int, g
 		return response{Text: "路由组不存在：" + groupKey, Buttons: [][]inlineButton{{{Text: "返回路由组", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "路由组 %s 模型列表", group.GroupKey)
+	fmt.Fprintf(&b, "🤖 模型列表｜%s", group.GroupKey)
 	buttons := make([][]inlineButton, 0, len(group.Models)+2)
 	for _, item := range group.Models {
-		fmt.Fprintf(&b, "\n- %s route=%s enabled=%t 1m=%t source=%s", item.ModelName, item.RouteType, !item.Disabled, item.Context1M, item.Source)
+		fmt.Fprintf(&b, "\n\n%s %s\nRoute %s｜1M %s｜%s",
+			enabledBadge(!item.Disabled),
+			shortReportName(item.ModelName, 56),
+			model.CompactSiteModelRouteTypeName(item.RouteType),
+			onOffLabel(item.Context1M),
+			firstNonEmpty(item.Source, "-"),
+		)
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(item.ModelName, 28), Data: modelCallbackData("model:view", siteID, accountID, group.GroupKey, item.ModelName)}})
+	}
+	if len(group.Models) == 0 {
+		b.WriteString("\n\n暂无模型")
 	}
 	buttons = append(buttons, []inlineButton{{Text: "添加模型", Data: fmt.Sprintf("model:add:%d:%d:%s", siteID, accountID, group.GroupKey)}})
 	buttons = append(buttons, []inlineButton{{Text: "返回路由组", Data: groupCallbackData(siteID, accountID, group.GroupKey)}, {Text: "主页", Data: "home"}})
@@ -1390,7 +1468,13 @@ func (r *Runner) modelMenu(ctx context.Context, siteID int, accountID int, group
 		return response{Text: "模型不存在：" + modelName, Buttons: [][]inlineButton{{{Text: "返回模型列表", Data: fmt.Sprintf("model:list:%d:%d:%s", siteID, accountID, group.GroupKey)}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "模型 %s\nroute=%s\nsource=%s\nenabled=%t\n1m=%t", modelItem.ModelName, modelItem.RouteType, modelItem.Source, !modelItem.Disabled, modelItem.Context1M)
+	fmt.Fprintf(&b, "🤖 模型\n%s\n\n%s\nRoute %s｜1M %s｜来源 %s",
+		modelItem.ModelName,
+		enabledText(!modelItem.Disabled),
+		model.CompactSiteModelRouteTypeName(modelItem.RouteType),
+		onOffLabel(modelItem.Context1M),
+		firstNonEmpty(modelItem.Source, "-"),
+	)
 	buttons := [][]inlineButton{
 		{{Text: modelToggleLabel(modelItem.Disabled), Data: modelCallbackData("model:toggle", siteID, accountID, group.GroupKey, modelItem.ModelName)}, {Text: model1MLabel(modelItem.Context1M), Data: modelCallbackData("model:1m", siteID, accountID, group.GroupKey, modelItem.ModelName)}},
 	}
@@ -1552,7 +1636,7 @@ func (r *Runner) createModelGroup(ctx context.Context, text string) string {
 	if err := op.GroupCreate(group, ctx); err != nil {
 		return "创建分组失败：" + err.Error()
 	}
-	return fmt.Sprintf("分组已创建：#%d %s mode=%s", group.ID, group.Name, groupModeLabel(group.Mode))
+	return fmt.Sprintf("分组已创建：#%d %s｜模式 %s", group.ID, group.Name, groupModeLabel(group.Mode))
 }
 
 func (r *Runner) addModelGroupItems(ctx context.Context, groupID int, channelID int, lines []string) string {
@@ -2510,11 +2594,53 @@ func siteClaudeLabel(enabled bool) string {
 	return "开启 Claude"
 }
 
-func onOff(v bool) string {
-	if v {
-		return "on"
+func enabledBadge(enabled bool) string {
+	if enabled {
+		return "🟢"
 	}
-	return "off"
+	return "⚪"
+}
+
+func enabledText(enabled bool) string {
+	if enabled {
+		return "🟢 启用"
+	}
+	return "⚪ 停用"
+}
+
+func onOffLabel(enabled bool) string {
+	if enabled {
+		return "开"
+	}
+	return "关"
+}
+
+func projectionBadge(enabled bool) string {
+	if enabled {
+		return "🟢 投影开启"
+	}
+	return "⚪ 投影关闭"
+}
+
+func modelSyncBadge(status model.SiteGroupModelSyncStatus) string {
+	switch status {
+	case model.SiteGroupModelSyncStatusSynced:
+		return "✅ 已同步"
+	case model.SiteGroupModelSyncStatusEmpty:
+		return "⚠️ 空模型"
+	case model.SiteGroupModelSyncStatusFailed:
+		return "❌ 同步失败"
+	case model.SiteGroupModelSyncStatusMissingKey:
+		return "🔑 缺 Key"
+	case model.SiteGroupModelSyncStatusStale:
+		return "🕒 需更新"
+	case model.SiteGroupModelSyncStatusUnresolved:
+		return "❔ 未解析"
+	case model.SiteGroupModelSyncStatusRemoved:
+		return "🗑 已移除"
+	default:
+		return "⏳ " + firstNonEmpty(string(status), "idle")
+	}
 }
 
 func firstNonEmpty(values ...string) string {

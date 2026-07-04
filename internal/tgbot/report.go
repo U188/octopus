@@ -155,21 +155,6 @@ func RunOpsNotifications(ctx context.Context) error {
 	return nil
 }
 
-func SendAdminMessage(ctx context.Context, text string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if !cfg.Enabled || cfg.Token == "" || len(cfg.AdminIDs) == 0 {
-		return nil
-	}
-	client, err := clientForConfig(cfg)
-	if err != nil {
-		return err
-	}
-	return sendAdminText(ctx, cfg, client, text)
-}
-
 func runDailyReport(ctx context.Context, cfg config, client *http.Client, now time.Time) error {
 	enabled, err := op.SettingGetBool(model.SettingKeyTelegramReportEnabled)
 	if err != nil || !enabled {
