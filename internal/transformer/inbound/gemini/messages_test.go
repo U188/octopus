@@ -90,3 +90,23 @@ func TestTransformStreamReturnsGeminiSSE(t *testing.T) {
 		t.Fatalf("expected SSE data frame, got %q", body)
 	}
 }
+
+func TestTransformStreamOmitsEmptyContent(t *testing.T) {
+	in := &MessagesInbound{}
+	finish := "stop"
+	body, err := in.TransformStream(context.Background(), &model.InternalLLMResponse{
+		ID:    "resp_1",
+		Model: "gemini-2.5-flash",
+		Choices: []model.Choice{{
+			Index:        0,
+			Delta:        &model.Message{Role: "assistant"},
+			FinishReason: &finish,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("TransformStream failed: %v", err)
+	}
+	if strings.Contains(string(body), `"parts":null`) {
+		t.Fatalf("empty stream content leaked parts:null: %s", body)
+	}
+}

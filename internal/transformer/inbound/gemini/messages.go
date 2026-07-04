@@ -302,6 +302,9 @@ func messageToGeminiContent(msg *model.Message) *model.GeminiContent {
 			ThoughtSignature: tc.ThoughtSignature,
 		})
 	}
+	if len(content.Parts) == 0 {
+		return nil
+	}
 	return content
 }
 
