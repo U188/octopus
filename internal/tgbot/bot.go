@@ -31,6 +31,7 @@ const (
 	callbackAliasTTL      = 24 * time.Hour
 	maxCallbackAliasCount = 5000
 	pendingActionTTL      = 15 * time.Minute
+	telegramListPageSize  = 8
 )
 
 type config struct {
@@ -83,6 +84,15 @@ type response struct {
 type inlineButton struct {
 	Text string
 	Data string
+}
+
+type pageWindow struct {
+	Page       int
+	PageSize   int
+	Total      int
+	TotalPages int
+	Start      int
+	End        int
 }
 
 type Runner struct {
@@ -436,10 +446,28 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 	switch {
 	case data == "home":
 		return r.helpResponse()
+	case strings.HasPrefix(data, "site_mgmt:p:"):
+		page, err := parsePageCallback(data, "site_mgmt:p")
+		if err != nil {
+			return response{Text: "站点分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.sitesMenu(ctx, page)
 	case data == "site_mgmt":
 		return r.sitesMenu(ctx)
+	case strings.HasPrefix(data, "group_mgmt:p:"):
+		page, err := parsePageCallback(data, "group_mgmt:p")
+		if err != nil {
+			return response{Text: "渠道分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.groupManagementMenu(ctx, page)
 	case data == "group_mgmt":
 		return r.groupManagementMenu(ctx)
+	case strings.HasPrefix(data, "model_groups:p:"):
+		page, err := parsePageCallback(data, "model_groups:p")
+		if err != nil {
+			return response{Text: "分组分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.modelGroupsMenu(ctx, page)
 	case data == "model_groups":
 		return r.modelGroupsMenu(ctx)
 	case data == "mg:create":
@@ -451,6 +479,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 				{{Text: "主页", Data: "home"}},
 			},
 		}
+	case strings.HasPrefix(data, "mg:viewp:"):
+		groupID, page, err := parsePair(data, "mg:viewp")
+		if err != nil {
+			return response{Text: "分组分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.modelGroupMenu(ctx, groupID, page)
 	case strings.HasPrefix(data, "mg:view:"):
 		groupID, err := strconv.Atoi(strings.TrimPrefix(data, "mg:view:"))
 		if err != nil {
@@ -500,12 +534,24 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 			return response{Text: "分组模式参数无效", Buttons: mainMenuButtons()}
 		}
 		return r.modelGroupModeMenu(ctx, groupID)
+	case strings.HasPrefix(data, "mg:addpage:"):
+		groupID, page, err := parsePair(data, "mg:addpage")
+		if err != nil {
+			return response{Text: "添加分组模型分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.modelGroupAddChannelMenu(ctx, groupID, page)
 	case strings.HasPrefix(data, "mg:add:ch:"):
 		groupID, channelID, err := parsePair(data, "mg:add:ch")
 		if err != nil {
 			return response{Text: "添加分组模型参数无效", Buttons: mainMenuButtons()}
 		}
 		return r.modelGroupAddModelMenu(ctx, groupID, channelID)
+	case strings.HasPrefix(data, "mg:addmodels:"):
+		groupID, channelID, page, err := parseTriple(data, "mg:addmodels")
+		if err != nil {
+			return response{Text: "添加分组模型分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.modelGroupAddModelMenu(ctx, groupID, channelID, page)
 	case strings.HasPrefix(data, "mg:addmodel:"):
 		groupID, channelID, modelName, err := parseModelGroupModelTarget(data, "mg:addmodel")
 		if err != nil {
@@ -587,6 +633,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 		}
 	case data == "ops":
 		return r.opsMenu()
+	case strings.HasPrefix(data, "ops:accounts:p:"):
+		page, err := parsePageCallback(data, "ops:accounts:p")
+		if err != nil {
+			return response{Text: "账号运维分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.opsAccountsMenu(ctx, page)
 	case data == "ops:accounts":
 		return r.opsAccountsMenu(ctx)
 	case data == "monitor":
@@ -616,6 +668,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 				{{Text: "主页", Data: "home"}},
 			},
 		}
+	case strings.HasPrefix(data, "site:page:"):
+		siteID, page, err := parsePair(data, "site:page")
+		if err != nil {
+			return response{Text: "站点详情分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.siteMenu(ctx, siteID, page)
 	case strings.HasPrefix(data, "site:edit:"):
 		siteID, err := strconv.Atoi(strings.TrimPrefix(data, "site:edit:"))
 		if err != nil {
@@ -677,12 +735,24 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 		return resp
 	case data == "group:create":
 		return r.groupCreateSiteMenu(ctx)
+	case strings.HasPrefix(data, "group:create:page:"):
+		page, err := parsePageCallback(data, "group:create:page")
+		if err != nil {
+			return response{Text: "创建路由组分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.groupCreateSiteMenu(ctx, page)
 	case strings.HasPrefix(data, "group:create:site:"):
 		siteID, err := strconv.Atoi(strings.TrimPrefix(data, "group:create:site:"))
 		if err != nil {
 			return response{Text: "group create site 参数无效", Buttons: mainMenuButtons()}
 		}
 		return r.groupCreateAccountMenu(ctx, siteID)
+	case strings.HasPrefix(data, "group:createacctpage:"):
+		siteID, page, err := parsePair(data, "group:createacctpage")
+		if err != nil {
+			return response{Text: "创建路由组账号分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.groupCreateAccountMenu(ctx, siteID, page)
 	case strings.HasPrefix(data, "group:create:acct:"):
 		siteID, accountID, err := parsePair(data, "group:create:acct")
 		if err != nil {
@@ -702,6 +772,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 			return response{Text: "group settings 参数无效", Buttons: mainMenuButtons()}
 		}
 		return r.groupSettingsMenu(ctx, siteID, accountID, groupKey)
+	case strings.HasPrefix(data, "groups:page:"):
+		siteID, accountID, page, err := parseTriple(data, "groups:page")
+		if err != nil {
+			return response{Text: "路由组分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.groupsMenu(ctx, siteID, accountID, page)
 	case strings.HasPrefix(data, "groups:"):
 		siteID, accountID, err := parsePair(data, "groups")
 		if err != nil {
@@ -798,6 +874,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 				{{Text: "主页", Data: "home"}},
 			},
 		}
+	case strings.HasPrefix(data, "model:listp:"):
+		siteID, accountID, groupKey, page, err := parseGroupPageTarget(data, "model:listp")
+		if err != nil {
+			return response{Text: "模型分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.modelListMenu(ctx, siteID, accountID, groupKey, page)
 	case strings.HasPrefix(data, "model:list:"):
 		siteID, accountID, groupKey, err := parseGroupTarget(data, "model:list")
 		if err != nil {
@@ -862,6 +944,12 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 			return response{Text: "checkin 参数无效", Buttons: mainMenuButtons()}
 		}
 		return response{Text: r.checkinAccount(ctx, accountID), Buttons: opsAccountActionButtons()}
+	case strings.HasPrefix(data, "acct:page:"):
+		siteID, accountID, page, err := parseTriple(data, "acct:page")
+		if err != nil {
+			return response{Text: "账号分页参数无效", Buttons: mainMenuButtons()}
+		}
+		return r.accountMenu(ctx, siteID, accountID, page)
 	case strings.HasPrefix(data, "acct:"):
 		siteID, accountID, err := parsePair(data, "acct")
 		if err != nil {
@@ -880,7 +968,7 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 
 }
 
-func (r *Runner) modelGroupsMenu(ctx context.Context) response {
+func (r *Runner) modelGroupsMenu(ctx context.Context, pages ...int) response {
 	groups, err := op.GroupList(ctx)
 	if err != nil {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
@@ -891,22 +979,29 @@ func (r *Runner) modelGroupsMenu(ctx context.Context) response {
 		}
 		return strings.ToLower(groups[i].Name) < strings.ToLower(groups[j].Name)
 	})
+	visibleGroups, window := paginateItems(groups, pageFromArgs(pages))
 	var b strings.Builder
 	b.WriteString("🧩 分组管理\n对外模型组按模式调度组内渠道模型。")
-	buttons := make([][]inlineButton, 0, len(groups)+4)
-	for _, group := range groups {
+	if len(groups) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleGroups)+5)
+	for _, group := range visibleGroups {
 		fmt.Fprintf(&b, "\n\n#%d %s\n模式 %s｜模型 %s", group.ID, group.Name, groupModeLabel(group.Mode), formatInt(len(group.Items)))
 		buttons = append(buttons, []inlineButton{{Text: fmt.Sprintf("#%d %s", group.ID, trimForButton(group.Name, 22)), Data: fmt.Sprintf("mg:view:%d", group.ID)}})
 	}
 	if len(groups) == 0 {
 		b.WriteString("\n\n暂无分组")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("model_groups:p:%d", page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "创建分组", Data: "mg:create"}})
 	buttons = append(buttons, []inlineButton{{Text: "渠道管理", Data: "group_mgmt"}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) modelGroupMenu(ctx context.Context, groupID int) response {
+func (r *Runner) modelGroupMenu(ctx context.Context, groupID int, pages ...int) response {
 	group, err := op.GroupGet(groupID, ctx)
 	if err != nil {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: [][]inlineButton{{{Text: "返回分组管理", Data: "model_groups"}}}}
@@ -922,19 +1017,20 @@ func (r *Runner) modelGroupMenu(ctx context.Context, groupID int) response {
 	if group.SessionKeepTime > 0 {
 		fmt.Fprintf(&b, "\n会话保持 %ds", group.SessionKeepTime)
 	}
-	if len(group.Items) > 0 {
-		b.WriteString("\n\n🤖 组内模型")
-		items := append([]model.GroupItem(nil), group.Items...)
-		sort.Slice(items, func(i, j int) bool {
-			if items[i].Priority != items[j].Priority {
-				return items[i].Priority < items[j].Priority
-			}
-			if items[i].ChannelID != items[j].ChannelID {
-				return items[i].ChannelID < items[j].ChannelID
-			}
-			return items[i].ModelName < items[j].ModelName
-		})
-		for _, item := range items {
+	items := append([]model.GroupItem(nil), group.Items...)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		if items[i].ChannelID != items[j].ChannelID {
+			return items[i].ChannelID < items[j].ChannelID
+		}
+		return items[i].ModelName < items[j].ModelName
+	})
+	visibleItems, window := paginateItems(items, pageFromArgs(pages))
+	if len(items) > 0 {
+		fmt.Fprintf(&b, "\n\n🤖 组内模型\n%s", formatPageStatus(window))
+		for _, item := range visibleItems {
 			channelName := fmt.Sprintf("channel#%d", item.ChannelID)
 			if channel, err := op.ChannelGet(item.ChannelID, ctx); err == nil {
 				channelName = channel.Name
@@ -946,9 +1042,12 @@ func (r *Runner) modelGroupMenu(ctx context.Context, groupID int) response {
 		{{Text: "添加模型", Data: fmt.Sprintf("mg:add:%d", group.ID)}, {Text: "切换模式", Data: fmt.Sprintf("mg:mode:%d", group.ID)}},
 		{{Text: "重命名", Data: fmt.Sprintf("mg:rename:%d", group.ID)}, {Text: "探活", Data: fmt.Sprintf("mg:health:%d", group.ID)}},
 	}
-	for _, item := range group.Items {
+	for _, item := range visibleItems {
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(item.ModelName, 24), Data: fmt.Sprintf("mg:item:%d:%d", group.ID, item.ID)}})
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("mg:viewp:%d:%d", group.ID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "删除分组", Data: fmt.Sprintf("mg:del:%d", group.ID)}})
 	buttons = append(buttons, []inlineButton{{Text: "返回分组管理", Data: "model_groups"}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -1027,7 +1126,7 @@ func (r *Runner) modelGroupModeMenu(ctx context.Context, groupID int) response {
 	}
 }
 
-func (r *Runner) modelGroupAddChannelMenu(ctx context.Context, groupID int) response {
+func (r *Runner) modelGroupAddChannelMenu(ctx context.Context, groupID int, pages ...int) response {
 	group, err := op.GroupGet(groupID, ctx)
 	if err != nil {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
@@ -1037,10 +1136,14 @@ func (r *Runner) modelGroupAddChannelMenu(ctx context.Context, groupID int) resp
 		return response{Text: "读取渠道失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
+	visibleChannels, window := paginateItems(channels, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "➕ 添加分组模型\n分组 %s\n先选择渠道，再发送模型名。", group.Name)
-	buttons := make([][]inlineButton, 0, len(channels)+2)
-	for _, ch := range channels {
+	if len(channels) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleChannels)+3)
+	for _, ch := range visibleChannels {
 		models := splitModelCSV(ch.Model, ch.CustomModel)
 		modelHint := ""
 		if len(models) > 0 {
@@ -1052,11 +1155,14 @@ func (r *Runner) modelGroupAddChannelMenu(ctx context.Context, groupID int) resp
 	if len(channels) == 0 {
 		b.WriteString("\n\n暂无渠道")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("mg:addpage:%d:%d", group.ID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "返回分组", Data: fmt.Sprintf("mg:view:%d", group.ID)}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) modelGroupAddModelMenu(ctx context.Context, groupID int, channelID int) response {
+func (r *Runner) modelGroupAddModelMenu(ctx context.Context, groupID int, channelID int, pages ...int) response {
 	group, err := op.GroupGet(groupID, ctx)
 	if err != nil {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
@@ -1066,29 +1172,40 @@ func (r *Runner) modelGroupAddModelMenu(ctx context.Context, groupID int, channe
 		return response{Text: "读取渠道失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	models := splitModelCSV(channel.Model, channel.CustomModel)
+	visibleModels, window := paginateItems(models, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "➕ 添加分组模型\n分组 %s\n渠道 %s\n选择已有模型，或手动输入模型名。", group.Name, channel.Name)
-	buttons := make([][]inlineButton, 0, len(models)+3)
-	for _, modelName := range models {
+	if len(models) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleModels)+4)
+	for _, modelName := range visibleModels {
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(modelName, 28), Data: fmt.Sprintf("mg:addmodel:%d:%d:%s", groupID, channelID, modelName)}})
 	}
 	if len(models) == 0 {
 		b.WriteString("\n该渠道没有配置模型列表")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("mg:addmodels:%d:%d:%d", groupID, channelID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "手动输入", Data: fmt.Sprintf("mg:addtext:%d:%d", groupID, channelID)}})
 	buttons = append(buttons, []inlineButton{{Text: "返回渠道选择", Data: fmt.Sprintf("mg:add:%d", groupID)}, {Text: "返回分组", Data: fmt.Sprintf("mg:view:%d", groupID)}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) sitesMenu(ctx context.Context) response {
+func (r *Runner) sitesMenu(ctx context.Context, pages ...int) response {
 	sites, err := op.SiteList(ctx)
 	if err != nil {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleSites, window := paginateItems(sites, pageFromArgs(pages))
 	var b strings.Builder
 	b.WriteString("📍 站点管理")
-	buttons := make([][]inlineButton, 0, len(sites)+2)
-	for _, site := range sites {
+	if len(sites) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleSites)+4)
+	for _, site := range visibleSites {
 		fmt.Fprintf(&b, "\n\n%s #%d %s\n平台 %s｜账号 %s",
 			enabledBadge(site.Enabled),
 			site.ID,
@@ -1104,61 +1221,91 @@ func (r *Runner) sitesMenu(ctx context.Context) response {
 	if len(sites) == 0 {
 		b.WriteString("\n\n暂无站点")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("site_mgmt:p:%d", page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "新增站点", Data: "site:add"}})
 	buttons = append(buttons, []inlineButton{{Text: "渠道管理", Data: "group_mgmt"}, {Text: "运维", Data: "ops"}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) groupManagementMenu(ctx context.Context) response {
+func (r *Runner) groupManagementMenu(ctx context.Context, pages ...int) response {
 	cards, err := op.SiteChannelListWithOptions(ctx, op.SiteChannelListOptions{IncludeHistory: false})
 	if err != nil {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
-	var b strings.Builder
-	b.WriteString("🧭 渠道管理")
-	buttons := make([][]inlineButton, 0, 16)
-	groupCount := 0
+	type groupEntry struct {
+		siteID      int
+		siteName    string
+		accountID   int
+		accountName string
+		group       model.SiteChannelGroup
+	}
+	entries := make([]groupEntry, 0, 16)
 	for _, site := range cards {
 		for _, account := range site.Accounts {
 			for _, group := range account.Groups {
-				groupCount++
-				fmt.Fprintf(&b, "\n\n%s %s\n#%d %s / #%d %s\n模型 %s｜Key %s/%s",
-					projectionBadge(!group.ProjectionDisabled),
-					group.GroupKey,
-					site.SiteID,
-					site.SiteName,
-					account.AccountID,
-					account.AccountName,
-					formatInt(len(group.Models)),
-					formatInt(group.EnabledKeyCount),
-					formatInt(group.KeyCount),
-				)
-				buttons = append(buttons, []inlineButton{{
-					Text: fmt.Sprintf("%s | %s/%s", trimForButton(group.GroupKey, 10), trimForButton(site.SiteName, 8), trimForButton(account.AccountName, 8)),
-					Data: groupCallbackData(site.SiteID, account.AccountID, group.GroupKey),
-				}})
+				entries = append(entries, groupEntry{
+					siteID:      site.SiteID,
+					siteName:    site.SiteName,
+					accountID:   account.AccountID,
+					accountName: account.AccountName,
+					group:       group,
+				})
 			}
 		}
 	}
-	if groupCount == 0 {
+	visibleEntries, window := paginateItems(entries, pageFromArgs(pages))
+	var b strings.Builder
+	b.WriteString("🧭 渠道管理")
+	if len(entries) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleEntries)+4)
+	for _, entry := range visibleEntries {
+		group := entry.group
+		fmt.Fprintf(&b, "\n\n%s %s\n#%d %s / #%d %s\n模型 %s｜Key %s/%s",
+			projectionBadge(!group.ProjectionDisabled),
+			group.GroupKey,
+			entry.siteID,
+			entry.siteName,
+			entry.accountID,
+			entry.accountName,
+			formatInt(len(group.Models)),
+			formatInt(group.EnabledKeyCount),
+			formatInt(group.KeyCount),
+		)
+		buttons = append(buttons, []inlineButton{{
+			Text: fmt.Sprintf("%s | %s/%s", trimForButton(group.GroupKey, 10), trimForButton(entry.siteName, 8), trimForButton(entry.accountName, 8)),
+			Data: groupCallbackData(entry.siteID, entry.accountID, group.GroupKey),
+		}})
+	}
+	if len(entries) == 0 {
 		b.WriteString("\n\n暂无路由组")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("group_mgmt:p:%d", page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "创建路由组", Data: "group:create"}})
 	buttons = append(buttons, []inlineButton{{Text: "站点管理", Data: "site_mgmt"}, {Text: "运维", Data: "ops"}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) groupCreateSiteMenu(ctx context.Context) response {
+func (r *Runner) groupCreateSiteMenu(ctx context.Context, pages ...int) response {
 	sites, err := op.SiteList(ctx)
 	if err != nil {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleSites, window := paginateItems(sites, pageFromArgs(pages))
 	var b strings.Builder
 	b.WriteString("➕ 创建路由组\n先选择站点")
-	buttons := make([][]inlineButton, 0, len(sites)+2)
-	for _, site := range sites {
+	if len(sites) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleSites)+4)
+	for _, site := range visibleSites {
 		fmt.Fprintf(&b, "\n\n#%d %s\n平台 %s｜账号 %s", site.ID, site.Name, site.Platform, formatInt(len(site.Accounts)))
 		buttons = append(buttons, []inlineButton{{
 			Text: fmt.Sprintf("#%d %s", site.ID, trimForButton(site.Name, 22)),
@@ -1168,20 +1315,27 @@ func (r *Runner) groupCreateSiteMenu(ctx context.Context) response {
 	if len(sites) == 0 {
 		b.WriteString("\n\n暂无站点")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("group:create:page:%d", page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "新增站点", Data: "site:add"}})
 	buttons = append(buttons, []inlineButton{{Text: "返回渠道管理", Data: "group_mgmt"}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) groupCreateAccountMenu(ctx context.Context, siteID int) response {
+func (r *Runner) groupCreateAccountMenu(ctx context.Context, siteID int, pages ...int) response {
 	site, err := op.SiteGet(siteID, ctx)
 	if err != nil {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleAccounts, window := paginateItems(site.Accounts, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "➕ 创建路由组\n站点 #%d %s", site.ID, site.Name)
-	buttons := make([][]inlineButton, 0, len(site.Accounts)+2)
-	for _, account := range site.Accounts {
+	if len(site.Accounts) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleAccounts)+3)
+	for _, account := range visibleAccounts {
 		fmt.Fprintf(&b, "\n\n%s #%d %s\n路由组 %s｜模型 %s", enabledBadge(account.Enabled), account.ID, account.Name, formatInt(len(account.UserGroups)), formatInt(len(account.Models)))
 		buttons = append(buttons, []inlineButton{{
 			Text: fmt.Sprintf("#%d %s", account.ID, trimForButton(account.Name, 22)),
@@ -1191,6 +1345,9 @@ func (r *Runner) groupCreateAccountMenu(ctx context.Context, siteID int) respons
 	if len(site.Accounts) == 0 {
 		b.WriteString("\n\n该站点暂无账号")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("group:createacctpage:%d:%d", site.ID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "返回站点选择", Data: "group:create"}, {Text: "返回站点详情", Data: fmt.Sprintf("site:%d", site.ID)}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -1212,36 +1369,57 @@ func (r *Runner) opsMenu() response {
 	}
 }
 
-func (r *Runner) opsAccountsMenu(ctx context.Context) response {
+func (r *Runner) opsAccountsMenu(ctx context.Context, pages ...int) response {
 	sites, err := op.SiteList(ctx)
 	if err != nil {
 		return response{Text: "读取账号失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
-	var b strings.Builder
-	b.WriteString("🔄 账号运维\n选择账号后可直接同步或签到。")
-	buttons := make([][]inlineButton, 0, 16)
-	accountCount := 0
+	type opsAccountEntry struct {
+		siteID      int
+		siteName    string
+		siteEnabled bool
+		account     model.SiteAccount
+	}
+	entries := make([]opsAccountEntry, 0, 16)
 	for _, site := range sites {
 		for _, account := range site.Accounts {
-			accountCount++
-			fmt.Fprintf(&b, "\n\n%s #%d %s / %s\n同步 %s｜签到 %s",
-				enabledBadge(site.Enabled && account.Enabled),
-				account.ID,
-				shortReportName(site.Name, 28),
-				shortReportName(account.Name, 28),
-				executionStatusLabel(account.LastSyncStatus),
-				executionStatusLabel(account.LastCheckinStatus),
-			)
-			buttons = append(buttons, []inlineButton{
-				{Text: trimForButton(fmt.Sprintf("#%d %s", account.ID, account.Name), 18), Data: fmt.Sprintf("acct:%d:%d", site.ID, account.ID)},
-				{Text: "同步", Data: fmt.Sprintf("sync:%d", account.ID)},
-				{Text: "签到", Data: fmt.Sprintf("checkin:%d", account.ID)},
+			entries = append(entries, opsAccountEntry{
+				siteID:      site.ID,
+				siteName:    site.Name,
+				siteEnabled: site.Enabled,
+				account:     account,
 			})
 		}
 	}
-	if accountCount == 0 {
+	visibleEntries, window := paginateItems(entries, pageFromArgs(pages))
+	var b strings.Builder
+	b.WriteString("🔄 账号运维\n选择账号后可直接同步或签到。")
+	if len(entries) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleEntries)+3)
+	for _, entry := range visibleEntries {
+		account := entry.account
+		fmt.Fprintf(&b, "\n\n%s #%d %s / %s\n同步 %s｜签到 %s",
+			enabledBadge(entry.siteEnabled && account.Enabled),
+			account.ID,
+			shortReportName(entry.siteName, 28),
+			shortReportName(account.Name, 28),
+			executionStatusLabel(account.LastSyncStatus),
+			executionStatusLabel(account.LastCheckinStatus),
+		)
+		buttons = append(buttons, []inlineButton{
+			{Text: trimForButton(fmt.Sprintf("#%d %s", account.ID, account.Name), 18), Data: fmt.Sprintf("acct:%d:%d", entry.siteID, account.ID)},
+			{Text: "同步", Data: fmt.Sprintf("sync:%d", account.ID)},
+			{Text: "签到", Data: fmt.Sprintf("checkin:%d", account.ID)},
+		})
+	}
+	if len(entries) == 0 {
 		b.WriteString("\n\n暂无账号")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("ops:accounts:p:%d", page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "站点管理", Data: "site_mgmt"}, {Text: "返回运维", Data: "ops"}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -1283,11 +1461,12 @@ func (r *Runner) monitorMenu(ctx context.Context) response {
 	}
 }
 
-func (r *Runner) siteMenu(ctx context.Context, siteID int) response {
+func (r *Runner) siteMenu(ctx context.Context, siteID int, pages ...int) response {
 	site, err := op.SiteGet(siteID, ctx)
 	if err != nil {
 		return response{Text: "读取站点失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleAccounts, window := paginateItems(site.Accounts, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "📍 站点 #%d｜%s\n%s｜平台 %s\nCodex %s｜Claude %s\n账号 %s\n%s",
 		site.ID,
@@ -1299,8 +1478,11 @@ func (r *Runner) siteMenu(ctx context.Context, siteID int) response {
 		formatInt(len(site.Accounts)),
 		site.BaseURL,
 	)
-	buttons := make([][]inlineButton, 0, len(site.Accounts)+1)
-	for _, account := range site.Accounts {
+	if len(site.Accounts) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleAccounts)+3)
+	for _, account := range visibleAccounts {
 		fmt.Fprintf(&b, "\n\n%s 账号 #%d %s\n路由组 %s｜Key %s｜模型 %s",
 			enabledBadge(account.Enabled),
 			account.ID,
@@ -1311,6 +1493,9 @@ func (r *Runner) siteMenu(ctx context.Context, siteID int) response {
 		)
 		buttons = append(buttons, []inlineButton{{Text: fmt.Sprintf("#%d %s", account.ID, trimForButton(account.Name, 22)), Data: fmt.Sprintf("acct:%d:%d", site.ID, account.ID)}})
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("site:page:%d:%d", site.ID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "编辑站点", Data: fmt.Sprintf("site:edit:%d", site.ID)}, {Text: "返回站点管理", Data: "site_mgmt"}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -1340,11 +1525,12 @@ func (r *Runner) siteEditMenu(ctx context.Context, siteID int) response {
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) accountMenu(ctx context.Context, siteID int, accountID int) response {
+func (r *Runner) accountMenu(ctx context.Context, siteID int, accountID int, pages ...int) response {
 	account, err := op.SiteChannelAccountGet(siteID, accountID, ctx)
 	if err != nil {
 		return response{Text: "读取账号失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleGroups, window := paginateItems(account.Groups, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "👤 账号 #%d｜%s\n%s｜自动同步 %s\n路由组 %s｜模型 %s",
 		account.AccountID,
@@ -1354,7 +1540,10 @@ func (r *Runner) accountMenu(ctx context.Context, siteID int, accountID int) res
 		formatInt(account.GroupCount),
 		formatInt(account.ModelCount),
 	)
-	for _, group := range account.Groups {
+	if len(account.Groups) > 0 {
+		fmt.Fprintf(&b, "\n\n🧭 路由组\n%s", formatPageStatus(window))
+	}
+	for _, group := range visibleGroups {
 		fmt.Fprintf(&b, "\n\n%s %s\nKey %s/%s｜模型 %s｜%s",
 			projectionBadge(!group.ProjectionDisabled),
 			group.GroupKey,
@@ -1364,23 +1553,35 @@ func (r *Runner) accountMenu(ctx context.Context, siteID int, accountID int) res
 			modelSyncBadge(group.ModelSyncStatus),
 		)
 	}
+	if len(account.Groups) == 0 {
+		b.WriteString("\n\n暂无路由组")
+	}
 	buttons := [][]inlineButton{
 		{{Text: "路由组模型", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}},
-		{{Text: "同步", Data: fmt.Sprintf("sync:%d", accountID)}, {Text: "签到", Data: fmt.Sprintf("checkin:%d", accountID)}},
-		{{Text: "返回站点", Data: fmt.Sprintf("site:%d", siteID)}, {Text: "主页", Data: "home"}},
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("acct:page:%d:%d:%d", siteID, accountID, page)
+	})
+	buttons = append(buttons,
+		[]inlineButton{{Text: "同步", Data: fmt.Sprintf("sync:%d", accountID)}, {Text: "签到", Data: fmt.Sprintf("checkin:%d", accountID)}},
+		[]inlineButton{{Text: "返回站点", Data: fmt.Sprintf("site:%d", siteID)}, {Text: "主页", Data: "home"}},
+	)
 	return response{Text: b.String(), Buttons: buttons}
 }
 
-func (r *Runner) groupsMenu(ctx context.Context, siteID int, accountID int) response {
+func (r *Runner) groupsMenu(ctx context.Context, siteID int, accountID int, pages ...int) response {
 	account, err := op.SiteChannelAccountGet(siteID, accountID, ctx)
 	if err != nil {
 		return response{Text: "读取路由组失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
+	visibleGroups, window := paginateItems(account.Groups, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "🧭 账号 #%d 路由组", accountID)
-	buttons := make([][]inlineButton, 0, len(account.Groups)+2)
-	for _, group := range account.Groups {
+	if len(account.Groups) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleGroups)+4)
+	for _, group := range visibleGroups {
 		fmt.Fprintf(&b, "\n\n%s %s\nKey %s/%s｜模型 %s｜%s",
 			projectionBadge(!group.ProjectionDisabled),
 			group.GroupKey,
@@ -1391,6 +1592,12 @@ func (r *Runner) groupsMenu(ctx context.Context, siteID int, accountID int) resp
 		)
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(group.GroupKey, 28), Data: groupCallbackData(siteID, accountID, group.GroupKey)}})
 	}
+	if len(account.Groups) == 0 {
+		b.WriteString("\n\n暂无路由组")
+	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("groups:page:%d:%d:%d", siteID, accountID, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "新增路由组", Data: fmt.Sprintf("group:create:acct:%d:%d", siteID, accountID)}})
 	buttons = append(buttons, []inlineButton{{Text: "返回账号", Data: fmt.Sprintf("acct:%d:%d", siteID, accountID)}, {Text: "渠道总览", Data: "group_mgmt"}})
 	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
@@ -1474,7 +1681,7 @@ func (r *Runner) modelAddMenu(siteID int, accountID int, groupKey string) respon
 	}
 }
 
-func (r *Runner) modelListMenu(ctx context.Context, siteID int, accountID int, groupKey string) response {
+func (r *Runner) modelListMenu(ctx context.Context, siteID int, accountID int, groupKey string, pages ...int) response {
 	account, err := op.SiteChannelAccountGet(siteID, accountID, ctx)
 	if err != nil {
 		return response{Text: "读取模型失败：" + err.Error(), Buttons: mainMenuButtons()}
@@ -1483,10 +1690,14 @@ func (r *Runner) modelListMenu(ctx context.Context, siteID int, accountID int, g
 	if !ok {
 		return response{Text: "路由组不存在：" + groupKey, Buttons: [][]inlineButton{{{Text: "返回路由组", Data: fmt.Sprintf("groups:%d:%d", siteID, accountID)}}}}
 	}
+	visibleModels, window := paginateItems(group.Models, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "🤖 模型列表｜%s", group.GroupKey)
-	buttons := make([][]inlineButton, 0, len(group.Models)+2)
-	for _, item := range group.Models {
+	if len(group.Models) > 0 {
+		fmt.Fprintf(&b, "\n%s", formatPageStatus(window))
+	}
+	buttons := make([][]inlineButton, 0, len(visibleModels)+4)
+	for _, item := range visibleModels {
 		fmt.Fprintf(&b, "\n\n%s %s\nRoute %s｜1M %s｜%s",
 			enabledBadge(!item.Disabled),
 			shortReportName(item.ModelName, 56),
@@ -1499,6 +1710,9 @@ func (r *Runner) modelListMenu(ctx context.Context, siteID int, accountID int, g
 	if len(group.Models) == 0 {
 		b.WriteString("\n\n暂无模型")
 	}
+	buttons = appendPaginationButtons(buttons, window, func(page int) string {
+		return fmt.Sprintf("model:listp:%d:%d:%s:%d", siteID, accountID, group.GroupKey, page)
+	})
 	buttons = append(buttons, []inlineButton{{Text: "添加模型", Data: fmt.Sprintf("model:add:%d:%d:%s", siteID, accountID, group.GroupKey)}})
 	buttons = append(buttons, []inlineButton{{Text: "返回路由组", Data: groupCallbackData(siteID, accountID, group.GroupKey)}, {Text: "主页", Data: "home"}})
 	return response{Text: b.String(), Buttons: buttons}
@@ -2371,6 +2585,14 @@ func findModel(models []model.SiteChannelModel, modelName string) (model.SiteCha
 	return model.SiteChannelModel{}, false
 }
 
+func parsePageCallback(data string, prefix string) (int, error) {
+	want := prefix + ":"
+	if !strings.HasPrefix(data, want) {
+		return 0, fmt.Errorf("invalid page callback")
+	}
+	return strconv.Atoi(strings.TrimPrefix(data, want))
+}
+
 func parsePair(data string, prefix string) (int, int, error) {
 	parts := strings.Split(data, ":")
 	prefixParts := strings.Count(prefix, ":") + 1
@@ -2425,6 +2647,31 @@ func parseGroupTarget(data string, prefix string) (int, int, string, error) {
 	}
 	groupKey := strings.Join(parts[prefixParts+2:], ":")
 	return siteID, accountID, groupKey, nil
+}
+
+func parseGroupPageTarget(data string, prefix string) (int, int, string, int, error) {
+	parts := strings.Split(data, ":")
+	prefixParts := strings.Count(prefix, ":") + 1
+	if len(parts) < prefixParts+4 {
+		return 0, 0, "", 0, fmt.Errorf("invalid group page callback")
+	}
+	siteID, err := strconv.Atoi(parts[prefixParts])
+	if err != nil {
+		return 0, 0, "", 0, err
+	}
+	accountID, err := strconv.Atoi(parts[prefixParts+1])
+	if err != nil {
+		return 0, 0, "", 0, err
+	}
+	page, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return 0, 0, "", 0, err
+	}
+	groupKey := strings.Join(parts[prefixParts+2:len(parts)-1], ":")
+	if strings.TrimSpace(groupKey) == "" {
+		return 0, 0, "", 0, fmt.Errorf("invalid group page callback")
+	}
+	return siteID, accountID, groupKey, page, nil
 }
 
 func parseModelTarget(data string, prefix string) (int, int, string, string, error) {
@@ -2580,6 +2827,85 @@ func limitStrings(values []string, limit int) []string {
 		return values
 	}
 	return values[:limit]
+}
+
+func pageFromArgs(pages []int) int {
+	if len(pages) == 0 {
+		return 1
+	}
+	if pages[0] < 1 {
+		return 1
+	}
+	return pages[0]
+}
+
+func paginateItems[T any](items []T, page int) ([]T, pageWindow) {
+	window := newPageWindow(len(items), page, telegramListPageSize)
+	if len(items) == 0 {
+		return nil, window
+	}
+	return items[window.Start:window.End], window
+}
+
+func newPageWindow(total int, page int, pageSize int) pageWindow {
+	if pageSize <= 0 {
+		pageSize = telegramListPageSize
+	}
+	if page < 1 {
+		page = 1
+	}
+	totalPages := 1
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	start := 0
+	end := 0
+	if total > 0 {
+		start = (page - 1) * pageSize
+		end = start + pageSize
+		if end > total {
+			end = total
+		}
+	}
+	return pageWindow{
+		Page:       page,
+		PageSize:   pageSize,
+		Total:      total,
+		TotalPages: totalPages,
+		Start:      start,
+		End:        end,
+	}
+}
+
+func formatPageStatus(window pageWindow) string {
+	if window.Total == 0 {
+		return "第 1/1 页｜0 项"
+	}
+	return fmt.Sprintf("第 %d/%d 页｜%d-%d/%d", window.Page, window.TotalPages, window.Start+1, window.End, window.Total)
+}
+
+func appendPaginationButtons(buttons [][]inlineButton, window pageWindow, dataForPage func(int) string) [][]inlineButton {
+	if window.TotalPages <= 1 {
+		return buttons
+	}
+	row := make([]inlineButton, 0, 5)
+	if window.Page > 1 {
+		row = append(row,
+			inlineButton{Text: "首页", Data: dataForPage(1)},
+			inlineButton{Text: "上一页", Data: dataForPage(window.Page - 1)},
+		)
+	}
+	row = append(row, inlineButton{Text: fmt.Sprintf("%d/%d", window.Page, window.TotalPages), Data: dataForPage(window.Page)})
+	if window.Page < window.TotalPages {
+		row = append(row,
+			inlineButton{Text: "下一页", Data: dataForPage(window.Page + 1)},
+			inlineButton{Text: "末页", Data: dataForPage(window.TotalPages)},
+		)
+	}
+	return append(buttons, row)
 }
 
 func mainMenuButtons() [][]inlineButton {

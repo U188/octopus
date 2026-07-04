@@ -1,6 +1,7 @@
 package tgbot
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,26 @@ func TestParseGroupTarget(t *testing.T) {
 	}
 }
 
+func TestParsePageCallback(t *testing.T) {
+	page, err := parsePageCallback("group_mgmt:p:3", "group_mgmt:p")
+	if err != nil {
+		t.Fatalf("parsePageCallback failed: %v", err)
+	}
+	if page != 3 {
+		t.Fatalf("got %d", page)
+	}
+}
+
+func TestParseGroupPageTargetKeepsColonGroupKey(t *testing.T) {
+	siteID, accountID, groupKey, page, err := parseGroupPageTarget("model:listp:12:34:vip:cn:5", "model:listp")
+	if err != nil {
+		t.Fatalf("parseGroupPageTarget failed: %v", err)
+	}
+	if siteID != 12 || accountID != 34 || groupKey != "vip:cn" || page != 5 {
+		t.Fatalf("got %d %d %q %d", siteID, accountID, groupKey, page)
+	}
+}
+
 func TestParseModelTarget(t *testing.T) {
 	siteID, accountID, groupKey, modelName, err := parseModelTarget("model:view:12:34:vip:gpt-5.5", "model:view")
 	if err != nil {
@@ -145,6 +166,34 @@ func TestBuildInlineKeyboardSkipsEmptyItems(t *testing.T) {
 	}
 	if len(rows) != 1 || len(rows[0]) != 1 || rows[0][0]["callback_data"] != "a" {
 		t.Fatalf("unexpected rows: %#v", rows)
+	}
+}
+
+func TestPaginateItemsClampsPage(t *testing.T) {
+	items := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+	visible, window := paginateItems(items, 99)
+	if window.Page != 3 || window.TotalPages != 3 || window.Start != 16 || window.End != 20 {
+		t.Fatalf("unexpected window: %+v", window)
+	}
+	if len(visible) != 4 || visible[0] != 17 || visible[3] != 20 {
+		t.Fatalf("unexpected visible items: %#v", visible)
+	}
+}
+
+func TestAppendPaginationButtons(t *testing.T) {
+	window := newPageWindow(32, 2, 8)
+	buttons := appendPaginationButtons(nil, window, func(page int) string {
+		return "page:" + strconv.Itoa(page)
+	})
+	if len(buttons) != 1 {
+		t.Fatalf("expected one pagination row, got %#v", buttons)
+	}
+	row := buttons[0]
+	if len(row) != 5 {
+		t.Fatalf("expected 5 buttons, got %#v", row)
+	}
+	if row[0].Data != "page:1" || row[1].Data != "page:1" || row[2].Text != "2/4" || row[3].Data != "page:3" || row[4].Data != "page:4" {
+		t.Fatalf("unexpected row: %#v", row)
 	}
 }
 
