@@ -85,7 +85,7 @@ func buildBalanceReport(ctx context.Context) string {
 		return "读取余额失败：" + err.Error()
 	}
 	if len(sites.Balances) == 0 {
-		return "余额概览\n暂无可显示余额。"
+		return "💰 余额概览\n\n暂无可显示余额。"
 	}
 	sort.Slice(sites.Balances, func(i, j int) bool {
 		if sites.Balances[i].Balance != sites.Balances[j].Balance {
@@ -94,20 +94,20 @@ func buildBalanceReport(ctx context.Context) string {
 		return sites.Balances[i].AccountID < sites.Balances[j].AccountID
 	})
 	var b strings.Builder
-	b.WriteString("余额概览")
+	b.WriteString("💰 余额概览\n按余额从低到高")
 	for _, item := range limitBalanceItems(sites.Balances, 20) {
-		status := "启用"
+		status := "🟢 启用"
 		if !item.Enabled {
-			status = "停用"
+			status = "⚪ 停用"
 		}
-		fmt.Fprintf(&b, "\n- %s / #%d %s：余额 %s，已用 %s，今日收入 %s，%s",
-			item.SiteName,
+		fmt.Fprintf(&b, "\n\n%s #%d %s / %s\n余额 %s｜已用 %s｜今日 %s",
+			status,
 			item.AccountID,
+			item.SiteName,
 			item.AccountName,
 			formatFloat(item.Balance),
 			formatFloat(item.BalanceUsed),
 			formatFloat(item.TodayIncome),
-			status,
 		)
 	}
 	return b.String()
@@ -120,16 +120,16 @@ func buildTopReport(ctx context.Context, args []string) string {
 		return "生成排行失败：" + err.Error()
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Top 排行（%s）\n请求：%d 成功：%d 失败：%d Token：%s 费用：%s",
+	fmt.Fprintf(&b, "🏆 Top 排行｜%s\n\n📊 请求 %s｜✅ %s｜❌ %s\n🎟 Token %s｜💸 %s",
 		window.Label,
-		usage.Requests,
-		usage.Success,
-		usage.Failed,
+		formatInt(usage.Requests),
+		formatInt(usage.Success),
+		formatInt(usage.Failed),
 		formatInt(usage.InputTokens+usage.OutputTokens),
 		formatFloat(usage.Cost),
 	)
-	appendTopItems(&b, "\n\n模型 Top", models, 10)
-	appendTopItems(&b, "\n\n渠道 Top", channels, 10)
+	appendTopItems(&b, "\n\n🤖 模型 Top", models, 10)
+	appendTopItems(&b, "\n\n🧭 渠道 Top", channels, 10)
 	return b.String()
 }
 
@@ -207,7 +207,7 @@ func runOpsAlerts(ctx context.Context, cfg config, client *http.Client, now time
 	if len(alerts) == 0 {
 		return nil
 	}
-	text := "Octopus 运维告警\n" + strings.Join(alerts, "\n")
+	text := "🚨 Octopus 运维告警\n\n" + strings.Join(alerts, "\n")
 	if err := sendAdminText(ctx, cfg, client, text); err != nil {
 		return err
 	}
@@ -354,30 +354,39 @@ func loadSiteOpsSummary(ctx context.Context) (siteOpsSummary, error) {
 
 func formatOpsReport(window reportWindow, usage usageSummary, models []topUsageItem, channels []topUsageItem, sites siteOpsSummary) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Octopus 运维报告（%s）", window.Label)
-	fmt.Fprintf(&b, "\n时间：%s - %s", window.Start.Format("01-02 15:04"), window.End.Format("01-02 15:04"))
-	fmt.Fprintf(&b, "\n请求：%d 成功：%d 失败：%d 成功率：%s", usage.Requests, usage.Success, usage.Failed, formatPercent(usage.Success, usage.Requests))
-	fmt.Fprintf(&b, "\nToken：%s（输入 %s / 输出 %s）", formatInt(usage.InputTokens+usage.OutputTokens), formatInt(usage.InputTokens), formatInt(usage.OutputTokens))
-	fmt.Fprintf(&b, "\n费用：%s", formatFloat(usage.Cost))
+	fmt.Fprintf(&b, "🐙 Octopus 运维报告｜%s", window.Label)
+	fmt.Fprintf(&b, "\n📅 %s - %s", window.Start.Format("01-02 15:04"), window.End.Format("01-02 15:04"))
+	fmt.Fprintf(&b, "\n\n📊 流量\n请求 %s｜✅ %s｜❌ %s｜成功率 %s",
+		formatInt(usage.Requests),
+		formatInt(usage.Success),
+		formatInt(usage.Failed),
+		formatPercent(usage.Success, usage.Requests),
+	)
+	fmt.Fprintf(&b, "\n🎟 Token %s｜输入 %s｜输出 %s",
+		formatInt(usage.InputTokens+usage.OutputTokens),
+		formatInt(usage.InputTokens),
+		formatInt(usage.OutputTokens),
+	)
+	fmt.Fprintf(&b, "\n💸 费用 %s", formatFloat(usage.Cost))
 	if usage.Requests > 0 {
-		fmt.Fprintf(&b, "\n平均首字：%dms 平均耗时：%dms", usage.FtutTotal/usage.Requests, usage.UseTimeTotal/usage.Requests)
+		fmt.Fprintf(&b, "\n⏱ 首字 %dms｜耗时 %dms", usage.FtutTotal/usage.Requests, usage.UseTimeTotal/usage.Requests)
 	}
-	fmt.Fprintf(&b, "\n\n站点：%d（停用 %d）账号：%d（停用 %d）模型：%d（禁用 %d）",
-		sites.Sites,
-		sites.DisabledSites,
-		sites.Accounts,
-		sites.DisabledAccounts,
-		sites.Models,
-		sites.DisabledModels,
+	fmt.Fprintf(&b, "\n\n🧩 站点\n站点 %s（停用 %s）｜账号 %s（停用 %s）\n模型 %s（禁用 %s）",
+		formatInt(sites.Sites),
+		formatInt(sites.DisabledSites),
+		formatInt(sites.Accounts),
+		formatInt(sites.DisabledAccounts),
+		formatInt(sites.Models),
+		formatInt(sites.DisabledModels),
 	)
 	if len(sites.MissingModelRows) > 0 {
-		b.WriteString("\n空模型账号：")
+		b.WriteString("\n⚠️ 空模型")
 		for _, row := range limitStrings(sites.MissingModelRows, 5) {
-			b.WriteString("\n- " + row)
+			b.WriteString("\n- " + shortReportName(row, 72))
 		}
 	}
-	appendTopItems(&b, "\n\n模型 Top", models, 5)
-	appendTopItems(&b, "\n\n渠道 Top", channels, 5)
+	appendTopItems(&b, "\n\n🤖 模型 Top", models, 5)
+	appendTopItems(&b, "\n\n🧭 渠道 Top", channels, 5)
 	appendBalanceDigest(&b, sites.Balances)
 	return b.String()
 }
@@ -388,10 +397,11 @@ func appendTopItems(b *strings.Builder, title string, items []topUsageItem, limi
 		b.WriteString("\n暂无请求")
 		return
 	}
-	for _, item := range limitTopUsageItems(items, limit) {
-		fmt.Fprintf(b, "\n- %s：%d 次，成功率 %s，Token %s，费用 %s",
-			item.Name,
-			item.Requests,
+	for idx, item := range limitTopUsageItems(items, limit) {
+		fmt.Fprintf(b, "\n%s %s\n   %s 次｜%s｜🎟 %s｜💸 %s",
+			rankLabel(idx+1),
+			shortReportName(item.Name, 52),
+			formatInt(item.Requests),
 			formatPercent(item.Success, item.Requests),
 			formatInt(item.InputTokens+item.OutputTokens),
 			formatFloat(item.Cost),
@@ -415,9 +425,14 @@ func appendBalanceDigest(b *strings.Builder, balances []balanceItem) {
 		}
 		return filtered[i].AccountID < filtered[j].AccountID
 	})
-	b.WriteString("\n\n余额最低")
+	b.WriteString("\n\n💰 余额最低")
 	for _, item := range limitBalanceItems(filtered, 5) {
-		fmt.Fprintf(b, "\n- %s / #%d %s：%s", item.SiteName, item.AccountID, item.AccountName, formatFloat(item.Balance))
+		fmt.Fprintf(b, "\n- %s / #%d %s：%s",
+			shortReportName(item.SiteName, 24),
+			item.AccountID,
+			shortReportName(item.AccountName, 24),
+			formatFloat(item.Balance),
+		)
 	}
 }
 
@@ -437,7 +452,13 @@ func evaluateAlerts(ctx context.Context, now time.Time, state alertState, cooldo
 		if !alertDue(state, key, now, cooldown) {
 			continue
 		}
-		alerts = append(alerts, fmt.Sprintf("- 余额低：%s / #%d %s 当前 %s，阈值 %s", item.SiteName, item.AccountID, item.AccountName, formatFloat(item.Balance), formatFloat(threshold)))
+		alerts = append(alerts, fmt.Sprintf("💰 余额低：%s / #%d %s\n当前 %s｜阈值 %s",
+			shortReportName(item.SiteName, 32),
+			item.AccountID,
+			shortReportName(item.AccountName, 32),
+			formatFloat(item.Balance),
+			formatFloat(threshold),
+		))
 		keys = append(keys, key)
 	}
 	for _, row := range sites.MissingModelRows {
@@ -445,7 +466,7 @@ func evaluateAlerts(ctx context.Context, now time.Time, state alertState, cooldo
 		if !alertDue(state, key, now, cooldown) {
 			continue
 		}
-		alerts = append(alerts, "- 空模型："+row)
+		alerts = append(alerts, "⚠️ 空模型："+shortReportName(row, 72))
 		keys = append(keys, key)
 	}
 	windowMinutes := settingInt(model.SettingKeyTelegramAlertFailureWindow, 60)
@@ -457,7 +478,13 @@ func evaluateAlerts(ctx context.Context, now time.Time, state alertState, cooldo
 		failedPct := int(float64(usage.Failed) * 100 / float64(usage.Requests))
 		key := "failure_rate:global"
 		if failedPct >= ratePct && alertDue(state, key, now, cooldown) {
-			alerts = append(alerts, fmt.Sprintf("- 失败率高：最近 %d 分钟 %d/%d 失败，失败率 %d%%，阈值 %d%%", windowMinutes, usage.Failed, usage.Requests, failedPct, ratePct))
+			alerts = append(alerts, fmt.Sprintf("🔥 失败率高：最近 %d 分钟\n失败 %s/%s｜失败率 %d%%｜阈值 %d%%",
+				windowMinutes,
+				formatInt(usage.Failed),
+				formatInt(usage.Requests),
+				failedPct,
+				ratePct,
+			))
 			keys = append(keys, key)
 		}
 	}
@@ -556,11 +583,64 @@ func formatPercent(success int, total int) string {
 }
 
 func formatFloat(value float64) string {
-	return strconv.FormatFloat(value, 'f', 4, 64)
+	text := strconv.FormatFloat(value, 'f', 4, 64)
+	text = strings.TrimRight(text, "0")
+	text = strings.TrimRight(text, ".")
+	if text == "" || text == "-0" {
+		return "0"
+	}
+	return text
 }
 
 func formatInt(value int) string {
-	return strconv.Itoa(value)
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	text := strconv.Itoa(value)
+	if len(text) <= 3 {
+		return sign + text
+	}
+	var b strings.Builder
+	prefix := len(text) % 3
+	if prefix == 0 {
+		prefix = 3
+	}
+	b.WriteString(text[:prefix])
+	for i := prefix; i < len(text); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(text[i : i+3])
+	}
+	return sign + b.String()
+}
+
+func rankLabel(rank int) string {
+	switch rank {
+	case 1:
+		return "🥇"
+	case 2:
+		return "🥈"
+	case 3:
+		return "🥉"
+	default:
+		return fmt.Sprintf("%d.", rank)
+	}
+}
+
+func shortReportName(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	if limit <= 1 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func limitTopUsageItems(items []topUsageItem, limit int) []topUsageItem {
