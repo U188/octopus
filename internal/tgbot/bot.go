@@ -2521,7 +2521,7 @@ func mainMenuButtons() [][]inlineButton {
 	return [][]inlineButton{
 		{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},
 		{{Text: "分组管理", Data: "model_groups"}, {Text: "运维", Data: "ops"}},
-		{{Text: "监控", Data: "monitor"}, {Text: "运维报告", Data: "ops:report"}},
+		{{Text: "监控", Data: "monitor"}},
 	}
 }
 
