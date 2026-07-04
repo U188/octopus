@@ -24,6 +24,12 @@ type Log struct {
 		Enabled         bool `mapstructure:"enabled"`
 		SlowThresholdMS int  `mapstructure:"slow_threshold_ms"`
 	} `mapstructure:"access"`
+	RequestDebug struct {
+		Enabled        bool `mapstructure:"enabled"`
+		IncludeHeaders bool `mapstructure:"include_headers"`
+		IncludeBody    bool `mapstructure:"include_body"`
+		MaxBodyBytes   int  `mapstructure:"max_body_bytes"`
+	} `mapstructure:"request_debug"`
 	Relay struct {
 		Summary bool `mapstructure:"summary"`
 	} `mapstructure:"relay"`
@@ -103,6 +109,10 @@ func setDefaults() {
 	viper.SetDefault("log.stacktrace_level", "error")
 	viper.SetDefault("log.access.enabled", false)
 	viper.SetDefault("log.access.slow_threshold_ms", 3000)
+	viper.SetDefault("log.request_debug.enabled", false)
+	viper.SetDefault("log.request_debug.include_headers", true)
+	viper.SetDefault("log.request_debug.include_body", true)
+	viper.SetDefault("log.request_debug.max_body_bytes", 8192)
 	viper.SetDefault("log.relay.summary", true)
 	viper.SetDefault("startup.cache_init_timeout_seconds", 120)
 }

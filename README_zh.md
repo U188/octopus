@@ -285,7 +285,13 @@ corepack pnpm dev
     "path": "data/data.db"
   },
   "log": {
-    "level": "info"
+    "level": "info",
+    "request_debug": {
+      "enabled": false,
+      "include_headers": true,
+      "include_body": true,
+      "max_body_bytes": 8192
+    }
   }
 }
 ```
@@ -299,6 +305,10 @@ corepack pnpm dev
 | `database.type` | 数据库类型 | `sqlite` |
 | `database.path` | 数据库连接地址 | `data/data.db` |
 | `log.level` | 日志级别 | `info` |
+| `log.request_debug.enabled` | 记录每个 HTTP 请求的调试日志（含脱敏 headers / 小请求体） | `false` |
+| `log.request_debug.include_headers` | 请求调试日志是否包含 headers（敏感字段会脱敏） | `true` |
+| `log.request_debug.include_body` | 请求调试日志是否包含小体积文本/JSON 请求体 | `true` |
+| `log.request_debug.max_body_bytes` | 请求体调试记录上限，超出只记录省略原因 | `8192` |
 
 **数据库配置：**
 
@@ -345,6 +355,10 @@ corepack pnpm dev
 | `OCTOPUS_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
+| `OCTOPUS_LOG_REQUEST_DEBUG_ENABLED` | `log.request_debug.enabled` |
+| `OCTOPUS_LOG_REQUEST_DEBUG_INCLUDE_HEADERS` | `log.request_debug.include_headers` |
+| `OCTOPUS_LOG_REQUEST_DEBUG_INCLUDE_BODY` | `log.request_debug.include_body` |
+| `OCTOPUS_LOG_REQUEST_DEBUG_MAX_BODY_BYTES` | `log.request_debug.max_body_bytes` |
 | `OCTOPUS_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
 | `OCTOPUS_RELAY_MAX_SSE_EVENT_SIZE` | 最大 SSE 事件大小(可选) |
 | `OCTOPUS_IMAGES_BODY_MEMORY_THRESHOLD_MB` | Images 请求体内存缓存阈值，超过阈值会落盘临时文件(可选，默认 16) |

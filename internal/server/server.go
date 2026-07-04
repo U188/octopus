@@ -50,6 +50,12 @@ func Start() error {
 		Enabled:       conf.AppConfig.Log.Access.Enabled || conf.IsDebug(),
 		SlowThreshold: time.Duration(conf.AppConfig.Log.Access.SlowThresholdMS) * time.Millisecond,
 	}))
+	r.Use(middleware.RequestDebug(middleware.RequestDebugConfig{
+		Enabled:        conf.AppConfig.Log.RequestDebug.Enabled,
+		IncludeHeaders: conf.AppConfig.Log.RequestDebug.IncludeHeaders,
+		IncludeBody:    conf.AppConfig.Log.RequestDebug.IncludeBody,
+		MaxBodyBytes:   conf.AppConfig.Log.RequestDebug.MaxBodyBytes,
+	}))
 	r.Use(middleware.Cors())
 	r.Use(middleware.StaticEmbed("/", static.StaticFS))
 
