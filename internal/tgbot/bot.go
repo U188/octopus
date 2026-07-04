@@ -960,14 +960,19 @@ func (r *Runner) modelGroupHealthMenu(ctx context.Context, groupID int) response
 		return response{Text: "读取分组探活失败：" + err.Error(), Buttons: [][]inlineButton{{{Text: "返回分组", Data: fmt.Sprintf("mg:view:%d", groupID)}}}}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "分组探活\n分组：%s\n模式：%s", view.GroupName, groupModeLabel(view.GroupMode))
+	fmt.Fprintf(&b, "🩺 分组探活\n分组 %s｜模式 %s", view.GroupName, groupModeLabel(view.GroupMode))
 	if view.Latest == nil {
 		b.WriteString("\n暂无探活记录")
 	} else {
 		snapshot := view.Latest
-		fmt.Fprintf(&b, "\n状态：%s\n消息：%s\n耗时：%dms\n开始：%s", snapshot.Status, firstNonEmpty(snapshot.Message, "-"), snapshot.DurationMS, snapshot.StartedAt.Format("2006-01-02 15:04:05"))
+		fmt.Fprintf(&b, "\n%s\n消息 %s\n耗时 %dms\n开始 %s",
+			groupHealthStatusLabel(snapshot.Status),
+			firstNonEmpty(snapshot.Message, "-"),
+			snapshot.DurationMS,
+			snapshot.StartedAt.Format("01-02 15:04:05"),
+		)
 		if snapshot.FinishedAt != nil {
-			fmt.Fprintf(&b, "\n结束：%s", snapshot.FinishedAt.Format("2006-01-02 15:04:05"))
+			fmt.Fprintf(&b, "\n结束 %s", snapshot.FinishedAt.Format("01-02 15:04:05"))
 		}
 	}
 	return response{
@@ -988,7 +993,14 @@ func (r *Runner) modelGroupItemMenu(ctx context.Context, groupID int, itemID int
 	if channel, err := op.ChannelGet(item.ChannelID, ctx); err == nil {
 		channelName = channel.Name
 	}
-	text := fmt.Sprintf("分组模型\n分组：%s\n对外模型名：%s\n渠道：%s\n模型：%s\npriority=%d\nweight=%d", group.Name, group.Name, channelName, item.ModelName, item.Priority, item.Weight)
+	text := fmt.Sprintf("🤖 分组模型\n分组 %s\n对外模型 %s\n渠道 %s\n模型 %s\n优先级 %d｜权重 %d",
+		group.Name,
+		group.Name,
+		channelName,
+		item.ModelName,
+		item.Priority,
+		item.Weight,
+	)
 	return response{
 		Text: text,
 		Buttons: [][]inlineButton{
@@ -1006,7 +1018,7 @@ func (r *Runner) modelGroupModeMenu(ctx context.Context, groupID int) response {
 		return response{Text: "读取分组失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
 	return response{
-		Text: fmt.Sprintf("切换分组模式\n分组：%s\n当前：%s", group.Name, groupModeLabel(group.Mode)),
+		Text: fmt.Sprintf("🔀 切换分组模式\n分组 %s\n当前 %s", group.Name, groupModeLabel(group.Mode)),
 		Buttons: [][]inlineButton{
 			{{Text: "轮询", Data: fmt.Sprintf("mg:mode:set:%d:%d", group.ID, model.GroupModeRoundRobin)}, {Text: "随机", Data: fmt.Sprintf("mg:mode:set:%d:%d", group.ID, model.GroupModeRandom)}},
 			{{Text: "故障转移", Data: fmt.Sprintf("mg:mode:set:%d:%d", group.ID, model.GroupModeFailover)}, {Text: "加权", Data: fmt.Sprintf("mg:mode:set:%d:%d", group.ID, model.GroupModeWeighted)}},
@@ -1055,7 +1067,7 @@ func (r *Runner) modelGroupAddModelMenu(ctx context.Context, groupID int, channe
 	}
 	models := splitModelCSV(channel.Model, channel.CustomModel)
 	var b strings.Builder
-	fmt.Fprintf(&b, "添加分组模型\n分组：%s\n渠道：%s\n选择已有模型，或手动输入模型名。", group.Name, channel.Name)
+	fmt.Fprintf(&b, "➕ 添加分组模型\n分组 %s\n渠道 %s\n选择已有模型，或手动输入模型名。", group.Name, channel.Name)
 	buttons := make([][]inlineButton, 0, len(models)+3)
 	for _, modelName := range models {
 		buttons = append(buttons, []inlineButton{{Text: trimForButton(modelName, 28), Data: fmt.Sprintf("mg:addmodel:%d:%d:%s", groupID, channelID, modelName)}})
@@ -1759,7 +1771,7 @@ func (r *Runner) adjustModelGroupItem(ctx context.Context, groupID int, itemID i
 	}, ctx); err != nil {
 		return "更新分组模型失败：" + err.Error()
 	}
-	return fmt.Sprintf("分组模型已更新：priority=%d weight=%d", nextPriority, nextWeight)
+	return fmt.Sprintf("分组模型已更新：优先级 %d｜权重 %d", nextPriority, nextWeight)
 }
 
 func (r *Runner) deleteModelGroupItem(ctx context.Context, itemID int) string {
@@ -2284,17 +2296,25 @@ func (r *Runner) updateModel(ctx context.Context, args []string) string {
 func (r *Runner) syncAccount(ctx context.Context, accountID int) string {
 	result, err := sitesvc.SyncAccount(ctx, accountID)
 	if err != nil {
-		return "同步失败：" + err.Error()
+		return "❌ 同步失败\n" + err.Error()
 	}
-	return fmt.Sprintf("同步完成：%s\n%s", result.Status, result.Message)
+	return formatSyncAccountResult(result)
 }
 
 func (r *Runner) checkinAccount(ctx context.Context, accountID int) string {
+	before, _ := op.SiteAccountGet(accountID, ctx)
 	result, err := sitesvc.CheckinAccount(ctx, accountID)
 	if err != nil {
-		return "签到失败：" + err.Error()
+		return "❌ 签到失败\n" + err.Error()
 	}
-	return fmt.Sprintf("签到完成：%s\n%s", result.Status, result.Message)
+	var syncErr error
+	if result.Status == model.SiteExecutionStatusSuccess {
+		if _, syncErr = sitesvc.SyncAccount(ctx, accountID); syncErr != nil {
+			syncErr = fmt.Errorf("余额刷新失败：%w", syncErr)
+		}
+	}
+	after, _ := op.SiteAccountGet(accountID, ctx)
+	return formatCheckinAccountResult(result, before, after, syncErr)
 }
 
 func (r *Runner) listLogs(ctx context.Context, keyword string) string {
@@ -2313,13 +2333,20 @@ func (r *Runner) listLogs(ctx context.Context, keyword string) string {
 		return "读取日志失败：" + err.Error()
 	}
 	if len(result.Logs) == 0 {
-		return "没有找到错误日志"
+		return "🧾 错误日志\n\n暂无错误记录"
 	}
 	sort.Slice(result.Logs, func(i, j int) bool { return result.Logs[i].Time > result.Logs[j].Time })
 	var b strings.Builder
-	b.WriteString("近期错误日志")
+	b.WriteString("🧾 近期错误日志")
 	for _, item := range result.Logs {
-		fmt.Fprintf(&b, "\n\n#%d %s\nchannel=%s model=%s key=%s\nerror=%s", item.ID, time.Unix(item.Time, 0).Format("2006-01-02 15:04:05"), item.ChannelName, item.RequestModelName, item.RequestAPIKeyName, firstNonEmpty(item.Error, "unknown"))
+		fmt.Fprintf(&b, "\n\n#%d｜%s\n渠道 %s\n模型 %s｜Key %s\n❌ %s",
+			item.ID,
+			time.Unix(item.Time, 0).Format("01-02 15:04:05"),
+			shortReportName(firstNonEmpty(item.ChannelName, "-"), 42),
+			shortReportName(firstNonEmpty(item.RequestModelName, "-"), 42),
+			shortReportName(firstNonEmpty(item.RequestAPIKeyName, "-"), 28),
+			shortReportName(firstNonEmpty(item.Error, "unknown"), 120),
+		)
 	}
 	return b.String()
 }
@@ -2688,6 +2715,114 @@ func modelSyncBadge(status model.SiteGroupModelSyncStatus) string {
 	}
 }
 
+func formatSyncAccountResult(result *model.SiteSyncResult) string {
+	if result == nil {
+		return "❌ 同步失败\n未返回同步结果"
+	}
+	title := "🔄 同步完成"
+	if result.Status == model.SiteExecutionStatusSuccess {
+		title = "✅ 同步成功"
+	} else if result.Status == model.SiteExecutionStatusPartial {
+		title = "⚠️ 同步部分完成"
+	} else if result.Status == model.SiteExecutionStatusFailed {
+		title = "❌ 同步失败"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n账号 #%d\n%s", title, result.AccountID, executionStatusLabel(result.Status))
+	fmt.Fprintf(&b, "\n\n渠道 %s｜路由组 %s｜Key %s｜模型 %s",
+		formatInt(result.ChannelCount),
+		formatInt(result.GroupCount),
+		formatInt(result.TokenCount),
+		formatInt(result.ModelCount),
+	)
+	if strings.TrimSpace(result.Message) != "" {
+		fmt.Fprintf(&b, "\n📝 %s", result.Message)
+	}
+	if len(result.GroupResults) > 0 {
+		b.WriteString("\n\n🧭 路由组")
+		for _, item := range limitSiteSyncGroupResults(result.GroupResults, 5) {
+			fmt.Fprintf(&b, "\n- %s｜%s｜模型 %s",
+				firstNonEmpty(item.GroupKey, item.GroupName, "-"),
+				firstNonEmpty(item.Status, "-"),
+				formatInt(item.ModelCount),
+			)
+			if item.Message != "" {
+				fmt.Fprintf(&b, "｜%s", shortReportName(item.Message, 60))
+			}
+		}
+	}
+	return b.String()
+}
+
+func formatCheckinAccountResult(result *model.SiteCheckinResult, before *model.SiteAccount, after *model.SiteAccount, refreshErr error) string {
+	if result == nil {
+		return "❌ 签到失败\n未返回签到结果"
+	}
+	title := "🎁 签到完成"
+	switch result.Status {
+	case model.SiteExecutionStatusSuccess:
+		title = "✅ 签到成功"
+	case model.SiteExecutionStatusSkipped:
+		title = "⏭ 签到跳过"
+	case model.SiteExecutionStatusFailed:
+		title = "❌ 签到失败"
+	case model.SiteExecutionStatusPartial:
+		title = "⚠️ 签到部分完成"
+	}
+	accountName := "-"
+	if after != nil {
+		accountName = after.Name
+	} else if before != nil {
+		accountName = before.Name
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n账号 #%d %s\n%s", title, result.AccountID, accountName, executionStatusLabel(result.Status))
+	if strings.TrimSpace(result.Message) != "" {
+		fmt.Fprintf(&b, "\n📝 %s", result.Message)
+	}
+	if strings.TrimSpace(result.Reward) != "" {
+		fmt.Fprintf(&b, "\n🎁 奖励 %s", result.Reward)
+	}
+	if result.Status == model.SiteExecutionStatusSuccess {
+		if delta, ok := accountBalanceIncrease(before, after); ok {
+			fmt.Fprintf(&b, "\n💰 本次增加 +%s", formatFloat(delta))
+		} else if strings.TrimSpace(result.Reward) == "" {
+			b.WriteString("\n💰 本次增加：未从余额变化中识别")
+		}
+		if after != nil {
+			fmt.Fprintf(&b, "\n余额 %s｜已用 %s｜今日收入 %s",
+				formatFloat(after.Balance),
+				formatFloat(after.BalanceUsed),
+				formatFloat(after.TodayIncome),
+			)
+		}
+		if refreshErr != nil {
+			fmt.Fprintf(&b, "\n⚠️ %s", refreshErr.Error())
+		}
+	}
+	return b.String()
+}
+
+func accountBalanceIncrease(before *model.SiteAccount, after *model.SiteAccount) (float64, bool) {
+	if before == nil || after == nil {
+		return 0, false
+	}
+	if delta := after.Balance - before.Balance; delta > 0.000001 {
+		return delta, true
+	}
+	if delta := after.TodayIncome - before.TodayIncome; delta > 0.000001 {
+		return delta, true
+	}
+	return 0, false
+}
+
+func limitSiteSyncGroupResults(values []model.SiteSyncGroupResult, limit int) []model.SiteSyncGroupResult {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
 func executionStatusLabel(status model.SiteExecutionStatus) string {
 	switch status {
 	case model.SiteExecutionStatusSuccess:
@@ -2700,6 +2835,21 @@ func executionStatusLabel(status model.SiteExecutionStatus) string {
 		return "⏭ 跳过"
 	default:
 		return "⏳ " + firstNonEmpty(string(status), "idle")
+	}
+}
+
+func groupHealthStatusLabel(status model.GroupHealthStatus) string {
+	switch status {
+	case model.GroupHealthStatusSuccess:
+		return "✅ 探活成功"
+	case model.GroupHealthStatusPartial:
+		return "⚠️ 部分成功"
+	case model.GroupHealthStatusFailed:
+		return "❌ 探活失败"
+	case model.GroupHealthStatusRunning:
+		return "⏳ 探活中"
+	default:
+		return "⏳ " + firstNonEmpty(string(status), "unknown")
 	}
 }
 
