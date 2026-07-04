@@ -39,9 +39,35 @@ func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, accoun
 	case model.SitePlatformSub2API:
 		balance, used := fetchSub2APIBalance(ctx, siteRecord, account, accessToken)
 		return balance, used, 0
+	case model.SitePlatformDeepSeek:
+		return fetchDeepSeekBalance(ctx, siteRecord, account, accessToken), 0, 0
 	default:
 		return 0, 0, 0
 	}
+}
+
+func fetchDeepSeekBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, apiKey string) float64 {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return 0
+	}
+	payload, err := requestJSON(ctx, siteRecord, http.MethodGet, buildSiteURL(siteRecord.BaseURL, "/user/balance"), nil, map[string]string{"Authorization": ensureBearer(apiKey)}, account)
+	if err != nil {
+		return 0
+	}
+	infos, ok := payload["balance_infos"].([]any)
+	if !ok {
+		return 0
+	}
+	total := 0.0
+	for _, item := range infos {
+		info, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		total += jsonFloat(info["total_balance"])
+	}
+	return math.Round(total*1_000_000) / 1_000_000
 }
 
 func fetchManagementQuotaBalance(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string, userID int, quotaIsRemaining bool) (float64, float64, float64) {

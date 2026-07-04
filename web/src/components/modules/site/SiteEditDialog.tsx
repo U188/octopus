@@ -82,12 +82,17 @@ const DEFAULT_ROUTE_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }
 
 const PLATFORM_LABELS: Record<SitePlatform, string> = {
     [SitePlatform.API]: 'API 直连',
+    [SitePlatform.DeepSeek]: 'DeepSeek 官方',
     [SitePlatform.NewAPI]: 'New API',
     [SitePlatform.AnyRouter]: 'AnyRouter',
     [SitePlatform.OneAPI]: 'One API',
     [SitePlatform.OneHub]: 'One Hub',
     [SitePlatform.DoneHub]: 'Done Hub',
     [SitePlatform.Sub2API]: 'Sub2API',
+};
+
+const PLATFORM_DEFAULT_BASE_URLS: Partial<Record<SitePlatform, string>> = {
+    [SitePlatform.DeepSeek]: 'https://api.deepseek.com',
 };
 
 function createEmptySiteForm(): SiteFormState {
@@ -391,6 +396,12 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                                                 value === AUTO_DETECT_VALUE
                                                     ? ''
                                                     : (value as SitePlatform),
+                                            base_url:
+                                                value !== AUTO_DETECT_VALUE &&
+                                                !current.base_url.trim() &&
+                                                PLATFORM_DEFAULT_BASE_URLS[value as SitePlatform]
+                                                    ? PLATFORM_DEFAULT_BASE_URLS[value as SitePlatform]!
+                                                    : current.base_url,
                                         }))
                                     }
                                 >

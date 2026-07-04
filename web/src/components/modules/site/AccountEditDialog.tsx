@@ -109,12 +109,17 @@ function AnimatedFormSection({ children }: { children: ReactNode }) {
     );
 }
 
-function defaultCredentialType(): SiteCredentialType {
+function defaultCredentialType(platform?: SitePlatform): SiteCredentialType {
+    if (platform === SitePlatform.DeepSeek) {
+        return SiteCredentialType.APIKey;
+    }
     return SiteCredentialType.AccessToken;
 }
 
 function credentialOptions(platform: SitePlatform) {
     switch (platform) {
+        case SitePlatform.DeepSeek:
+            return [SiteCredentialType.APIKey];
         case SitePlatform.Sub2API:
             return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
         case SitePlatform.API:
@@ -132,7 +137,7 @@ function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
     return {
         site_id: site.id,
         name: '',
-        credential_type: defaultCredentialType(),
+        credential_type: defaultCredentialType(site.platform),
         username: '',
         password: '',
         access_token: '',
@@ -151,11 +156,16 @@ function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
     };
 }
 
-function createAccountForm(account: SiteAccount): SiteAccountFormState {
+function createAccountForm(account: SiteAccount, platform?: SitePlatform): SiteAccountFormState {
+    const allowedCredentials = platform ? credentialOptions(platform) : null;
+    const credentialType =
+        allowedCredentials && !allowedCredentials.includes(account.credential_type)
+            ? allowedCredentials[0]
+            : account.credential_type;
     return {
         site_id: account.site_id,
         name: account.name,
-        credential_type: account.credential_type,
+        credential_type: credentialType,
         username: account.username,
         password: account.password,
         access_token: account.access_token,
@@ -224,7 +234,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
     const createSiteAccount = useCreateSiteAccount();
     const updateSiteAccount = useUpdateSiteAccount();
     const [accountForm, setAccountForm] = useState<SiteAccountFormState | null>(() => {
-        if (account) return createAccountForm(account);
+        if (account) return createAccountForm(account, site?.platform);
         if (site) return createEmptyAccountForm(site);
         return null;
     });

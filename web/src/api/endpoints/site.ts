@@ -12,6 +12,7 @@ export enum SitePlatform {
   DoneHub = "done-hub",
   Sub2API = "sub2api",
   API = "api",
+  DeepSeek = "deepseek",
 }
 
 export enum SiteCredentialType {

@@ -129,6 +129,8 @@ export function platformLabel(platform: SiteChannelCard['platform']) {
             return 'Sub2API';
         case 'api':
             return 'API 直连';
+        case 'deepseek':
+            return 'DeepSeek 官方';
         default:
             return platform;
     }

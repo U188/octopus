@@ -22,6 +22,7 @@ const (
 	SitePlatformDoneHub   SitePlatform = "done-hub"
 	SitePlatformSub2API   SitePlatform = "sub2api"
 	SitePlatformAPI       SitePlatform = "api"
+	SitePlatformDeepSeek  SitePlatform = "deepseek"
 )
 
 type SiteCredentialType string
@@ -637,6 +638,8 @@ func (p SitePlatform) usesSyncTokenSkPrefix() bool {
 	switch p {
 	case SitePlatformAPI:
 		return false
+	case SitePlatformDeepSeek:
+		return false
 	default:
 		return true
 	}
@@ -870,7 +873,7 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 
 func ShouldSplitSiteChannelRoutes(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI:
+	case SitePlatformAPI, SitePlatformDeepSeek:
 		return false
 	default:
 		return true
@@ -914,7 +917,7 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 func (p SitePlatform) Validate() error {
 	switch p {
 	case SitePlatformNewAPI, SitePlatformAnyRouter, SitePlatformOneAPI, SitePlatformOneHub, SitePlatformDoneHub,
-		SitePlatformSub2API, SitePlatformAPI:
+		SitePlatformSub2API, SitePlatformAPI, SitePlatformDeepSeek:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site platform: %s", p)

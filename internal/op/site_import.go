@@ -66,6 +66,7 @@ var supportedImportPlatforms = map[string]model.SitePlatform{
 	"claude":    model.SitePlatformAPI,
 	"google":    model.SitePlatformAPI,
 	"gemini":    model.SitePlatformAPI,
+	"deepseek":  model.SitePlatformDeepSeek,
 	"api":       model.SitePlatformAPI,
 }
 

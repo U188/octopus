@@ -17,6 +17,7 @@ var urlPlatformHints = []struct {
 	defaultRouteType model.SiteModelRouteType
 }{
 	{"api.openai.com", model.SitePlatformAPI, model.SiteModelRouteTypeOpenAIChat},
+	{"api.deepseek.com", model.SitePlatformDeepSeek, model.SiteModelRouteTypeOpenAIChat},
 	{"api.anthropic.com", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
 	{"anthropic.com/v1", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
 	{"generativelanguage.googleapis.com", model.SitePlatformAPI, model.SiteModelRouteTypeGemini},

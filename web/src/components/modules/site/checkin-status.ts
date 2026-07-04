@@ -41,6 +41,7 @@ export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
     case SitePlatform.DoneHub:
     case SitePlatform.Sub2API:
     case SitePlatform.API:
+    case SitePlatform.DeepSeek:
       return false;
     default:
       return true;

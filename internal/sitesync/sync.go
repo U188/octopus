@@ -36,7 +36,7 @@ func syncAccountState(ctx context.Context, siteRecord *model.Site, account *mode
 		return syncManagementPlatform(ctx, siteRecord, account)
 	case model.SitePlatformSub2API:
 		return syncSub2API(ctx, siteRecord, account)
-	case model.SitePlatformAPI:
+	case model.SitePlatformAPI, model.SitePlatformDeepSeek:
 		return syncOfficialPlatform(ctx, siteRecord, account)
 	default:
 		return nil, newUnsupportedSitePlatformError(siteRecord.Platform)
@@ -49,7 +49,7 @@ func checkinAccountState(ctx context.Context, siteRecord *model.Site, account *m
 	}
 
 	switch siteRecord.Platform {
-	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI:
+	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI, model.SitePlatformDeepSeek:
 		return &model.SiteCheckinResult{Status: model.SiteExecutionStatusSkipped, Message: "checkin is not supported by this platform"}, "", nil
 	case model.SitePlatformAnyRouter:
 		return checkinAnyRouter(ctx, siteRecord, account)
@@ -384,6 +384,7 @@ func syncWithDirectToken(ctx context.Context, siteRecord *model.Site, account *m
 		status:       status,
 		message:      buildSyncSnapshotMessage(groupResults),
 	}
+	snapshot.balance, snapshot.balanceUsed, snapshot.todayIncome = fetchSiteAccountBalance(ctx, siteRecord, account, token, 0)
 	if err != nil || status == model.SiteExecutionStatusFailed {
 		return snapshot, buildSyncSnapshotFailure(groupResults)
 	}
