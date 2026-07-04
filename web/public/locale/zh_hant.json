@@ -221,6 +221,52 @@
                 "label": "重試間隔（秒）",
                 "description": "配置不完整或請求失敗後的重試間隔，範圍 1-60 秒",
                 "placeholder": "5"
+            },
+            "report": {
+                "section": "日報",
+                "description": "按固定時間向 Telegram 管理員發送昨日運維報告",
+                "enabled": {
+                    "label": "啟用日報",
+                    "description": "開啟後每天按設定時間發送請求、Token、站點模型和排行"
+                },
+                "time": {
+                    "label": "發送時間",
+                    "description": "24 小時制，格式 HH:MM",
+                    "placeholder": "09:00"
+                }
+            },
+            "alert": {
+                "section": "告警",
+                "description": "餘額、空模型和失敗率異常時向 Telegram 管理員提醒",
+                "enabled": {
+                    "label": "啟用告警",
+                    "description": "開啟後後台每分鐘檢查一次告警條件，並按冷卻時間去重"
+                },
+                "balanceThreshold": {
+                    "label": "餘額閾值",
+                    "description": "餘額大於 0 且低於該值時告警",
+                    "placeholder": "5"
+                },
+                "failureRate": {
+                    "label": "失敗率閾值（%）",
+                    "description": "窗口內失敗率達到該百分比時告警",
+                    "placeholder": "20"
+                },
+                "failureWindow": {
+                    "label": "失敗窗口（分鐘）",
+                    "description": "統計失敗率的最近時間窗口",
+                    "placeholder": "60"
+                },
+                "minRequests": {
+                    "label": "最小請求數",
+                    "description": "窗口內請求數低於該值時不觸發失敗率告警",
+                    "placeholder": "10"
+                },
+                "cooldown": {
+                    "label": "冷卻時間（分鐘）",
+                    "description": "同一類告警再次發送前的等待時間",
+                    "placeholder": "60"
+                }
             }
         },
         "statsSaveInterval": {

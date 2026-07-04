@@ -391,6 +391,12 @@ func (r *Runner) handleCommand(ctx context.Context, text string) response {
 		return response{Text: r.checkinAccount(ctx, accountID), Buttons: mainMenuButtons()}
 	case "/logs":
 		return response{Text: r.listLogs(ctx, strings.Join(args, " ")), Buttons: mainMenuButtons()}
+	case "/report":
+		return response{Text: buildOpsReport(ctx, args), Buttons: mainMenuButtons()}
+	case "/balance":
+		return response{Text: buildBalanceReport(ctx), Buttons: mainMenuButtons()}
+	case "/top":
+		return response{Text: buildTopReport(ctx, args), Buttons: mainMenuButtons()}
 	default:
 		resp := r.helpResponse()
 		resp.Text = "未知命令。\n\n" + resp.Text
@@ -407,7 +413,7 @@ func (r *Runner) helpResponse() response {
 - 渠道管理：查看站点投影渠道、路由组和模型
 - 分组管理：把多个渠道模型合并成一个对外模型组，支持轮询/随机/故障转移/加权
 - 运维：账号同步、签到、测试对话
-- 监控：错误日志、站点概览
+- 监控：错误日志、站点概览、/report、/balance、/top
 
 渠道管理里的“路由组”指站点来源组，例如 claude、ds；分组管理里的“分组”指可被 API key 调用的模型组。`),
 		Buttons: mainMenuButtons(),
@@ -1164,6 +1170,7 @@ func (r *Runner) opsMenu() response {
 
 - 从站点或账号页进入，可执行同步、签到
 - 从路由组页进入，可执行测试对话
+- /report 查看运维报告，/balance 查看余额，/top 查看排行
 - 这里保留快捷入口到站点和渠道管理`),
 		Buttons: [][]inlineButton{
 			{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},

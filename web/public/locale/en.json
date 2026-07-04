@@ -221,6 +221,52 @@
                 "label": "Retry Interval (seconds)",
                 "description": "Retry interval after incomplete config or request failures, from 1 to 60 seconds",
                 "placeholder": "5"
+            },
+            "report": {
+                "section": "Daily Report",
+                "description": "Send yesterday's operations report to Telegram admins at a fixed time",
+                "enabled": {
+                    "label": "Enable Report",
+                    "description": "Send requests, tokens, site models, and rankings every day"
+                },
+                "time": {
+                    "label": "Send Time",
+                    "description": "24-hour time in HH:MM format",
+                    "placeholder": "09:00"
+                }
+            },
+            "alert": {
+                "section": "Alerts",
+                "description": "Notify Telegram admins when balances, empty models, or failure rates need attention",
+                "enabled": {
+                    "label": "Enable Alerts",
+                    "description": "Check alert conditions every minute and deduplicate by cooldown"
+                },
+                "balanceThreshold": {
+                    "label": "Balance Threshold",
+                    "description": "Alert when a known positive balance drops below this value",
+                    "placeholder": "5"
+                },
+                "failureRate": {
+                    "label": "Failure Rate (%)",
+                    "description": "Alert when the failure rate reaches this percentage in the window",
+                    "placeholder": "20"
+                },
+                "failureWindow": {
+                    "label": "Failure Window (minutes)",
+                    "description": "Recent time window used for failure-rate calculation",
+                    "placeholder": "60"
+                },
+                "minRequests": {
+                    "label": "Minimum Requests",
+                    "description": "Do not alert on failure rate when the window has fewer requests",
+                    "placeholder": "10"
+                },
+                "cooldown": {
+                    "label": "Cooldown (minutes)",
+                    "description": "Delay before the same alert can be sent again",
+                    "placeholder": "60"
+                }
             }
         },
         "statsSaveInterval": {

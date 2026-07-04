@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Bot, Clock, Globe, KeyRound, Link, Send, ShieldCheck } from 'lucide-react';
+import { Bell, Bot, Clock, Gauge, Globe, KeyRound, Link, Send, ShieldCheck, Wallet } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SettingKey, useSettingList, useSetSetting } from '@/api/endpoints/setting';
 import { toast } from '@/components/common/Toast';
 import type { ApiError } from '@/api/types';
-import { SettingCard, SettingRow, useSettingField, useSettingToggle } from './shared';
+import { SettingCard, SettingRow, SettingSection, useSettingField, useSettingToggle } from './shared';
 
 const PROXY_MODES = ['direct', 'system', 'custom'] as const;
 type ProxyMode = (typeof PROXY_MODES)[number];
@@ -59,6 +59,14 @@ export function SettingTelegram() {
     const apiBaseURL = useSettingField(SettingKey.TelegramBotAPIBaseURL);
     const proxyURL = useSettingField(SettingKey.TelegramBotProxyURL);
     const pollInterval = useSettingField(SettingKey.TelegramBotPollInterval);
+    const reportEnabled = useSettingToggle(SettingKey.TelegramReportEnabled);
+    const reportTime = useSettingField(SettingKey.TelegramReportTime);
+    const alertEnabled = useSettingToggle(SettingKey.TelegramAlertEnabled);
+    const balanceThreshold = useSettingField(SettingKey.TelegramAlertBalanceThreshold);
+    const failureRatePct = useSettingField(SettingKey.TelegramAlertFailureRatePct);
+    const failureWindow = useSettingField(SettingKey.TelegramAlertFailureWindow);
+    const minRequests = useSettingField(SettingKey.TelegramAlertMinRequests);
+    const cooldownMinutes = useSettingField(SettingKey.TelegramAlertCooldownMinutes);
     const proxyMode = useTelegramProxyMode();
 
     return (
@@ -134,6 +142,90 @@ export function SettingTelegram() {
                     onChange={(e) => pollInterval.setValue(e.target.value)}
                     onBlur={pollInterval.save}
                     placeholder={t('telegramBot.pollInterval.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingSection title={t('telegramBot.report.section')} tooltip={t('telegramBot.report.description')} />
+
+            <SettingRow icon={Gauge} label={t('telegramBot.report.enabled.label')} tooltip={t('telegramBot.report.enabled.description')}>
+                <Switch checked={reportEnabled.enabled} onCheckedChange={reportEnabled.toggle} />
+            </SettingRow>
+
+            <SettingRow icon={Clock} label={t('telegramBot.report.time.label')} tooltip={t('telegramBot.report.time.description')}>
+                <Input
+                    value={reportTime.value}
+                    onChange={(e) => reportTime.setValue(e.target.value)}
+                    onBlur={reportTime.save}
+                    placeholder={t('telegramBot.report.time.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingSection title={t('telegramBot.alert.section')} tooltip={t('telegramBot.alert.description')} />
+
+            <SettingRow icon={Bell} label={t('telegramBot.alert.enabled.label')} tooltip={t('telegramBot.alert.enabled.description')}>
+                <Switch checked={alertEnabled.enabled} onCheckedChange={alertEnabled.toggle} />
+            </SettingRow>
+
+            <SettingRow icon={Wallet} label={t('telegramBot.alert.balanceThreshold.label')} tooltip={t('telegramBot.alert.balanceThreshold.description')}>
+                <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={balanceThreshold.value}
+                    onChange={(e) => balanceThreshold.setValue(e.target.value)}
+                    onBlur={balanceThreshold.save}
+                    placeholder={t('telegramBot.alert.balanceThreshold.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingRow icon={Gauge} label={t('telegramBot.alert.failureRate.label')} tooltip={t('telegramBot.alert.failureRate.description')}>
+                <Input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={failureRatePct.value}
+                    onChange={(e) => failureRatePct.setValue(e.target.value)}
+                    onBlur={failureRatePct.save}
+                    placeholder={t('telegramBot.alert.failureRate.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingRow icon={Clock} label={t('telegramBot.alert.failureWindow.label')} tooltip={t('telegramBot.alert.failureWindow.description')}>
+                <Input
+                    type="number"
+                    min="1"
+                    value={failureWindow.value}
+                    onChange={(e) => failureWindow.setValue(e.target.value)}
+                    onBlur={failureWindow.save}
+                    placeholder={t('telegramBot.alert.failureWindow.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingRow icon={Gauge} label={t('telegramBot.alert.minRequests.label')} tooltip={t('telegramBot.alert.minRequests.description')}>
+                <Input
+                    type="number"
+                    min="1"
+                    value={minRequests.value}
+                    onChange={(e) => minRequests.setValue(e.target.value)}
+                    onBlur={minRequests.save}
+                    placeholder={t('telegramBot.alert.minRequests.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            <SettingRow icon={Clock} label={t('telegramBot.alert.cooldown.label')} tooltip={t('telegramBot.alert.cooldown.description')}>
+                <Input
+                    type="number"
+                    min="1"
+                    value={cooldownMinutes.value}
+                    onChange={(e) => cooldownMinutes.setValue(e.target.value)}
+                    onBlur={cooldownMinutes.save}
+                    placeholder={t('telegramBot.alert.cooldown.placeholder')}
                     className="w-48 rounded-xl"
                 />
             </SettingRow>

@@ -7,6 +7,7 @@ import (
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/price"
+	"github.com/U188/octopus/internal/tgbot"
 	"github.com/U188/octopus/internal/utils/log"
 )
 
@@ -19,6 +20,7 @@ const (
 	TaskBaseUrlDelay      = "base_url_delay"
 	TaskSiteSync          = "site_sync"
 	TaskSiteCheckin       = "site_checkin"
+	TaskTelegramOps       = "telegram_ops"
 	TaskWSAffinityCleanup = "ws_affinity_cleanup"
 )
 
@@ -89,6 +91,14 @@ func Init() {
 		}
 		if deleted > 0 {
 			log.Debugf("ws response affinity cleanup removed %d expired rows", deleted)
+		}
+	})
+
+	Register(TaskTelegramOps, time.Minute, false, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := tgbot.RunOpsNotifications(ctx); err != nil {
+			log.Warnf("telegram ops task failed: %v", err)
 		}
 	})
 
