@@ -587,6 +587,8 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 		}
 	case data == "ops":
 		return r.opsMenu()
+	case data == "ops:accounts":
+		return r.opsAccountsMenu(ctx)
 	case data == "monitor":
 		return r.monitorMenu(ctx)
 	case data == "ops:report":
@@ -853,13 +855,13 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 		if err != nil {
 			return response{Text: "sync 参数无效", Buttons: mainMenuButtons()}
 		}
-		return response{Text: r.syncAccount(ctx, accountID), Buttons: mainMenuButtons()}
+		return response{Text: r.syncAccount(ctx, accountID), Buttons: opsAccountActionButtons()}
 	case strings.HasPrefix(data, "checkin:"):
 		accountID, err := strconv.Atoi(strings.TrimPrefix(data, "checkin:"))
 		if err != nil {
 			return response{Text: "checkin 参数无效", Buttons: mainMenuButtons()}
 		}
-		return response{Text: r.checkinAccount(ctx, accountID), Buttons: mainMenuButtons()}
+		return response{Text: r.checkinAccount(ctx, accountID), Buttons: opsAccountActionButtons()}
 	case strings.HasPrefix(data, "acct:"):
 		siteID, accountID, err := parsePair(data, "acct")
 		if err != nil {
@@ -1190,11 +1192,47 @@ func (r *Runner) opsMenu() response {
 🔄 账号同步、签到
 🧪 路由组测试对话`),
 		Buttons: [][]inlineButton{
-			{{Text: "运维报告", Data: "ops:report"}, {Text: "余额", Data: "ops:balance"}, {Text: "Top", Data: "ops:top"}},
+			{{Text: "运维报告", Data: "ops:report"}, {Text: "账号运维", Data: "ops:accounts"}},
+			{{Text: "余额", Data: "ops:balance"}, {Text: "Top", Data: "ops:top"}},
 			{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},
 			{{Text: "监控", Data: "monitor"}, {Text: "主页", Data: "home"}},
 		},
 	}
+}
+
+func (r *Runner) opsAccountsMenu(ctx context.Context) response {
+	sites, err := op.SiteList(ctx)
+	if err != nil {
+		return response{Text: "读取账号失败：" + err.Error(), Buttons: mainMenuButtons()}
+	}
+	var b strings.Builder
+	b.WriteString("🔄 账号运维\n选择账号后可直接同步或签到。")
+	buttons := make([][]inlineButton, 0, 16)
+	accountCount := 0
+	for _, site := range sites {
+		for _, account := range site.Accounts {
+			accountCount++
+			fmt.Fprintf(&b, "\n\n%s #%d %s / %s\n同步 %s｜签到 %s",
+				enabledBadge(site.Enabled && account.Enabled),
+				account.ID,
+				shortReportName(site.Name, 28),
+				shortReportName(account.Name, 28),
+				executionStatusLabel(account.LastSyncStatus),
+				executionStatusLabel(account.LastCheckinStatus),
+			)
+			buttons = append(buttons, []inlineButton{
+				{Text: trimForButton(fmt.Sprintf("#%d %s", account.ID, account.Name), 18), Data: fmt.Sprintf("acct:%d:%d", site.ID, account.ID)},
+				{Text: "同步", Data: fmt.Sprintf("sync:%d", account.ID)},
+				{Text: "签到", Data: fmt.Sprintf("checkin:%d", account.ID)},
+			})
+		}
+	}
+	if accountCount == 0 {
+		b.WriteString("\n\n暂无账号")
+	}
+	buttons = append(buttons, []inlineButton{{Text: "站点管理", Data: "site_mgmt"}, {Text: "返回运维", Data: "ops"}})
+	buttons = append(buttons, []inlineButton{{Text: "主页", Data: "home"}})
+	return response{Text: b.String(), Buttons: buttons}
 }
 
 func (r *Runner) monitorMenu(ctx context.Context) response {
@@ -2533,6 +2571,13 @@ func opsReportButtons() [][]inlineButton {
 	}
 }
 
+func opsAccountActionButtons() [][]inlineButton {
+	return [][]inlineButton{
+		{{Text: "账号运维", Data: "ops:accounts"}, {Text: "返回运维", Data: "ops"}},
+		{{Text: "主页", Data: "home"}},
+	}
+}
+
 func groupCallbackData(siteID int, accountID int, groupKey string) string {
 	return fmt.Sprintf("group:%d:%d:%s", siteID, accountID, groupKey)
 }
@@ -2638,6 +2683,21 @@ func modelSyncBadge(status model.SiteGroupModelSyncStatus) string {
 		return "❔ 未解析"
 	case model.SiteGroupModelSyncStatusRemoved:
 		return "🗑 已移除"
+	default:
+		return "⏳ " + firstNonEmpty(string(status), "idle")
+	}
+}
+
+func executionStatusLabel(status model.SiteExecutionStatus) string {
+	switch status {
+	case model.SiteExecutionStatusSuccess:
+		return "✅ 成功"
+	case model.SiteExecutionStatusPartial:
+		return "⚠️ 部分"
+	case model.SiteExecutionStatusFailed:
+		return "❌ 失败"
+	case model.SiteExecutionStatusSkipped:
+		return "⏭ 跳过"
 	default:
 		return "⏳ " + firstNonEmpty(string(status), "idle")
 	}
