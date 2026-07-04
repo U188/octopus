@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../client';
 import { logger } from '@/lib/logger';
-import type { SitePlatform } from './site';
+import type { SitePlatform, SiteSyncResult } from './site';
 import type { AutoGroupType, ResponsesToolAutoDeny } from './channel';
 
 export type SiteModelRouteType =
@@ -434,6 +434,17 @@ export type SiteGroupProjectionUpdateRequest = {
     projection_disabled: boolean;
 };
 
+export type SiteChannelRepairResult = {
+    account: SiteChannelAccount;
+    sync_result?: SiteSyncResult | null;
+    warning?: string;
+    reprojected_from_existing: boolean;
+};
+
+type SiteChannelRepairResultServer = Omit<SiteChannelRepairResult, 'account'> & {
+    account: SiteChannelAccountServer;
+};
+
 function getAccountPath(siteId: number, accountId: number, suffix: string) {
     return '/api/v1/site-channel/' + siteId + '/account/' + accountId + suffix;
 }
@@ -680,6 +691,28 @@ export function useResetSiteChannelModelRoutes(siteId: number, accountId: number
         },
         onError: (error) => {
             logger.error('site channel model route reset failed:', error);
+        },
+    });
+}
+
+export function useRepairSiteChannelAccount(siteId: number, accountId: number) {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async () => {
+            const result = await apiClient.post<SiteChannelRepairResultServer>(getAccountPath(siteId, accountId, '/repair'), {});
+            return {
+                ...result,
+                account: normalizeSiteChannelAccount(result.account),
+                sync_result: result.sync_result ?? null,
+            } satisfies SiteChannelRepairResult;
+        },
+        onSuccess: (result) => {
+            updateSiteChannelListQueries(queryClient, siteId, result.account);
+            invalidateSiteChannelAndRelated(queryClient);
+        },
+        onError: (error) => {
+            logger.error('site channel repair failed:', error);
         },
     });
 }

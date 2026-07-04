@@ -38,7 +38,8 @@ func init() {
 		AddRoute(router.NewRoute("/:siteId/account/:accountId/projected-channel-settings", http.MethodPut).Handle(updateSiteProjectedChannelSettings)).
 		AddRoute(router.NewRoute("/:siteId/account/:accountId/manual-models", http.MethodPost).Handle(addSiteManualModels)).
 		AddRoute(router.NewRoute("/:siteId/account/:accountId/manual-models/delete", http.MethodPost).Handle(deleteSiteManualModel)).
-		AddRoute(router.NewRoute("/:siteId/account/:accountId/model-routes/reset", http.MethodPost).Handle(resetSiteChannelModelRoutes))
+		AddRoute(router.NewRoute("/:siteId/account/:accountId/model-routes/reset", http.MethodPost).Handle(resetSiteChannelModelRoutes)).
+		AddRoute(router.NewRoute("/:siteId/account/:accountId/repair", http.MethodPost).Handle(repairSiteChannelAccount))
 }
 
 func listSiteChannel(c *gin.Context) {
@@ -467,6 +468,64 @@ func resetSiteChannelModelRoutes(c *gin.Context) {
 		"account_id": accountID,
 	})
 	resp.Success(c, data)
+}
+
+func repairSiteChannelAccount(c *gin.Context) {
+	siteID, accountID, ok := parseSiteChannelIDs(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
+	defer cancel()
+
+	syncResult, syncErr := sitesvc.SyncAccount(ctx, accountID)
+	reprojectedFromExisting := false
+	if syncErr != nil && syncResult == nil {
+		if _, err := sitesvc.ProjectAccount(ctx, accountID); err != nil {
+			recordAuditFailure(c, "site_channel.account.repair", map[string]any{
+				"site_id":    siteID,
+				"account_id": accountID,
+			}, err)
+			resp.ErrorWithAppError(c, http.StatusInternalServerError, apperror.Wrap(op.CodeSiteChannelProjectFailed, "site channel repair failed", err).WithStatus(http.StatusInternalServerError))
+			return
+		}
+		reprojectedFromExisting = true
+	}
+
+	data, err := op.SiteChannelAccountGet(siteID, accountID, c.Request.Context())
+	if err != nil {
+		recordAuditFailure(c, "site_channel.account.repair", map[string]any{
+			"site_id":    siteID,
+			"account_id": accountID,
+		}, err)
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := gin.H{
+		"account":                   data,
+		"sync_result":               syncResult,
+		"reprojected_from_existing": reprojectedFromExisting,
+	}
+	if syncErr != nil {
+		result["warning"] = syncErr.Error()
+	}
+	recordAuditSuccess(c, "site_channel.account.repair", map[string]any{
+		"site_id":                   siteID,
+		"account_id":                accountID,
+		"sync_status":               dataRouteSyncStatus(syncResult),
+		"warning":                   syncErr != nil,
+		"reprojected_from_existing": reprojectedFromExisting,
+	})
+	resp.Success(c, result)
+}
+
+func dataRouteSyncStatus(result *model.SiteSyncResult) string {
+	if result == nil {
+		return ""
+	}
+	return string(result.Status)
 }
 
 func siteChannelMutationErrorStatus(err error) int {

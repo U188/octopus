@@ -88,6 +88,7 @@ import {
     useCreateSiteChannelKey,
     useAddSiteManualModels,
     useDeleteSiteManualModel,
+    useRepairSiteChannelAccount,
     useResetSiteChannelModelRoutes,
     useSiteChannelList,
     useUpdateSiteProjectedChannelSettings,
@@ -1345,6 +1346,7 @@ function SiteAccountPanel({
     const disabledMutation = useUpdateSiteChannelModelDisabled();
     const context1MMutation = useUpdateSiteChannelModelContext1M();
     const resetMutation = useResetSiteChannelModelRoutes(siteId, account.account_id);
+    const repairMutation = useRepairSiteChannelAccount(siteId, account.account_id);
     const enableSiteAccount = useEnableSiteAccount();
     const clearResponsesToolAutoDenylist = useClearChannelResponsesToolAutoDenylist();
 
@@ -1427,7 +1429,7 @@ function SiteAccountPanel({
         () => Array.from(selectedModelKeys).map((key) => visibleModelMap.get(key)).filter((model): model is SiteModelView => !!model),
         [selectedModelKeys, visibleModelMap],
     );
-    const hasPendingChanges = pendingModelKeys.size > 0 || routeMutation.isPending || disabledMutation.isPending || context1MMutation.isPending || advancedMutation.isPending || clearResponsesToolAutoDenylist.isPending || addManualModelsMutation.isPending || deleteManualModelMutation.isPending;
+    const hasPendingChanges = pendingModelKeys.size > 0 || routeMutation.isPending || disabledMutation.isPending || context1MMutation.isPending || advancedMutation.isPending || clearResponsesToolAutoDenylist.isPending || addManualModelsMutation.isPending || deleteManualModelMutation.isPending || repairMutation.isPending;
 
     useEffect(() => {
         if (!jumpRequest || jumpRequest.target.kind !== 'site-channel-model') return;
@@ -1894,6 +1896,31 @@ function SiteAccountPanel({
         });
     };
 
+    const handleRepairAccount = () => {
+        repairMutation.mutate(undefined, {
+            onSuccess: (result) => {
+                const syncStatus = result.sync_result?.status;
+                const counts = result.sync_result
+                    ? `（${result.sync_result.group_count} 个分组，${result.sync_result.token_count} 个 Key，${result.sync_result.model_count} 个模型）`
+                    : '';
+                if (result.warning) {
+                    toast.warning(`已使用现有数据重建投影${counts}`, { description: translateSiteError(result.warning, result.warning) });
+                    return;
+                }
+                if (syncStatus === 'partial') {
+                    toast.warning(`已同步并重建投影${counts}`);
+                } else if (syncStatus === 'failed') {
+                    toast.error(`同步失败，但已刷新投影视图${counts}`);
+                } else {
+                    toast.success(`已同步并重建投影${counts}`);
+                }
+            },
+            onError: (error) => {
+                toast.error(translateSiteError(error, '自动修复失败'));
+            },
+        });
+    };
+
     const toggleQuickFilter = (filter: SiteChannelQuickFilter) => {
         const next = panelPreferences.quickFilters.includes(filter)
             ? panelPreferences.quickFilters.filter((item) => item !== filter)
@@ -2180,6 +2207,18 @@ function SiteAccountPanel({
                         >
                             <Settings className="size-4" />
                             工具禁用/参数
+                        </Button>
+
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 rounded-2xl px-3"
+                            onClick={handleRepairAccount}
+                            disabled={hasPendingChanges}
+                            title={hasPendingChanges ? '请先保存或取消当前修改' : '重新同步站点数据并重建投影渠道'}
+                        >
+                            <RefreshCw className={cn('size-4', repairMutation.isPending && 'animate-spin')} />
+                            {repairMutation.isPending ? '修复中...' : '自动修复'}
                         </Button>
 
                         <Popover>
