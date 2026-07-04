@@ -59,3 +59,29 @@ func TestApplyResponsesToolDenylistRemovesToolChoiceWhenNoToolsRemain(t *testing
 		t.Fatalf("expected tools and tool_choice to be removed, got %s", got)
 	}
 }
+
+func TestApplyResponsesToolDenylistWithReportReturnsRemovedTools(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/responses", strings.NewReader(`{
+		"model":"gpt-5.5",
+		"tools":[
+			{"type":"image_generation"},
+			{"type":"image_generation"},
+			{"type":"function","name":"run"}
+		],
+		"tool_choice":{"type":"image_generation"}
+	}`))
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+
+	removed, toolChoiceRemoved, err := ApplyResponsesToolDenylistWithReport(req, []string{"image_generation"})
+	if err != nil {
+		t.Fatalf("ApplyResponsesToolDenylistWithReport failed: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "image_generation" {
+		t.Fatalf("expected one removed image_generation tool, got %#v", removed)
+	}
+	if !toolChoiceRemoved {
+		t.Fatalf("expected tool_choice removal to be reported")
+	}
+}

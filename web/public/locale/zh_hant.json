@@ -407,7 +407,19 @@
             "empty": "暫無審計記錄",
             "success": "成功",
             "failed": "失敗",
-            "unknown": "未知"
+            "unknown": "未知",
+            "noDetail": "無詳細內容",
+            "fields": {
+                "id": "記錄 ID",
+                "status": "狀態",
+                "actor": "操作者",
+                "ip": "IP",
+                "method": "方法",
+                "path": "路徑",
+                "userAgent": "User-Agent",
+                "error": "錯誤",
+                "detail": "詳細內容"
+            }
         },
         "apiKey": {
             "title": "API 金鑰",
@@ -897,6 +909,7 @@
             "noResponsesToolDenylist": "暫無手動禁用工具",
             "noResponsesToolAutoDenylist": "暫無自動禁用工具",
             "autoRecoverAt": "{time} 自動恢復",
+            "responsesToolLastError": "上次錯誤",
             "managedResponsesToolHint": "站點投影渠道請到站點渠道頁的「工具禁用/參數」裡編輯。",
             "metrics": {
                 "totalRequests": "總請求",
@@ -979,6 +992,7 @@
             "responsesToolDenylistPlaceholder": "可選：逗號或換行分隔，例如 image_generation, web_search",
             "responsesToolAutoDenylist": "自動禁用中",
             "autoRecoverAt": "{time} 自動恢復",
+            "responsesToolLastError": "上次錯誤",
             "clearResponsesToolAutoDenylist": "立即恢復",
             "clearingResponsesToolAutoDenylist": "恢復中...",
             "remark": "備註"
@@ -1009,6 +1023,7 @@
             "responsesToolDenylistPlaceholder": "逗號或換行分隔；用於移除上游不支援的工具，例如 image_generation",
             "responsesToolAutoDenylist": "自動禁用中",
             "autoRecoverAt": "{time} 自動恢復",
+            "responsesToolLastError": "上次錯誤",
             "clearResponsesToolAutoDenylist": "立即恢復",
             "clearingResponsesToolAutoDenylist": "恢復中...",
             "responsesToolAutoDenylistCleared": "自動禁用工具已清除",

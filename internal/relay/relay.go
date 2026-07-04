@@ -329,7 +329,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
 		op.ChannelKeyUpdate(ra.usedKey)
 
-		span.End(dbmodel.AttemptSuccess, statusCode, "")
+		span.End(dbmodel.AttemptSuccess, statusCode, ra.attemptMessage(""))
 
 		// Channel 维度统计
 		op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
@@ -352,7 +352,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 			ra.collectResponse()
 		}
 		op.ChannelKeyUpdate(ra.usedKey)
-		span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
+		span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 		return attemptResult{
 			Success:    false,
 			Written:    written,
@@ -363,7 +363,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	op.ChannelKeyUpdate(ra.usedKey)
-	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
+	span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 
 	// Channel 维度统计
 	op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
@@ -889,13 +889,75 @@ func (ra *relayAttempt) applyParamOverride(outboundRequest *http.Request) error 
 	if err := helper.ApplyParamOverride(outboundRequest, ra.channel.ParamOverride); err != nil {
 		return err
 	}
-	if err := helper.ApplyResponsesToolDenylist(outboundRequest, ra.channel.EffectiveResponsesToolDenylist(time.Now().Unix())); err != nil {
+	removedTools, removedToolChoice, err := helper.ApplyResponsesToolDenylistWithReport(outboundRequest, ra.channel.EffectiveResponsesToolDenylist(time.Now().Unix()))
+	if err != nil {
 		return err
 	}
+	ra.recordRemovedResponsesTools(removedTools, removedToolChoice)
 	if requestBody, readErr := readOutboundRequestBody(outboundRequest); readErr == nil {
 		ra.metrics.SetTransportRequestPayload(requestBody, ra.internalRequest.Model)
 	}
 	return nil
+}
+
+func (ra *relayAttempt) recordRemovedResponsesTools(tools []string, removedToolChoice bool) {
+	if ra == nil || len(tools) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(ra.removedResponsesTools)+len(tools))
+	for _, tool := range ra.removedResponsesTools {
+		seen[tool] = struct{}{}
+	}
+	for _, tool := range tools {
+		tool = strings.ToLower(strings.TrimSpace(tool))
+		if tool == "" {
+			continue
+		}
+		if _, ok := seen[tool]; ok {
+			continue
+		}
+		seen[tool] = struct{}{}
+		ra.removedResponsesTools = append(ra.removedResponsesTools, tool)
+	}
+	ra.removedToolChoice = ra.removedToolChoice || removedToolChoice
+}
+
+func (ra *relayAttempt) attemptMessage(base string) string {
+	if ra == nil || len(ra.removedResponsesTools) == 0 {
+		return base
+	}
+	parts := make([]string, 0, len(ra.removedResponsesTools))
+	for _, tool := range ra.removedResponsesTools {
+		parts = append(parts, ra.responsesToolRemovalLabel(tool))
+	}
+	detail := "responses tools removed before upstream: " + strings.Join(parts, ", ")
+	if ra.removedToolChoice {
+		detail += "; tool_choice removed"
+	}
+	if strings.TrimSpace(base) == "" {
+		return detail
+	}
+	return base + "\n" + detail
+}
+
+func (ra *relayAttempt) responsesToolRemovalLabel(tool string) string {
+	tool = strings.ToLower(strings.TrimSpace(tool))
+	if tool == "" || ra == nil || ra.channel == nil {
+		return tool
+	}
+	for _, manual := range ra.channel.ResponsesToolDenylist {
+		if strings.EqualFold(strings.TrimSpace(manual), tool) {
+			return tool + " (manual)"
+		}
+	}
+	now := time.Now().Unix()
+	for _, item := range ra.channel.ResponsesToolAutoDenylist {
+		if item.ExpiresAt <= now || !strings.EqualFold(strings.TrimSpace(item.Tool), tool) {
+			continue
+		}
+		return fmt.Sprintf("%s (auto until %s)", tool, time.Unix(item.ExpiresAt, 0).Format(time.RFC3339))
+	}
+	return tool
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头

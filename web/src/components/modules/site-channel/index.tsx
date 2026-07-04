@@ -2551,6 +2551,14 @@ function SiteAccountPanel({
                                                                     <span>{t('siteChannel.advanced.autoRecoverAt', { time: dayjs.unix(item.expires_at).format('YYYY-MM-DD HH:mm:ss') })}</span>
                                                                 </div>
                                                                 {item.reason && <div className="mt-1 break-words">{item.reason}</div>}
+                                                                {item.last_error && (
+                                                                    <div className="mt-2 rounded-md bg-background/70 p-2">
+                                                                        <div className="mb-1 font-medium text-muted-foreground">{t('siteChannel.advanced.responsesToolLastError')}</div>
+                                                                        <div className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]">
+                                                                            {item.last_error}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ))}
                                                     </div>

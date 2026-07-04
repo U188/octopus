@@ -407,7 +407,19 @@
             "empty": "No audit logs",
             "success": "Success",
             "failed": "Failed",
-            "unknown": "Unknown"
+            "unknown": "Unknown",
+            "noDetail": "No detail",
+            "fields": {
+                "id": "Record ID",
+                "status": "Status",
+                "actor": "Actor",
+                "ip": "IP",
+                "method": "Method",
+                "path": "Path",
+                "userAgent": "User-Agent",
+                "error": "Error",
+                "detail": "Detail"
+            }
         },
         "apiKey": {
             "title": "API Keys",
@@ -897,6 +909,7 @@
             "noResponsesToolDenylist": "No manually disabled tools",
             "noResponsesToolAutoDenylist": "No auto-disabled tools",
             "autoRecoverAt": "Auto-recovers at {time}",
+            "responsesToolLastError": "Last error",
             "managedResponsesToolHint": "Edit site-projected channels from Site Channels -> Tools/params.",
             "metrics": {
                 "totalRequests": "Total Requests",
@@ -979,6 +992,7 @@
             "responsesToolDenylistPlaceholder": "Optional: comma or newline separated, e.g. image_generation, web_search",
             "responsesToolAutoDenylist": "Auto-disabled tools",
             "autoRecoverAt": "Auto recovers at {time}",
+            "responsesToolLastError": "Last error",
             "clearResponsesToolAutoDenylist": "Restore now",
             "clearingResponsesToolAutoDenylist": "Restoring...",
             "remark": "Remark"
@@ -1009,6 +1023,7 @@
             "responsesToolDenylistPlaceholder": "Comma or newline separated. Removes tools unsupported by the upstream, e.g. image_generation",
             "responsesToolAutoDenylist": "Auto-disabled tools",
             "autoRecoverAt": "Auto recovers at {time}",
+            "responsesToolLastError": "Last error",
             "clearResponsesToolAutoDenylist": "Restore now",
             "clearingResponsesToolAutoDenylist": "Restoring...",
             "responsesToolAutoDenylistCleared": "Auto-disabled tools cleared",

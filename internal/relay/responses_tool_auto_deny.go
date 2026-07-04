@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/transformer/outbound"
 	"github.com/U188/octopus/internal/utils/log"
@@ -61,7 +62,29 @@ func (ra *relayAttempt) maybeAutoDenyResponsesTool(requestTools []string, respon
 		return
 	}
 	ra.autoDeniedResponsesTool = true
+	if auditErr := op.AuditCreate(ra.requestContext(), &dbmodel.AuditLog{
+		Action: "channel.responses_tool_auto_denylist.add",
+		Status: op.AuditStatusSuccess,
+		Actor:  "system",
+		Detail: mustMarshalResponsesToolAuditDetail(map[string]any{
+			"channel_id":  ra.channel.ID,
+			"channel":     ra.channel.Name,
+			"tool":        tool,
+			"reason":      reason,
+			"ttl_seconds": int(responsesToolAutoDenyTTL.Seconds()),
+		}),
+	}); auditErr != nil {
+		log.Warnf("failed to audit auto denied responses tool %s for channel %s: %v", tool, ra.channel.Name, auditErr)
+	}
 	log.Infof("auto denied responses tool %s for channel %s for %s: %s", tool, ra.channel.Name, responsesToolAutoDenyTTL, reason)
+}
+
+func mustMarshalResponsesToolAuditDetail(detail map[string]any) string {
+	data, err := json.Marshal(detail)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func inferResponsesToolPermissionDeny(requestTools []string, responseBody string) (string, string) {
