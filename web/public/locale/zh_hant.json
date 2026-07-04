@@ -887,10 +887,17 @@
                 "tokens": "Token 使用",
                 "costs": "成本詳情",
                 "baseUrls": "Base URLs",
-                "keys": "金鑰"
+                "keys": "金鑰",
+                "responsesTools": "Responses 工具"
             },
             "noBaseUrls": "暫無 Base URL",
             "noKeys": "暫無金鑰",
+            "responsesToolDenylist": "手動禁用工具",
+            "responsesToolAutoDenylist": "自動禁用工具",
+            "noResponsesToolDenylist": "暫無手動禁用工具",
+            "noResponsesToolAutoDenylist": "暫無自動禁用工具",
+            "autoRecoverAt": "{time} 自動恢復",
+            "managedResponsesToolHint": "站點投影渠道請到站點渠道頁的「工具禁用/參數」裡編輯。",
             "metrics": {
                 "totalRequests": "總請求",
                 "totalToken": "總 Token",

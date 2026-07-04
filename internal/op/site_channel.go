@@ -283,7 +283,7 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 			RouteType:      model.NormalizeSiteModelRouteType(item.RouteType),
 			RouteSource:    model.NormalizeSiteModelRouteSource(item.RouteSource, item.ManualOverride),
 			ManualOverride: item.ManualOverride,
-			Disabled:       item.Disabled,
+			Disabled:       item.Disabled || group.EnabledKeyCount == 0,
 			Context1M:      item.Context1M,
 			RouteMetadata:  routeMetadata,
 			History:        historyMap[key+"\x00"+item.ModelName],
@@ -319,17 +319,7 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 }
 
 func siteModelBelongsToGroup(item model.SiteModel, groupKey string) bool {
-	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
-	if !ok || len(metadata.EnableGroups) == 0 {
-		return true
-	}
-	targetGroupKey := model.NormalizeSiteGroupKey(groupKey)
-	for _, explicitGroupKey := range metadata.EnableGroups {
-		if model.NormalizeSiteGroupKey(explicitGroupKey) == targetGroupKey {
-			return true
-		}
-	}
-	return false
+	return model.NormalizeSiteGroupKey(item.GroupKey) == model.NormalizeSiteGroupKey(groupKey)
 }
 
 func maskProjectedChannelKey(value string) string {

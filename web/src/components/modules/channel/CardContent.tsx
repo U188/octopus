@@ -9,7 +9,8 @@ import {
     Activity,
     TrendingUp,
     Globe,
-    Key
+    Key,
+    Wrench
 } from 'lucide-react';
 import { useUpdateChannel, useDeleteChannel, useClearChannelResponsesToolAutoDenylist, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
 import {
@@ -69,6 +70,8 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const tProxy = useTranslations('proxyPool');
 
     const currentView = isEditing ? 'editing' : 'viewing';
+    const manualResponsesToolDenylist = channel.responses_tool_denylist ?? [];
+    const activeResponsesToolAutoDenylist = channel.responses_tool_auto_denylist ?? [];
 
     const baseUrlsEqual = (a: Channel['base_urls'] | undefined, b: Channel['base_urls'] | undefined) =>
         JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
@@ -488,6 +491,50 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                         {(!channel.keys || channel.keys.length === 0) && (
                                             <div className="p-4 text-sm text-muted-foreground text-center">{t('noKeys')}</div>
                                         )}
+                                    </div>
+                                </section>
+
+                                <section className="space-y-3">
+                                    <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        <Wrench className="size-3.5" />
+                                        {t('sections.responsesTools')}
+                                    </h4>
+                                    <div className="space-y-3 rounded-2xl border bg-card p-3 sm:p-4">
+                                        <div>
+                                            <div className="mb-2 text-xs font-medium text-muted-foreground">{t('responsesToolDenylist')}</div>
+                                            {manualResponsesToolDenylist.length > 0 ? (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {manualResponsesToolDenylist.map((tool) => (
+                                                        <Badge key={tool} variant="secondary" className="rounded-md font-mono">
+                                                            {tool}
+                                                        </Badge>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="text-sm text-muted-foreground">{t('noResponsesToolDenylist')}</div>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <div className="mb-2 text-xs font-medium text-muted-foreground">{t('responsesToolAutoDenylist')}</div>
+                                            {activeResponsesToolAutoDenylist.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {activeResponsesToolAutoDenylist.map((item) => (
+                                                        <div key={item.tool} className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Badge variant="secondary" className="rounded-md font-mono">{item.tool}</Badge>
+                                                                <span>{t('autoRecoverAt', { time: new Date(item.expires_at * 1000).toLocaleString() })}</span>
+                                                            </div>
+                                                            {item.reason ? <div className="mt-1 break-words">{item.reason}</div> : null}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="text-sm text-muted-foreground">{t('noResponsesToolAutoDenylist')}</div>
+                                            )}
+                                        </div>
+                                        {channel.managed ? (
+                                            <div className="text-xs text-muted-foreground">{t('managedResponsesToolHint')}</div>
+                                        ) : null}
                                     </div>
                                 </section>
 

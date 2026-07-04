@@ -35,6 +35,20 @@ func ErrorWithAppError(c *gin.Context, fallbackStatus int, err error) {
 	ErrorWithCodeAndParams(c, status, apperror.Code(err), apperror.Message(err), apperror.Params(err))
 }
 
+func ErrorWithAppErrorAndData(c *gin.Context, fallbackStatus int, err error, data any) {
+	status := fallbackStatus
+	if appStatus := apperror.Status(err); appStatus != 0 {
+		status = appStatus
+	}
+	c.AbortWithStatusJSON(status, ResponseStruct{
+		Code:      status,
+		ErrorCode: apperror.Code(err),
+		Message:   apperror.Message(err),
+		Params:    apperror.Params(err),
+		Data:      data,
+	})
+}
+
 func ErrorWithCode(c *gin.Context, status int, errorCode string, message string) {
 	ErrorWithCodeAndParams(c, status, errorCode, message, nil)
 }

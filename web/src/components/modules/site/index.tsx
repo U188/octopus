@@ -16,6 +16,7 @@ import {
   SiteAccount,
   SiteCredentialType,
   SitePlatform,
+  type SiteSyncResult,
   useCheckinAllSites,
   useCheckinSiteAccount,
   useArchiveSite,
@@ -126,6 +127,23 @@ const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
   [SiteCredentialType.AccessToken]: "Access Token",
   [SiteCredentialType.APIKey]: "API Key",
 };
+
+function isSiteSyncResult(value: unknown): value is SiteSyncResult {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<SiteSyncResult>;
+  return typeof candidate.account_id === "number" &&
+    typeof candidate.site_id === "number" &&
+    typeof candidate.status === "string" &&
+    typeof candidate.group_count === "number" &&
+    typeof candidate.token_count === "number" &&
+    typeof candidate.model_count === "number";
+}
+
+function getSiteSyncResultFromError(error: unknown): SiteSyncResult | null {
+  if (!error || typeof error !== "object" || !("data" in error)) return null;
+  const data = (error as { data?: unknown }).data;
+  return isSiteSyncResult(data) ? data : null;
+}
 
 type HealthTone = "default" | "danger" | "muted" | "warning";
 
@@ -1016,8 +1034,7 @@ export function Site() {
 
   async function handleSyncAccount(account: SiteAccount) {
     setSyncingAccountIds((current) => new Set(current).add(account.id));
-    try {
-      const result = await syncSiteAccount.mutateAsync(account.id);
+    const showSyncResult = (result: SiteSyncResult) => {
       const summary = `${result.message}（${result.group_count} 个分组，${result.token_count} 个 Key，${result.model_count} 个模型）`;
       if (result.status === "failed") {
         toast.error(summary);
@@ -1029,7 +1046,16 @@ export function Site() {
         console.warn(`Unexpected site sync status: ${result.status}`);
         toast.error(summary);
       }
+    };
+    try {
+      const result = await syncSiteAccount.mutateAsync(account.id);
+      showSyncResult(result);
     } catch (syncError) {
+      const result = getSiteSyncResultFromError(syncError);
+      if (result) {
+        showSyncResult(result);
+        return;
+      }
       toast.error(translateSiteMessage(locale, getErrorMessage(syncError), t));
     } finally {
       setSyncingAccountIds((current) => {

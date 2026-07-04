@@ -1932,6 +1932,7 @@ function SiteAccountPanel({
         () => visibleGroups.filter((group) => group.has_projected_channel),
         [visibleGroups],
     );
+    const advancedTargetGroup = activeGroup ?? projectedGroups[0] ?? null;
     const unsupportedRouteCount = useMemo(
         () => visibleModels.filter((model) => !isSupportedRouteType(model.route_type)).length,
         [visibleModels],
@@ -2173,12 +2174,12 @@ function SiteAccountPanel({
                             type="button"
                             variant="outline"
                             className="h-8 rounded-2xl px-3"
-                            onClick={() => activeGroup && handleOpenAdvancedSettings(activeGroup)}
-                            disabled={!activeGroup || activeGroup.projected_channels.length === 0}
-                            title={!activeGroup ? '请先选择具体分组' : activeGroup.projected_channels.length === 0 ? '当前分组暂无投影渠道' : undefined}
+                            onClick={() => advancedTargetGroup && handleOpenAdvancedSettings(advancedTargetGroup)}
+                            disabled={!advancedTargetGroup || advancedTargetGroup.projected_channels.length === 0}
+                            title={!advancedTargetGroup ? '当前账号暂无投影渠道' : advancedTargetGroup.projected_channels.length === 0 ? '当前分组暂无投影渠道' : activeGroup ? undefined : `打开分组「${advancedTargetGroup.group_name || advancedTargetGroup.group_key}」的工具禁用设置`}
                         >
                             <Settings className="size-4" />
-                            高级
+                            工具禁用/参数
                         </Button>
 
                         <Popover>
@@ -2424,6 +2425,18 @@ function SiteAccountPanel({
                                                 <div className="min-w-0">
                                                     <div className="truncate text-sm font-medium">{routeTypeLabel(channel.route_type)}</div>
                                                     <div className="mt-0.5 truncate text-xs text-muted-foreground">#{channel.channel_id}</div>
+                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                        {(channel.responses_tool_denylist ?? []).length > 0 ? (
+                                                            <Badge variant="secondary" className="rounded-md text-[10px]">
+                                                                手动禁用 {(channel.responses_tool_denylist ?? []).length}
+                                                            </Badge>
+                                                        ) : null}
+                                                        {(channel.responses_tool_auto_denylist ?? []).length > 0 ? (
+                                                            <Badge variant="outline" className="rounded-md border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-200">
+                                                                自动禁用 {(channel.responses_tool_auto_denylist ?? []).length}
+                                                            </Badge>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                             </button>
                                         );
@@ -2444,6 +2457,14 @@ function SiteAccountPanel({
                                             <div className="min-w-0">
                                                 <div className="text-sm font-medium text-foreground">{routeTypeLabel(channel.route_type)}</div>
                                                 <div className="mt-1 truncate text-xs text-muted-foreground">#{channel.channel_id} · {channel.channel_name}</div>
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    <Badge variant="secondary" className="rounded-md">
+                                                        手动禁用 {(channel.responses_tool_denylist ?? []).length}
+                                                    </Badge>
+                                                    <Badge variant="outline" className="rounded-md">
+                                                        自动禁用 {(channel.responses_tool_auto_denylist ?? []).length}
+                                                    </Badge>
+                                                </div>
                                             </div>
                                         </div>
 

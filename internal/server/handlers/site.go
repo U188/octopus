@@ -456,7 +456,7 @@ func syncSiteAccount(c *gin.Context) {
 			recordAuditFailure(c, "site_account.sync", map[string]any{
 				"id": idNum,
 			}, err)
-			resp.Success(c, result)
+			resp.ErrorWithAppErrorAndData(c, http.StatusBadGateway, err, result)
 			return
 		}
 		recordAuditFailure(c, "site_account.sync", map[string]any{

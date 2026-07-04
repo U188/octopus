@@ -3,10 +3,14 @@ package op
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/utils/cache"
+	"github.com/dlclark/regexp2"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -41,11 +45,53 @@ func GroupGet(id int, ctx context.Context) (*model.Group, error) {
 func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 	group, ok := groupMap.Get(name)
 	if !ok {
-		return model.Group{}, fmt.Errorf("group not found")
+		var matched bool
+		group, matched = groupGetByMatchRegex(name)
+		if !matched {
+			return model.Group{}, fmt.Errorf("group not found")
+		}
 	}
+	return groupWithEnabledItems(group), nil
+}
+
+func groupGetByMatchRegex(name string) (model.Group, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return model.Group{}, false
+	}
+
+	groupsByID := groupCache.GetAll()
+	ids := make([]int, 0, len(groupsByID))
+	for id := range groupsByID {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	for _, id := range ids {
+		group := groupsByID[id]
+		if strings.TrimSpace(group.MatchRegex) == "" {
+			continue
+		}
+		re, err := regexp2.Compile(group.MatchRegex, regexp2.ECMAScript)
+		if err != nil {
+			continue
+		}
+		re.MatchTimeout = 200 * time.Millisecond
+		matched, err := re.MatchString(name)
+		if err != nil {
+			continue
+		}
+		if matched {
+			return group, true
+		}
+	}
+	return model.Group{}, false
+}
+
+func groupWithEnabledItems(group model.Group) model.Group {
 	if len(group.Items) == 0 {
 		group.Items = nil
-		return group, nil
+		return group
 	}
 
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
@@ -57,7 +103,7 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 		enabledItems = append(enabledItems, item)
 	}
 	group.Items = enabledItems
-	return group, nil
+	return group
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {

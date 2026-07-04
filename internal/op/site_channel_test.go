@@ -489,6 +489,9 @@ func TestSiteChannelAccountGetShowsExplicitGroupModelsWithoutKeys(t *testing.T) 
 	if len(defaultGroup.Models) != 1 {
 		t.Fatalf("expected default group to include one model, got %+v", defaultGroup.Models)
 	}
+	if defaultGroup.Models[0].Disabled {
+		t.Fatalf("expected default group model with key to remain enabled")
+	}
 	vipGroup := groupByKey["vip"]
 	if len(vipGroup.Models) != 1 {
 		t.Fatalf("expected vip group to include explicit model without keys, got %+v", vipGroup.Models)
@@ -496,8 +499,76 @@ func TestSiteChannelAccountGetShowsExplicitGroupModelsWithoutKeys(t *testing.T) 
 	if vipGroup.HasKeys {
 		t.Fatalf("expected vip group to remain without keys")
 	}
+	if !vipGroup.Models[0].Disabled {
+		t.Fatalf("expected vip model without keys to be effectively disabled")
+	}
 	if vipGroup.Models[0].ProjectedChannelID != nil {
 		t.Fatalf("expected vip explicit model without keys not to have projected channel, got %+v", vipGroup.Models[0])
+	}
+}
+
+func TestSiteChannelAccountGetUsesPersistedModelGroupKeyOverRouteMetadata(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	site := &model.Site{
+		Name:     "site-channel-group-key-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "site-channel-group-key-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "token",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteUserGroup{
+		SiteAccountID: account.ID,
+		GroupKey:      "default",
+		Name:          "default",
+	}).Error; err != nil {
+		t.Fatalf("create site group failed: %v", err)
+	}
+
+	payload := model.SiteModelRouteMetadata{
+		Source:                 "/api/pricing",
+		RouteSupported:         true,
+		RouteType:              model.SiteModelRouteTypeOpenAIChat,
+		EnableGroups:           []string{"free"},
+		SupportedEndpointTypes: []string{"/v1/chat/completions"},
+	}.Marshal()
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteModel{
+		SiteAccountID:   account.ID,
+		GroupKey:        "default",
+		ModelName:       "gpt-5.5",
+		RouteType:       model.SiteModelRouteTypeOpenAIChat,
+		RouteSource:     model.SiteModelRouteSourceSyncInferred,
+		RouteRawPayload: payload,
+	}).Error; err != nil {
+		t.Fatalf("create site model failed: %v", err)
+	}
+
+	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteChannelAccountGet failed: %v", err)
+	}
+	if len(view.Groups) != 1 {
+		t.Fatalf("expected one group, got %+v", view.Groups)
+	}
+	if got := view.Groups[0].GroupKey; got != "default" {
+		t.Fatalf("expected default group, got %q", got)
+	}
+	if len(view.Groups[0].Models) != 1 || view.Groups[0].Models[0].ModelName != "gpt-5.5" {
+		t.Fatalf("expected default group model from persisted group key, got %+v", view.Groups[0].Models)
 	}
 }
 

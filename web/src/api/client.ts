@@ -65,11 +65,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
         const errorParams = (data && typeof data === 'object' && 'params' in data && isApiErrorParams(data.params))
             ? data.params
             : undefined;
+        const responseData = (data && typeof data === 'object' && 'data' in data)
+            ? data.data
+            : undefined;
         const error: ApiError = {
             code: response.status,
             errorCode,
             rawMessage,
             params: errorParams,
+            data: responseData,
             message: translateApiErrorCode(errorCode, rawMessage, errorParams),
         };
 
@@ -160,4 +164,3 @@ export const apiClient = {
     patch: <T>(path: string, data?: unknown, params?: Record<string, string | number | boolean>): Promise<T> =>
         request<T>('PATCH', path, data ? JSON.stringify(data) : undefined, params),
 };
-

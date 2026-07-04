@@ -20,6 +20,7 @@ export interface ApiError {
     errorCode?: string;
     rawMessage?: string;
     params?: ApiErrorParams;
+    data?: unknown;
 }
 
 /**

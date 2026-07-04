@@ -637,17 +637,7 @@ func extractSiteModelNames(items []model.SiteModel) []string {
 }
 
 func siteModelBelongsToProjectedGroup(item model.SiteModel, groupKey string) bool {
-	metadata, ok := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
-	if !ok || len(metadata.EnableGroups) == 0 {
-		return true
-	}
-	targetGroupKey := model.NormalizeSiteGroupKey(groupKey)
-	for _, explicitGroupKey := range metadata.EnableGroups {
-		if model.NormalizeSiteGroupKey(explicitGroupKey) == targetGroupKey {
-			return true
-		}
-	}
-	return false
+	return model.NormalizeSiteGroupKey(item.GroupKey) == model.NormalizeSiteGroupKey(groupKey)
 }
 
 // compositeBindingKey 生成复合绑定 key，用于区分同一 tokenGroup 的不同端点格式 Channel

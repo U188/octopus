@@ -887,10 +887,17 @@
                 "tokens": "Token 使用",
                 "costs": "成本详情",
                 "baseUrls": "Base URLs",
-                "keys": "密钥"
+                "keys": "密钥",
+                "responsesTools": "Responses 工具"
             },
             "noBaseUrls": "暂无 Base URL",
             "noKeys": "暂无密钥",
+            "responsesToolDenylist": "手动禁用工具",
+            "responsesToolAutoDenylist": "自动禁用工具",
+            "noResponsesToolDenylist": "暂无手动禁用工具",
+            "noResponsesToolAutoDenylist": "暂无自动禁用工具",
+            "autoRecoverAt": "{time} 自动恢复",
+            "managedResponsesToolHint": "站点投影渠道请到站点渠道页的“工具禁用/参数”里编辑。",
             "metrics": {
                 "totalRequests": "总请求",
                 "totalToken": "总 Token",

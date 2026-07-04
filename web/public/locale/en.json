@@ -887,10 +887,17 @@
                 "tokens": "Token Usage",
                 "costs": "Cost Details",
                 "baseUrls": "Base URLs",
-                "keys": "Keys"
+                "keys": "Keys",
+                "responsesTools": "Responses Tools"
             },
             "noBaseUrls": "No Base URLs",
             "noKeys": "No Keys",
+            "responsesToolDenylist": "Manually disabled tools",
+            "responsesToolAutoDenylist": "Auto-disabled tools",
+            "noResponsesToolDenylist": "No manually disabled tools",
+            "noResponsesToolAutoDenylist": "No auto-disabled tools",
+            "autoRecoverAt": "Auto-recovers at {time}",
+            "managedResponsesToolHint": "Edit site-projected channels from Site Channels -> Tools/params.",
             "metrics": {
                 "totalRequests": "Total Requests",
                 "totalToken": "Total Tokens",
