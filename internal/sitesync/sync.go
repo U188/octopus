@@ -92,6 +92,7 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 		return nil, err
 	}
 	tokens = completeMaskedTokensFromAccountAPIKey(tokens, account.APIKey)
+	tokens = completeMaskedTokensFromExistingReadyTokens(tokens, account.Tokens)
 	groups, err := fetchManagementGroups(ctx, siteRecord, account, accessToken)
 	if err != nil {
 		groups = nil
@@ -204,6 +205,7 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 		return nil, err
 	}
 	tokens = completeMaskedTokensFromAccountAPIKey(tokens, account.APIKey)
+	tokens = completeMaskedTokensFromExistingReadyTokens(tokens, account.Tokens)
 	if len(tokens) == 0 && strings.TrimSpace(account.APIKey) != "" {
 		tokens = append(tokens, model.SiteToken{Name: "default", Token: strings.TrimSpace(account.APIKey), GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "fallback", IsDefault: true})
 	}
@@ -260,6 +262,67 @@ func completeMaskedTokensFromAccountAPIKey(tokens []model.SiteToken, apiKey stri
 		}
 		out[i].Token = apiKey
 		out[i].ValueStatus = model.SiteTokenValueStatusReady
+	}
+	return out
+}
+
+func completeMaskedTokensFromExistingReadyTokens(tokens []model.SiteToken, existingTokens []model.SiteToken) []model.SiteToken {
+	if len(tokens) == 0 || len(existingTokens) == 0 {
+		return tokens
+	}
+	readyCandidates := make([]model.SiteToken, 0, len(existingTokens))
+	for _, existing := range existingTokens {
+		existing.Token = strings.TrimSpace(existing.Token)
+		existing.GroupKey = model.NormalizeSiteGroupKey(existing.GroupKey)
+		if existing.Token == "" || !model.IsReadySiteToken(existing) || model.IsMaskedSiteTokenValue(existing.Token) {
+			continue
+		}
+		readyCandidates = append(readyCandidates, existing)
+	}
+	if len(readyCandidates) == 0 {
+		return tokens
+	}
+	out := make([]model.SiteToken, len(tokens))
+	copy(out, tokens)
+	used := make(map[int]struct{}, len(readyCandidates))
+	for i := range out {
+		if !model.IsMaskedSiteTokenValue(out[i].Token) {
+			continue
+		}
+		groupKey := model.NormalizeSiteGroupKey(out[i].GroupKey)
+		name := normalizeSiteTokenName(out[i].Name)
+		matchIndex := -1
+		for idx, existing := range readyCandidates {
+			if existing.ID != 0 {
+				if _, ok := used[existing.ID]; ok {
+					continue
+				}
+			}
+			if model.NormalizeSiteGroupKey(existing.GroupKey) != groupKey {
+				continue
+			}
+			if name != "" && normalizeSiteTokenName(existing.Name) != name {
+				continue
+			}
+			if !model.SiteMaskedTokenMatches(existing.Token, out[i].Token) {
+				continue
+			}
+			if matchIndex != -1 {
+				matchIndex = -2
+				break
+			}
+			matchIndex = idx
+		}
+		if matchIndex < 0 {
+			continue
+		}
+		existing := readyCandidates[matchIndex]
+		out[i].Token = existing.Token
+		out[i].ValueStatus = model.SiteTokenValueStatusReady
+		out[i].Enabled = existing.Enabled
+		if existing.ID != 0 {
+			used[existing.ID] = struct{}{}
+		}
 	}
 	return out
 }

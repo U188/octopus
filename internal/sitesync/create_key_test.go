@@ -52,7 +52,7 @@ func TestCreateAccountTokenCreatesManagedKeyAndSyncsAccount(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`{"data":[{"id":"vip","name":"VIP"}]}`))
-		case r.URL.Path == "/models":
+		case strings.HasSuffix(r.URL.Path, "/models"):
 			if r.Header.Get("Authorization") != "Bearer sk-managed-created-key" {
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
@@ -117,6 +117,81 @@ func TestCreateAccountTokenCreatesManagedKeyAndSyncsAccount(t *testing.T) {
 	}
 	if len(reloaded.Models) != 1 || reloaded.Models[0].GroupKey != "vip" || reloaded.Models[0].ModelName != "gpt-4o-mini" {
 		t.Fatalf("unexpected synced models: %+v", reloaded.Models)
+	}
+}
+
+func TestCreateAccountTokenPersistsPlainKeyFromCreateResponseBeforeMaskedSync(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+
+	var modelRequests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.URL.Path == "/api/user/self":
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":11494,"username":"managed-user"}}`))
+		case r.URL.Path == "/api/token/" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":1,"key":"managed-created-key"}}`))
+		case r.URL.Path == "/api/token/" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"data":{"items":[{"name":"created-by-octopus","key":"managed********key","group":"vip","status":1}]}}`))
+		case r.URL.Path == "/api/user/self/groups":
+			_, _ = w.Write([]byte(`{"data":[{"id":"vip","name":"VIP"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/models"):
+			modelRequests = append(modelRequests, r.URL.Path+" "+r.Header.Get("Authorization"))
+			if r.Header.Get("Authorization") != "Bearer sk-managed-created-key" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o-mini"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	site := &model.Site{
+		Name:     "managed-create-masked-list-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  server.URL,
+		Enabled:  true,
+	}
+	if err := op.SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "managed-create-masked-list-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "test-access-token",
+		Enabled:        true,
+		AutoSync:       true,
+	}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+
+	result, err := CreateAccountToken(ctx, account.ID, model.SiteChannelKeyCreateRequest{GroupKey: "vip", Name: "created-by-octopus"})
+	if err != nil {
+		t.Fatalf("CreateAccountToken returned error: %v; model requests=%v", err, modelRequests)
+	}
+	if result == nil || result.TokenCount != 1 || result.ModelCount != 1 {
+		t.Fatalf("unexpected sync result: %+v", result)
+	}
+
+	reloaded, err := op.SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet failed: %v", err)
+	}
+	if len(reloaded.Tokens) != 1 {
+		t.Fatalf("expected one token, got %+v", reloaded.Tokens)
+	}
+	if reloaded.Tokens[0].Token != "managed-created-key" {
+		t.Fatalf("expected local plaintext token to be preserved, got %q", reloaded.Tokens[0].Token)
+	}
+	if reloaded.Tokens[0].ValueStatus != model.SiteTokenValueStatusReady || !reloaded.Tokens[0].Enabled {
+		t.Fatalf("expected token to be ready and enabled, got %+v", reloaded.Tokens[0])
 	}
 }
 

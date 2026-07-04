@@ -2,13 +2,16 @@ package sitesync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"gorm.io/gorm"
 )
 
 func CreateAccountToken(ctx context.Context, accountID int, req model.SiteChannelKeyCreateRequest) (*model.SiteSyncResult, error) {
@@ -22,72 +25,83 @@ func CreateAccountToken(ctx context.Context, accountID int, req model.SiteChanne
 
 	groupKey := model.NormalizeSiteGroupKey(req.GroupKey)
 	name := strings.TrimSpace(req.Name)
+	var createdToken *model.SiteToken
 
 	switch siteRecord.Platform {
 	case model.SitePlatformAnyRouter:
-		if err := createAnyRouterToken(ctx, siteRecord, account, groupKey, name); err != nil {
+		createdToken, err = createAnyRouterToken(ctx, siteRecord, account, groupKey, name)
+		if err != nil {
 			return nil, err
 		}
 	case model.SitePlatformNewAPI, model.SitePlatformOneAPI, model.SitePlatformOneHub, model.SitePlatformDoneHub:
-		if err := createManagementPlatformToken(ctx, siteRecord, account, groupKey, name); err != nil {
+		createdToken, err = createManagementPlatformToken(ctx, siteRecord, account, groupKey, name)
+		if err != nil {
 			return nil, err
 		}
 	case model.SitePlatformSub2API:
-		if err := createSub2APIToken(ctx, siteRecord, account, groupKey, name); err != nil {
+		createdToken, err = createSub2APIToken(ctx, siteRecord, account, groupKey, name)
+		if err != nil {
 			return nil, err
 		}
 	default:
 		return nil, fmt.Errorf("site platform %s does not support quick key creation", siteRecord.Platform)
 	}
+	if createdToken != nil {
+		if err := persistCreatedAccountToken(ctx, account.ID, *createdToken); err != nil {
+			return nil, err
+		}
+	}
 
 	return SyncAccount(ctx, accountID)
 }
 
-func createManagementPlatformToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) error {
+func createManagementPlatformToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) (*model.SiteToken, error) {
 	if account == nil {
-		return fmt.Errorf("site account is nil")
+		return nil, fmt.Errorf("site account is nil")
 	}
 	if account.CredentialType == model.SiteCredentialTypeAPIKey {
-		return fmt.Errorf("API key credential account does not support quick site key creation")
+		return nil, fmt.Errorf("API key credential account does not support quick site key creation")
 	}
 
 	accessToken, err := resolveManagedAccessToken(ctx, siteRecord, account)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	requestName := defaultSiteTokenCreateName(account, groupKey, name)
 	payload, err := requestJSONWithManagedAccessToken(
 		ctx,
 		siteRecord,
 		http.MethodPost,
 		buildSiteURL(siteRecord.BaseURL, "/api/token/"),
-		buildManagedTokenCreatePayload(account, groupKey, name),
+		buildManagedTokenCreatePayload(account, groupKey, requestName),
 		accessToken,
 		account,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !siteTokenCreateSucceeded(payload) {
-		return fmt.Errorf("%s", firstNonEmptyString(extractSiteResponseMessage(payload), "site token creation failed"))
+		return nil, fmt.Errorf("%s", firstNonEmptyString(extractSiteResponseMessage(payload), "site token creation failed"))
 	}
-	return nil
+	return createdTokenFromPayload(payload, groupKey, requestName), nil
 }
 
-func createAnyRouterToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) error {
+func createAnyRouterToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) (*model.SiteToken, error) {
 	if account == nil {
-		return fmt.Errorf("site account is nil")
+		return nil, fmt.Errorf("site account is nil")
 	}
 	if account.CredentialType == model.SiteCredentialTypeAPIKey {
-		return fmt.Errorf("API key credential account does not support quick site key creation")
+		return nil, fmt.Errorf("API key credential account does not support quick site key creation")
 	}
 
 	accessToken, err := resolveAnyRouterManagedAccessToken(ctx, siteRecord, account)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	payloadBody := buildManagedTokenCreatePayload(account, groupKey, name)
+	requestName := defaultSiteTokenCreateName(account, groupKey, name)
+	payloadBody := buildManagedTokenCreatePayload(account, groupKey, requestName)
 	requestURL := buildSiteURL(siteRecord.BaseURL, "/api/token/")
 
 	userID, _ := anyRouterDiscoverUserID(ctx, siteRecord, account, accessToken)
@@ -101,7 +115,7 @@ func createAnyRouterToken(ctx context.Context, siteRecord *model.Site, account *
 		account,
 	)
 	if err == nil && siteTokenCreateSucceeded(payload) {
-		return nil
+		return createdTokenFromPayload(payload, groupKey, requestName), nil
 	}
 
 	tryUserIDs := []int{userID}
@@ -135,7 +149,7 @@ func createAnyRouterToken(ctx context.Context, siteRecord *model.Site, account *
 				continue
 			}
 			if siteTokenCreateSucceeded(payload) {
-				return nil
+				return createdTokenFromPayload(payload, groupKey, requestName), nil
 			}
 			if message := strings.TrimSpace(extractSiteResponseMessage(payload)); message != "" {
 				err = fmt.Errorf("%s", message)
@@ -144,26 +158,27 @@ func createAnyRouterToken(ctx context.Context, siteRecord *model.Site, account *
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return fmt.Errorf("site token creation failed")
+	return nil, fmt.Errorf("site token creation failed")
 }
 
-func createSub2APIToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) error {
+func createSub2APIToken(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, groupKey string, name string) (*model.SiteToken, error) {
 	if account == nil {
-		return fmt.Errorf("site account is nil")
+		return nil, fmt.Errorf("site account is nil")
 	}
 	if account.CredentialType == model.SiteCredentialTypeAPIKey {
-		return fmt.Errorf("API key credential account does not support quick site key creation")
+		return nil, fmt.Errorf("API key credential account does not support quick site key creation")
 	}
 
 	accessToken := strings.TrimSpace(account.AccessToken)
 	accessToken, err := ensureFreshSub2APIAccessToken(ctx, siteRecord, account, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	requestBody := buildSub2APITokenCreatePayload(account, groupKey, name)
+	requestName := defaultSiteTokenCreateName(account, groupKey, name)
+	requestBody := buildSub2APITokenCreatePayload(account, groupKey, requestName)
 	headers := map[string]string{"Authorization": ensureBearer(accessToken)}
 	endpoints := []string{"/api/v1/keys", "/api/v1/api-keys"}
 	var firstErr error
@@ -195,7 +210,7 @@ func createSub2APIToken(ctx context.Context, siteRecord *model.Site, account *mo
 					if err == nil {
 						data, envelopeErr := unwrapSub2APIData(payload, endpoint)
 						if envelopeErr == nil && siteTokenCreateSucceededFromAny(data) {
-							return nil
+							return createdTokenFromAny(data, groupKey, requestName), nil
 						}
 						if envelopeErr != nil && firstErr == nil {
 							firstErr = envelopeErr
@@ -210,26 +225,27 @@ func createSub2APIToken(ctx context.Context, siteRecord *model.Site, account *mo
 		}
 		if data, envelopeErr := unwrapSub2APIData(payload, endpoint); envelopeErr == nil {
 			if siteTokenCreateSucceededFromAny(data) {
-				return nil
+				return createdTokenFromAny(data, groupKey, requestName), nil
 			}
 		} else {
-			return envelopeErr
+			return nil, envelopeErr
 		}
 		if siteTokenCreateSucceeded(payload) {
-			return nil
+			return createdTokenFromPayload(payload, groupKey, requestName), nil
 		}
-		return fmt.Errorf("%s", firstNonEmptyString(extractSiteResponseMessage(payload), "site token creation failed"))
+		return nil, fmt.Errorf("%s", firstNonEmptyString(extractSiteResponseMessage(payload), "site token creation failed"))
 	}
 
 	if firstErr != nil {
-		return firstErr
+		return nil, firstErr
 	}
-	return fmt.Errorf("site token creation failed")
+	return nil, fmt.Errorf("site token creation failed")
 }
 
 func buildManagedTokenCreatePayload(account *model.SiteAccount, groupKey string, name string) map[string]any {
+	name = defaultSiteTokenCreateName(account, groupKey, name)
 	return map[string]any{
-		"name":                 defaultSiteTokenCreateName(account, groupKey, name),
+		"name":                 name,
 		"unlimited_quota":      true,
 		"expired_time":         -1,
 		"remain_quota":         0,
@@ -241,14 +257,105 @@ func buildManagedTokenCreatePayload(account *model.SiteAccount, groupKey string,
 }
 
 func buildSub2APITokenCreatePayload(account *model.SiteAccount, groupKey string, name string) map[string]any {
+	name = defaultSiteTokenCreateName(account, groupKey, name)
 	payload := map[string]any{
-		"name": defaultSiteTokenCreateName(account, groupKey, name),
+		"name": name,
 	}
 	groupKey = model.NormalizeSiteGroupKey(groupKey)
 	if groupID, err := strconv.Atoi(groupKey); err == nil && groupID > 0 {
 		payload["group_id"] = groupID
 	}
 	return payload
+}
+
+func createdTokenFromPayload(payload map[string]any, groupKey string, name string) *model.SiteToken {
+	if payload == nil {
+		return nil
+	}
+	return createdTokenFromAny(payload, groupKey, name)
+}
+
+func createdTokenFromAny(value any, groupKey string, name string) *model.SiteToken {
+	tokenValue := extractCreatedTokenValue(value)
+	tokenValue = strings.TrimSpace(tokenValue)
+	if tokenValue == "" || model.IsMaskedSiteTokenValue(tokenValue) {
+		return nil
+	}
+	groupKey = model.NormalizeSiteGroupKey(groupKey)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = defaultSiteTokenCreateName(nil, groupKey, "")
+	}
+	return &model.SiteToken{
+		Purpose:     model.SiteCredentialPurposeChat,
+		Name:        name,
+		Token:       tokenValue,
+		GroupKey:    groupKey,
+		GroupName:   model.NormalizeSiteGroupName(groupKey, groupKey),
+		Enabled:     true,
+		ValueStatus: model.SiteTokenValueStatusReady,
+		Source:      "sync",
+	}
+}
+
+func extractCreatedTokenValue(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"key", "token", "api_key", "apiKey", "value", "secret", "secret_key", "secretKey"} {
+			if token := strings.TrimSpace(jsonString(typed[key])); token != "" {
+				return token
+			}
+		}
+		for _, key := range []string{"data", "result", "token", "key"} {
+			if nested := extractCreatedTokenValue(typed[key]); strings.TrimSpace(nested) != "" {
+				return nested
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if token := extractCreatedTokenValue(item); strings.TrimSpace(token) != "" {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
+func persistCreatedAccountToken(ctx context.Context, accountID int, token model.SiteToken) error {
+	token.SiteAccountID = accountID
+	token.Purpose = model.SiteCredentialPurposeChat
+	token.GroupKey = model.NormalizeSiteGroupKey(token.GroupKey)
+	token.GroupName = model.NormalizeSiteGroupName(token.GroupKey, token.GroupName)
+	token.Token = strings.TrimSpace(token.Token)
+	token.ValueStatus = model.NormalizeSiteTokenValueStatus(model.SiteTokenValueStatusReady, token.Token)
+	if token.Token == "" || token.ValueStatus != model.SiteTokenValueStatusReady {
+		return nil
+	}
+	if strings.TrimSpace(token.Name) == "" {
+		token.Name = defaultSiteTokenCreateName(nil, token.GroupKey, "")
+	}
+	token.Enabled = true
+	if strings.TrimSpace(token.Source) == "" {
+		token.Source = "sync"
+	}
+	var existing model.SiteToken
+	err := db.GetDB().WithContext(ctx).
+		Where("site_account_id = ? AND purpose = ? AND group_key = ? AND name = ?", accountID, model.SiteCredentialPurposeChat, token.GroupKey, token.Name).
+		First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return db.GetDB().WithContext(ctx).Create(&token).Error
+	}
+	updates := map[string]any{
+		"value":        token.Token,
+		"value_status": token.ValueStatus,
+		"enabled":      token.Enabled,
+		"source":       token.Source,
+		"group_name":   token.GroupName,
+	}
+	return db.GetDB().WithContext(ctx).Model(&model.SiteToken{}).Where("id = ?", existing.ID).Updates(updates).Error
 }
 
 func defaultSiteTokenCreateName(account *model.SiteAccount, groupKey string, name string) string {
