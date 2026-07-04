@@ -35,6 +35,11 @@ func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
 			expected: "https://example.com/v1/responses",
 		},
 		{
+			name:     "openai images appends v1",
+			mode:     TestConversationModeOpenAIImage,
+			expected: "https://example.com/v1/images/generations",
+		},
+		{
 			name:     "codex responses appends v1",
 			mode:     TestConversationModeOpenAIResponse,
 			client:   TestConversationClientCodex,
@@ -77,6 +82,15 @@ func TestBuildTestConversationRequestUsesRouteOverrideVerbatim(t *testing.T) {
 	responseURL, _, _ := buildTestConversationRequest(siteRecord, token, "gpt-4o", TestConversationModeOpenAIResponse, "hi", TestConversationClientDefault, false)
 	if responseURL != "https://gateway.example.com/openai/v1/responses" {
 		t.Fatalf("expected route override response URL, got %q", responseURL)
+	}
+
+	siteRecord.RouteBaseURLs = append(siteRecord.RouteBaseURLs, model.SiteRouteBaseURL{RouteType: model.SiteModelRouteTypeOpenAIImage, BaseURL: "https://gateway.example.com/openai/v1"})
+	imageURL, imageBody, _ := buildTestConversationRequest(siteRecord, token, "gpt-image-2", TestConversationModeOpenAIImage, "draw a cube", TestConversationClientDefault, false)
+	if imageURL != "https://gateway.example.com/openai/v1/images/generations" {
+		t.Fatalf("expected route override image URL, got %q", imageURL)
+	}
+	if imageBody["prompt"] != "draw a cube" || imageBody["model"] != "gpt-image-2" {
+		t.Fatalf("unexpected image request body: %#v", imageBody)
 	}
 
 	anthropicURL, _, _ := buildTestConversationRequest(siteRecord, token, "claude-sonnet-4", TestConversationModeAnthropic, "hi", TestConversationClientDefault, false)
@@ -449,5 +463,22 @@ func TestExtractTestConversationReplyHandlesChatContentParts(t *testing.T) {
 
 	if got := extractTestConversationReply(TestConversationModeOpenAIChat, payload); got != "part text" {
 		t.Fatalf("expected chat content part text, got %q", got)
+	}
+}
+
+func TestExtractTestConversationReplyHandlesImageGeneration(t *testing.T) {
+	payload := map[string]any{
+		"data": []any{
+			map[string]any{"url": "https://cdn.example.com/image.png"},
+			map[string]any{"b64_json": "abcdef"},
+		},
+	}
+
+	got := extractTestConversationReply(TestConversationModeOpenAIImage, payload)
+	if !strings.Contains(got, "Image 1: https://cdn.example.com/image.png") {
+		t.Fatalf("expected image URL summary, got %q", got)
+	}
+	if !strings.Contains(got, "Image 2: b64_json returned (6 bytes)") {
+		t.Fatalf("expected b64 summary, got %q", got)
 	}
 }

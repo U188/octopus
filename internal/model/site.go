@@ -73,6 +73,7 @@ const (
 	SiteModelRouteTypeGemini          SiteModelRouteType = "gemini"
 	SiteModelRouteTypeVolcengine      SiteModelRouteType = "volcengine"
 	SiteModelRouteTypeOpenAIEmbedding SiteModelRouteType = "openai_embedding"
+	SiteModelRouteTypeOpenAIImage     SiteModelRouteType = "openai_image"
 	SiteModelRouteTypeUnknown         SiteModelRouteType = "unknown"
 )
 
@@ -732,6 +733,7 @@ func NormalizeSiteModelRouteType(routeType SiteModelRouteType) SiteModelRouteTyp
 		SiteModelRouteTypeGemini,
 		SiteModelRouteTypeVolcengine,
 		SiteModelRouteTypeOpenAIEmbedding,
+		SiteModelRouteTypeOpenAIImage,
 		SiteModelRouteTypeUnknown:
 		return routeType
 	default:
@@ -746,7 +748,8 @@ func IsProjectedSiteModelRouteType(routeType SiteModelRouteType) bool {
 		SiteModelRouteTypeAnthropic,
 		SiteModelRouteTypeGemini,
 		SiteModelRouteTypeVolcengine,
-		SiteModelRouteTypeOpenAIEmbedding:
+		SiteModelRouteTypeOpenAIEmbedding,
+		SiteModelRouteTypeOpenAIImage:
 		return true
 	default:
 		return false
@@ -777,9 +780,24 @@ func InferSiteModelRouteType(modelName string) SiteModelRouteType {
 		return SiteModelRouteTypeGemini
 	case strings.Contains(lower, "embedding"):
 		return SiteModelRouteTypeOpenAIEmbedding
+	case IsOpenAIImageModelName(lower):
+		return SiteModelRouteTypeOpenAIImage
 	default:
 		return SiteModelRouteTypeOpenAIChat
 	}
+}
+
+func IsOpenAIImageModelName(modelName string) bool {
+	lower := strings.ToLower(strings.TrimSpace(modelName))
+	if lower == "" {
+		return false
+	}
+	return strings.HasPrefix(lower, "gpt-image-") ||
+		strings.HasPrefix(lower, "dall-e") ||
+		strings.HasPrefix(lower, "dalle") ||
+		strings.Contains(lower, "gpt-image-") ||
+		strings.Contains(lower, "image-generation") ||
+		strings.Contains(lower, "-image-")
 }
 
 func SiteModelRouteTypeSuffix(routeType SiteModelRouteType) string {
@@ -794,6 +812,8 @@ func SiteModelRouteTypeSuffix(routeType SiteModelRouteType) string {
 		return "volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "openai-embedding"
+	case SiteModelRouteTypeOpenAIImage:
+		return "openai-image"
 	default:
 		return ""
 	}
@@ -811,6 +831,8 @@ func SiteModelRouteTypeName(routeType SiteModelRouteType) string {
 		return "Volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "OpenAI Embedding"
+	case SiteModelRouteTypeOpenAIImage:
+		return "OpenAI Image"
 	case SiteModelRouteTypeUnknown:
 		return "Unsupported"
 	default:
@@ -832,6 +854,8 @@ func CompactSiteModelRouteTypeName(routeType SiteModelRouteType) string {
 		return "Volcengine"
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return "Embedding"
+	case SiteModelRouteTypeOpenAIImage:
+		return "Image"
 	case SiteModelRouteTypeUnknown:
 		return "Unsupported"
 	default:
@@ -866,6 +890,8 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 		return baseKey, SiteModelRouteTypeVolcengine
 	case "openai-embedding":
 		return baseKey, SiteModelRouteTypeOpenAIEmbedding
+	case "openai-image":
+		return baseKey, SiteModelRouteTypeOpenAIImage
 	default:
 		return baseKey, SiteModelRouteTypeOpenAIChat
 	}
@@ -892,6 +918,8 @@ func (t SiteModelRouteType) ToOutboundType() outbound.OutboundType {
 		return outbound.OutboundTypeVolcengine
 	case SiteModelRouteTypeOpenAIEmbedding:
 		return outbound.OutboundTypeOpenAIEmbedding
+	case SiteModelRouteTypeOpenAIImage:
+		return outbound.OutboundTypeOpenAIChat
 	default:
 		return outbound.OutboundTypeOpenAIChat
 	}

@@ -43,6 +43,12 @@ func TestPickPreferredDetectedRouteType(t *testing.T) {
 			values:    []model.SiteModelRouteType{model.SiteModelRouteTypeOpenAIChat, model.SiteModelRouteTypeOpenAIResponse},
 			expected:  model.SiteModelRouteTypeOpenAIResponse,
 		},
+		{
+			name:      "image model keeps image route when available",
+			modelName: "gpt-image-2",
+			values:    []model.SiteModelRouteType{model.SiteModelRouteTypeOpenAIChat, model.SiteModelRouteTypeOpenAIImage},
+			expected:  model.SiteModelRouteTypeOpenAIImage,
+		},
 	}
 
 	for _, tt := range tests {
@@ -51,6 +57,33 @@ func TestPickPreferredDetectedRouteType(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.expected, actual)
 			}
 		})
+	}
+}
+
+func TestBuildSiteModelRouteDetectionAddsHeuristicImageForImageModels(t *testing.T) {
+	detection, ok := buildSiteModelRouteDetection(
+		"codex-gpt-image-2",
+		nil,
+		nil,
+		"/api/pricing",
+		map[string]struct{}{"codex-gpt-image-2": {}},
+	)
+	if !ok {
+		t.Fatalf("expected heuristic image detection to be produced")
+	}
+	if detection.RouteType != model.SiteModelRouteTypeOpenAIImage {
+		t.Fatalf("expected image route type %q, got %q", model.SiteModelRouteTypeOpenAIImage, detection.RouteType)
+	}
+
+	metadata, ok := model.ParseSiteModelRouteMetadata(detection.RouteRawPayload)
+	if !ok {
+		t.Fatalf("expected route metadata to parse")
+	}
+	if len(metadata.HeuristicEndpointTypes) != 1 || metadata.HeuristicEndpointTypes[0] != "/v1/images/generations" {
+		t.Fatalf("expected image heuristic endpoint to be recorded, got %#v", metadata.HeuristicEndpointTypes)
+	}
+	if metadata.RouteType != model.SiteModelRouteTypeOpenAIImage {
+		t.Fatalf("expected image metadata route type, got %q", metadata.RouteType)
 	}
 }
 

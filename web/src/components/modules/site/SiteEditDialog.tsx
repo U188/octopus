@@ -72,6 +72,7 @@ const ROUTE_BASE_URL_OPTIONS: ReadonlyArray<{ value: string; label: string }> = 
     { value: 'gemini', label: 'Gemini' },
     { value: 'volcengine', label: 'Volcengine' },
     { value: 'openai_embedding', label: 'OpenAI Embedding' },
+    { value: 'openai_image', label: 'OpenAI Image' },
 ];
 
 const DEFAULT_ROUTE_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [

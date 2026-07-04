@@ -199,6 +199,7 @@ export type SiteCheckinResult = {
 export type SiteTestConversationMode =
   | "openai_chat"
   | "openai_response"
+  | "openai_image"
   | "anthropic";
 
 export type SiteTestConversationClient =

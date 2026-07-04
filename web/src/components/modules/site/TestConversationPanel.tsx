@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Clock3, LoaderCircle, MessageCircle, Send, UserRound } from "lucide-react";
+import { Bot, Clock3, ImageIcon, LoaderCircle, MessageCircle, Send, UserRound } from "lucide-react";
 import {
   type Site,
   type SiteAccount,
@@ -32,6 +32,7 @@ import {
 const MODE_OPTIONS: Array<{ value: SiteTestConversationMode; label: string }> = [
   { value: "openai_chat", label: "Chat" },
   { value: "openai_response", label: "Responses" },
+  { value: "openai_image", label: "Images" },
   { value: "anthropic", label: "Messages" },
 ];
 
@@ -43,8 +44,33 @@ const CLIENT_OPTIONS: Array<{ value: SiteTestConversationClient; label: string }
 
 function defaultMode(site: Site): SiteTestConversationMode {
   if (site.default_route_type === "openai_response") return "openai_response";
+  if (site.default_route_type === "openai_image") return "openai_image";
   if (site.default_route_type === "anthropic") return "anthropic";
   return "openai_chat";
+}
+
+function modeFromRouteType(routeType: string | null | undefined): SiteTestConversationMode | null {
+  switch ((routeType ?? "").trim()) {
+    case "openai_response":
+      return "openai_response";
+    case "openai_image":
+      return "openai_image";
+    case "anthropic":
+      return "anthropic";
+    case "openai_chat":
+      return "openai_chat";
+    default:
+      return null;
+  }
+}
+
+function extractImageResultUrls(reply: string) {
+  const urls: string[] = [];
+  for (const line of reply.split(/\r?\n/)) {
+    const match = line.match(/^Image\s+\d+:\s+(https?:\/\/\S+)/i);
+    if (match?.[1]) urls.push(match[1]);
+  }
+  return urls;
 }
 
 function errorMessage(error: unknown) {
@@ -166,9 +192,19 @@ export function TestConversationPanel({
     return modelOptions[0] ?? "";
   }, [model, modelOptions]);
 
+  const selectedModelRouteType = useMemo(() => {
+    const found = latestAccount.models.find(
+      (item) => item.model_name.trim() === effectiveModel && !item.disabled,
+    );
+    return found?.route_type ?? null;
+  }, [effectiveModel, latestAccount.models]);
+
+  const suggestedMode = modeFromRouteType(selectedModelRouteType);
+
   const canSend = Boolean(effectiveTokenID && effectiveModel && greeting.trim()) && !isStreaming;
   const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
+  const isImageMode = effectiveMode === "openai_image";
   const tokenLabel = (token: (typeof enabledTokenOptions)[number]) =>
     [token.group_name || token.group_key || "default", token.name || `Key ${token.id}`].filter(Boolean).join(" / ");
 
@@ -185,6 +221,16 @@ export function TestConversationPanel({
       setModel("");
     }
   }, [model, modelOptions]);
+
+  useEffect(() => {
+    if (suggestedMode === "openai_image" && client !== "default") {
+      setClient("default");
+      setMode("openai_image");
+      return;
+    }
+    if (client !== "default" || !suggestedMode) return;
+    setMode(suggestedMode);
+  }, [client, suggestedMode]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -243,7 +289,7 @@ export function TestConversationPanel({
         <DialogHeader>
           <DialogTitle>测试对话</DialogTitle>
           <DialogDescription>
-            使用当前账号最新同步到的 API Key 和模型发起一次测试请求，招呼语默认 hi。
+            使用当前账号最新同步到的 API Key 和模型发起一次测试请求，图片模式会调用 Images API。
           </DialogDescription>
         </DialogHeader>
 
@@ -284,10 +330,14 @@ export function TestConversationPanel({
             </label>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="text-muted-foreground">对话模式</span>
+              <span className="text-muted-foreground">测试模式</span>
               <Select
                 value={effectiveMode}
-                onValueChange={(value) => setMode(value as SiteTestConversationMode)}
+                onValueChange={(value) => {
+                  const nextMode = value as SiteTestConversationMode;
+                  setMode(nextMode);
+                  if (nextMode === "openai_image") setClient("default");
+                }}
                 disabled={client === "codex" || client === "claude"}
               >
                 <SelectTrigger className="h-9 w-full rounded-xl">
@@ -302,7 +352,7 @@ export function TestConversationPanel({
                 </SelectContent>
               </Select>
               <span className="min-h-4 text-xs text-muted-foreground">
-                默认按站点路由类型选择
+                {suggestedMode ? `按模型端点建议：${MODE_OPTIONS.find((option) => option.value === suggestedMode)?.label ?? suggestedMode}` : "默认按站点路由类型选择"}
               </span>
             </label>
           </div>
@@ -311,6 +361,7 @@ export function TestConversationPanel({
             <span className="text-muted-foreground">客户端</span>
             <Select
               value={client}
+              disabled={isImageMode}
               onValueChange={(value) => {
                 const nextClient = value as SiteTestConversationClient;
                 setClient(nextClient);
@@ -330,7 +381,7 @@ export function TestConversationPanel({
               </SelectContent>
             </Select>
             <span className="min-h-4 text-xs text-muted-foreground">
-              Codex 使用 Responses；Claude 使用 Anthropic Messages 和 claude-cli User-Agent
+              {isImageMode ? "图片测试使用 Default 客户端和 Images API" : "Codex 使用 Responses；Claude 使用 Anthropic Messages 和 claude-cli User-Agent"}
             </span>
           </label>
 
@@ -351,20 +402,20 @@ export function TestConversationPanel({
           </label>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="text-muted-foreground">招呼语</span>
+            <span className="text-muted-foreground">{isImageMode ? "图片提示词" : "招呼语"}</span>
             <textarea
               value={greeting}
               onChange={(event) => setGreeting(event.target.value)}
               rows={3}
               className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="hi"
+              placeholder={isImageMode ? "a clean product-style image of a small orange octopus mascot" : "hi"}
             />
           </label>
 
           <div className="rounded-xl border border-border/70 bg-muted/20">
             <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
               <div className="min-w-0">
-                <div className="text-sm font-medium">对话结果</div>
+                <div className="text-sm font-medium">{isImageMode ? "图片结果" : "对话结果"}</div>
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
                   {effectiveModel ? `${effectiveModel} · ${effectiveMode}` : "请选择 Key 和模型后发送"}
                 </div>
@@ -394,16 +445,29 @@ export function TestConversationPanel({
                   </div>
                   <div className="flex gap-2">
                     <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
-                      <Bot className="size-4" />
+                      {conversationResult.mode === "openai_image" ? <ImageIcon className="size-4" /> : <Bot className="size-4" />}
                     </div>
                     <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border/70 bg-background px-3 py-2 text-sm leading-relaxed">
                       {conversationResult.reply || (isStreaming ? "..." : "No text content returned.")}
+                      {conversationResult.mode === "openai_image" && extractImageResultUrls(conversationResult.reply).length > 0 ? (
+                        <div className="mt-3 grid gap-2">
+                          {extractImageResultUrls(conversationResult.reply).map((url) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={url}
+                              src={url}
+                              alt="Generated result"
+                              className="max-h-64 w-full rounded-lg border border-border/70 object-contain"
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </>
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
-                  发送后会在这里显示用户消息和模型回复。
+                  发送后会在这里显示测试结果。
                 </div>
               )}
             </div>
@@ -420,7 +484,7 @@ export function TestConversationPanel({
             ) : (
               <Send className="size-4" />
             )}
-            发送测试
+            {isImageMode ? "生成图片" : "发送测试"}
           </Button>
         </DialogFooter>
       </DialogContent>

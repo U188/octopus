@@ -161,6 +161,7 @@ func TestCompactSiteModelRouteTypeName(t *testing.T) {
 		{name: "anthropic", routeType: SiteModelRouteTypeAnthropic, expected: "Anthropic"},
 		{name: "gemini", routeType: SiteModelRouteTypeGemini, expected: "Gemini"},
 		{name: "embedding", routeType: SiteModelRouteTypeOpenAIEmbedding, expected: "Embedding"},
+		{name: "image", routeType: SiteModelRouteTypeOpenAIImage, expected: "Image"},
 		{name: "unknown", routeType: SiteModelRouteTypeUnknown, expected: "Unsupported"},
 	}
 
@@ -182,6 +183,9 @@ func TestInferSiteModelRouteType(t *testing.T) {
 		{name: "anthropic models stay anthropic", modelName: "claude-3-5-sonnet", expected: SiteModelRouteTypeAnthropic},
 		{name: "gemini models stay gemini", modelName: "gemini-2.0-flash", expected: SiteModelRouteTypeGemini},
 		{name: "embedding models use embedding route", modelName: "text-embedding-3-large", expected: SiteModelRouteTypeOpenAIEmbedding},
+		{name: "gpt image models use image route", modelName: "gpt-image-2", expected: SiteModelRouteTypeOpenAIImage},
+		{name: "codex gpt image models use image route", modelName: "codex-gpt-image-2", expected: SiteModelRouteTypeOpenAIImage},
+		{name: "dall e models use image route", modelName: "dall-e-3", expected: SiteModelRouteTypeOpenAIImage},
 		{name: "gpt 4o defaults to chat without metadata", modelName: "gpt-4o-mini", expected: SiteModelRouteTypeOpenAIChat},
 		{name: "gpt 4.1 defaults to chat without metadata", modelName: "gpt-4.1", expected: SiteModelRouteTypeOpenAIChat},
 		{name: "gpt 5 defaults to chat without metadata", modelName: "gpt-5-mini", expected: SiteModelRouteTypeOpenAIChat},

@@ -1676,6 +1676,7 @@ func (r *Runner) modelAddMenu(siteID int, accountID int, groupKey string) respon
 			{{Text: "Gemini", Data: fmt.Sprintf("model:addroute:%d:%d:%s:%s", siteID, accountID, groupKey, model.SiteModelRouteTypeGemini)}},
 			{{Text: "Volcengine", Data: fmt.Sprintf("model:addroute:%d:%d:%s:%s", siteID, accountID, groupKey, model.SiteModelRouteTypeVolcengine)}},
 			{{Text: "Embedding", Data: fmt.Sprintf("model:addroute:%d:%d:%s:%s", siteID, accountID, groupKey, model.SiteModelRouteTypeOpenAIEmbedding)}},
+			{{Text: "Image", Data: fmt.Sprintf("model:addroute:%d:%d:%s:%s", siteID, accountID, groupKey, model.SiteModelRouteTypeOpenAIImage)}},
 			{{Text: "返回路由组", Data: groupCallbackData(siteID, accountID, groupKey)}, {Text: "主页", Data: "home"}},
 		},
 	}
@@ -2229,6 +2230,8 @@ func (r *Runner) runPendingTest(ctx context.Context, action pendingAction, text 
 		mode = sitesync.TestConversationModeOpenAIResponse
 	} else if client == sitesync.TestConversationClientClaude || strings.HasPrefix(strings.ToLower(modelName), "claude") {
 		mode = sitesync.TestConversationModeAnthropic
+	} else if model.IsOpenAIImageModelName(modelName) {
+		mode = sitesync.TestConversationModeOpenAIImage
 	}
 	result, err := sitesync.TestConversation(ctx, sitesync.TestConversationRequest{
 		AccountID: action.AccountID,
@@ -2252,7 +2255,8 @@ func inferRouteType(fields []string) model.SiteModelRouteType {
 			model.SiteModelRouteTypeAnthropic,
 			model.SiteModelRouteTypeGemini,
 			model.SiteModelRouteTypeVolcengine,
-			model.SiteModelRouteTypeOpenAIEmbedding:
+			model.SiteModelRouteTypeOpenAIEmbedding,
+			model.SiteModelRouteTypeOpenAIImage:
 			return model.SiteModelRouteType(strings.TrimSpace(fields[1]))
 		}
 	}
@@ -2437,6 +2441,8 @@ func (r *Runner) testConversation(ctx context.Context, args []string) string {
 		mode = sitesync.TestConversationModeOpenAIResponse
 	} else if client == sitesync.TestConversationClientClaude || strings.HasPrefix(strings.ToLower(modelName), "claude") {
 		mode = sitesync.TestConversationModeAnthropic
+	} else if model.IsOpenAIImageModelName(modelName) {
+		mode = sitesync.TestConversationModeOpenAIImage
 	}
 	result, err := sitesync.TestConversation(ctx, sitesync.TestConversationRequest{
 		AccountID: accountID,

@@ -595,6 +595,7 @@ const SHORT_ROUTE_LABEL: Partial<Record<SiteModelRouteType, string>> = {
     openai_chat: 'Chat',
     openai_response: 'Response',
     openai_embedding: 'Embedding',
+    openai_image: 'Image',
 };
 
 function getUnknownRouteReason(model: SiteModelView) {

@@ -136,9 +136,9 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			obType := routeType.ToOutboundType()
 			baseUrls := []model.BaseUrl{{URL: resolveProjectedChannelBaseURL(siteRecord, routeType), Delay: 0}}
 			modelNames := extractSiteModelNames(bucketModels)
-			bindingKey := compositeBindingKey(groupKey, obType, shouldSplit)
+			bindingKey := compositeBindingKey(groupKey, routeType, shouldSplit)
 			channelPayload := model.Channel{
-				Name:          buildManagedChannelName(siteRecord, account, group, obType),
+				Name:          buildManagedChannelName(siteRecord, account, group, routeType),
 				Type:          obType,
 				Enabled:       enabled,
 				BaseUrls:      baseUrls,
@@ -245,8 +245,7 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			if len(bucketModels) == 0 {
 				continue
 			}
-			obType := routeType.ToOutboundType()
-			desiredSet[compositeBindingKey(groupKey, obType, shouldSplit)] = struct{}{}
+			desiredSet[compositeBindingKey(groupKey, routeType, shouldSplit)] = struct{}{}
 		}
 	}
 	if err := rewriteManagedGroupItemsForAccount(ctx, siteRecord, account, shouldSplit, groupMap, tokenGroups, account.Models, bindingChannelByKey); err != nil {
@@ -359,9 +358,9 @@ func ProjectSite(ctx context.Context, siteID int) error {
 	return nil
 }
 
-func buildManagedChannelName(siteRecord *model.Site, account *model.SiteAccount, group model.SiteUserGroup, obType outbound.OutboundType) string {
+func buildManagedChannelName(siteRecord *model.Site, account *model.SiteAccount, group model.SiteUserGroup, routeType model.SiteModelRouteType) string {
 	groupName := model.NormalizeSiteGroupName(group.GroupKey, group.Name)
-	formatName := model.CompactSiteModelRouteTypeName(model.SiteModelRouteTypeFromOutboundType(obType))
+	formatName := model.CompactSiteModelRouteTypeName(routeType)
 	return fmt.Sprintf("%s/%s/%s-%s", siteRecord.Name, account.Name, groupName, formatName)
 }
 
@@ -641,8 +640,8 @@ func siteModelBelongsToProjectedGroup(item model.SiteModel, groupKey string) boo
 }
 
 // compositeBindingKey 生成复合绑定 key，用于区分同一 tokenGroup 的不同端点格式 Channel
-func compositeBindingKey(groupKey string, obType outbound.OutboundType, split bool) string {
-	return model.ComposeSiteChannelBindingKey(groupKey, model.SiteModelRouteTypeFromOutboundType(obType), split)
+func compositeBindingKey(groupKey string, routeType model.SiteModelRouteType, split bool) string {
+	return model.ComposeSiteChannelBindingKey(groupKey, routeType, split)
 }
 
 func parseCompositeBindingKey(groupKey string) (string, model.SiteModelRouteType) {
@@ -727,7 +726,7 @@ func rewriteManagedGroupItemsForAccount(ctx context.Context, siteRecord *model.S
 			affectedGroupIDs[item.GroupID] = struct{}{}
 			continue
 		}
-		targetBindingKey := compositeBindingKey(baseGroupKey, routeType.ToOutboundType(), split)
+		targetBindingKey := compositeBindingKey(baseGroupKey, routeType, split)
 		targetChannelID, ok := bindingChannelByKey[targetBindingKey]
 		if !ok {
 			deleteItemIDs = append(deleteItemIDs, item.ID)

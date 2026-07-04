@@ -8,6 +8,7 @@ export const SITE_ROUTE_COLUMN_ORDER: SiteModelRouteType[] = [
     'gemini',
     'volcengine',
     'openai_embedding',
+    'openai_image',
 ];
 
 export const SITE_ROUTE_DISPLAY_ORDER: SiteModelRouteType[] = [
@@ -22,6 +23,7 @@ export const SITE_ROUTE_TO_CHANNEL_TYPE: Record<Exclude<SiteModelRouteType, 'unk
     gemini: ChannelType.Gemini,
     volcengine: ChannelType.Volcengine,
     openai_embedding: ChannelType.OpenAIEmbedding,
+    openai_image: ChannelType.OpenAIChat,
 };
 
 export const ROUTE_COLUMN_KEY_PREFIX = 'site-route-column';
@@ -38,6 +40,8 @@ export function getRouteTypeTone(routeType: SiteModelRouteType) {
             return 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300';
         case 'openai_embedding':
             return 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300';
+        case 'openai_image':
+            return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300';
         case 'openai_response':
             return 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300';
         default:

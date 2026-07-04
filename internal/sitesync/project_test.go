@@ -107,6 +107,7 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 	extraModels := []model.SiteModel{
 		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "text-embedding-3-large", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIEmbedding},
 		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "doubao-seed-1-6", Source: "sync", RouteType: model.SiteModelRouteTypeVolcengine},
+		{SiteAccountID: account.ID, GroupKey: model.SiteDefaultGroupKey, ModelName: "gpt-image-2", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIImage},
 	}
 	if err := dbpkg.GetDB().WithContext(ctx).Create(&extraModels).Error; err != nil {
 		t.Fatalf("create extra site models failed: %v", err)
@@ -116,13 +117,13 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectAccount returned error: %v", err)
 	}
-	if len(channelIDs) != 5 {
-		t.Fatalf("expected 5 managed channels for 5 route buckets, got %d", len(channelIDs))
+	if len(channelIDs) != 6 {
+		t.Fatalf("expected 6 managed channels for 6 route buckets, got %d", len(channelIDs))
 	}
 
 	channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
-	if len(channelsByGroup) != 5 {
-		t.Fatalf("expected 5 bindings, got %d", len(channelsByGroup))
+	if len(channelsByGroup) != 6 {
+		t.Fatalf("expected 6 bindings, got %d", len(channelsByGroup))
 	}
 
 	assertProjectedChannel(t, channelsByGroup, "default", outbound.OutboundTypeOpenAIChat, "gpt-4o-mini", false)
@@ -130,6 +131,7 @@ func TestProjectAccountSupportsAllConfiguredRouteBuckets(t *testing.T) {
 	assertProjectedChannel(t, channelsByGroup, "default::gemini", outbound.OutboundTypeGemini, "gemini-2.0-flash", true)
 	assertProjectedChannel(t, channelsByGroup, "default::volcengine", outbound.OutboundTypeVolcengine, "doubao-seed-1-6", true)
 	assertProjectedChannel(t, channelsByGroup, "default::openai-embedding", outbound.OutboundTypeOpenAIEmbedding, "text-embedding-3-large", true)
+	assertProjectedChannel(t, channelsByGroup, "default::openai-image", outbound.OutboundTypeOpenAIChat, "gpt-image-2", true)
 }
 
 func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
@@ -398,7 +400,7 @@ func TestProjectAccountReusesOrphanManagedChannelWithSameName(t *testing.T) {
 	}
 
 	group := model.SiteUserGroup{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}
-	orphanName := buildManagedChannelName(site, account, group, outbound.OutboundTypeOpenAIChat)
+	orphanName := buildManagedChannelName(site, account, group, model.SiteModelRouteTypeOpenAIChat)
 	orphanChannel := model.Channel{
 		Name:      orphanName,
 		Type:      outbound.OutboundTypeOpenAIChat,

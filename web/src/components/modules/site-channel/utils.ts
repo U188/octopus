@@ -95,6 +95,8 @@ export function routeTypeLabel(routeType: SiteModelRouteType) {
             return 'Volcengine';
         case 'openai_embedding':
             return 'OpenAI Embedding';
+        case 'openai_image':
+            return 'OpenAI Image';
         default:
             return 'OpenAI Chat';
     }

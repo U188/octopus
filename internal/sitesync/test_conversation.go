@@ -24,6 +24,7 @@ type TestConversationClient string
 const (
 	TestConversationModeOpenAIChat     TestConversationMode = "openai_chat"
 	TestConversationModeOpenAIResponse TestConversationMode = "openai_response"
+	TestConversationModeOpenAIImage    TestConversationMode = "openai_image"
 	TestConversationModeAnthropic      TestConversationMode = "anthropic"
 
 	TestConversationClientDefault TestConversationClient = ""
@@ -266,7 +267,7 @@ func testConversationTarget(ctx context.Context, accountID int, tokenID int) (*m
 
 func normalizeTestConversationMode(mode TestConversationMode) TestConversationMode {
 	switch mode {
-	case TestConversationModeOpenAIResponse, TestConversationModeAnthropic:
+	case TestConversationModeOpenAIResponse, TestConversationModeOpenAIImage, TestConversationModeAnthropic:
 		return mode
 	default:
 		return TestConversationModeOpenAIChat
@@ -361,12 +362,25 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 			}
 	}
 	switch mode {
+	case TestConversationModeOpenAIImage:
+		baseURL := testConversationBaseURL(siteRecord, model.SiteModelRouteTypeOpenAIImage)
+		return buildSiteURL(baseURL, "/images/generations"),
+			map[string]any{
+				"model":  modelName,
+				"prompt": greeting,
+				"n":      1,
+				"size":   "1024x1024",
+			},
+			map[string]string{
+				"Authorization": ensureBearer(key),
+				"Accept":        "application/json",
+			}
 	case TestConversationModeOpenAIResponse:
 		baseURL := testConversationBaseURL(siteRecord, model.SiteModelRouteTypeOpenAIResponse)
 		return buildSiteURL(baseURL, "/responses"),
 			map[string]any{
-				"model": modelName,
-				"input": greeting,
+				"model":  modelName,
+				"input":  greeting,
 				"stream": true,
 			},
 			map[string]string{
@@ -414,6 +428,13 @@ func requestTestConversation(ctx context.Context, siteRecord *model.Site, reques
 	}
 	if client == TestConversationClientClaude {
 		return requestClaudeTestConversationStream(ctx, siteRecord, requestURL, body, headers, account, emit)
+	}
+	if mode == TestConversationModeOpenAIImage {
+		payload, err := requestJSON(ctx, siteRecord, http.MethodPost, requestURL, body, headers, account)
+		if err == nil {
+			emitTestConversationReply(mode, payload, emit)
+		}
+		return payload, err
 	}
 	if mode == TestConversationModeOpenAIResponse && testConversationBodyStream(body) {
 		return requestCodexTestConversationStream(ctx, siteRecord, requestURL, body, headers, account, emit)
@@ -1345,6 +1366,10 @@ func extractTestConversationReply(mode TestConversationMode, payload map[string]
 		if text := extractResponsesText(payload); text != "" {
 			return text
 		}
+	case TestConversationModeOpenAIImage:
+		if text := extractImagesGenerationSummary(payload); text != "" {
+			return text
+		}
 	case TestConversationModeAnthropic:
 		if content, ok := payload["content"].([]any); ok {
 			parts := make([]string, 0, len(content))
@@ -1380,4 +1405,38 @@ func extractTestConversationReply(mode TestConversationMode, payload map[string]
 		return message
 	}
 	return "No text content returned."
+}
+
+func extractImagesGenerationSummary(payload map[string]any) string {
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) == 0 {
+		if url := jsonString(payload["url"]); url != "" {
+			return "Image URL: " + url
+		}
+		if b64 := jsonString(payload["b64_json"]); b64 != "" {
+			return fmt.Sprintf("Image b64_json returned (%d bytes).", len(b64))
+		}
+		return ""
+	}
+
+	parts := make([]string, 0, len(data))
+	for i, item := range data {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		prefix := fmt.Sprintf("Image %d", i+1)
+		if url := jsonString(obj["url"]); url != "" {
+			parts = append(parts, prefix+": "+url)
+			continue
+		}
+		if b64 := jsonString(obj["b64_json"]); b64 != "" {
+			parts = append(parts, fmt.Sprintf("%s: b64_json returned (%d bytes)", prefix, len(b64)))
+			continue
+		}
+		if revisedPrompt := jsonString(obj["revised_prompt"]); revisedPrompt != "" {
+			parts = append(parts, prefix+" revised prompt: "+revisedPrompt)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
