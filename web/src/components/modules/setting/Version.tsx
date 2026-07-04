@@ -47,7 +47,7 @@ export function SettingVersion() {
                         {versionMismatch && <Badge variant="destructive">{t('info.versionMismatch')}</Badge>}
                     </div>
                 </InfoRow>
-                <InfoRow label="Frontend">
+                <InfoRow label={t('info.frontendVersion')}>
                     <Badge variant="outline">{frontendVersion || t('info.unknown')}</Badge>
                 </InfoRow>
                 <InfoRow label={t('info.latestVersion')}>
