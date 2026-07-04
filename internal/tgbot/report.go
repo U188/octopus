@@ -249,7 +249,7 @@ func parseReportWindow(args []string, now time.Time) reportWindow {
 func loadUsage(ctx context.Context, window reportWindow) (usageSummary, []topUsageItem, []topUsageItem, error) {
 	var rows []model.RelayLog
 	err := db.GetDB().WithContext(ctx).
-		Select("request_model_name", "channel", "channel_name", "actual_model_name", "input_tokens", "output_tokens", "ftut", "use_time", "cost", "success").
+		Select("request_model_name", "channel_id", "channel_name", "actual_model_name", "input_tokens", "output_tokens", "ftut", "use_time", "cost", "success").
 		Where("time >= ? AND time < ?", window.Start.Unix(), window.End.Unix()).
 		Find(&rows).Error
 	if err != nil {

@@ -589,6 +589,18 @@ func (r *Runner) handleCallback(ctx context.Context, userID int64, data string) 
 		return r.opsMenu()
 	case data == "monitor":
 		return r.monitorMenu(ctx)
+	case data == "ops:report":
+		return response{Text: buildOpsReport(ctx, nil), Buttons: opsReportButtons()}
+	case data == "ops:report:yesterday":
+		return response{Text: buildOpsReport(ctx, []string{"yesterday"}), Buttons: opsReportButtons()}
+	case data == "ops:report:24h":
+		return response{Text: buildOpsReport(ctx, []string{"24h"}), Buttons: opsReportButtons()}
+	case data == "ops:balance":
+		return response{Text: buildBalanceReport(ctx), Buttons: opsReportButtons()}
+	case data == "ops:top":
+		return response{Text: buildTopReport(ctx, nil), Buttons: opsReportButtons()}
+	case data == "ops:top:24h":
+		return response{Text: buildTopReport(ctx, []string{"24h"}), Buttons: opsReportButtons()}
 	case data == "sites":
 		return r.sitesMenu(ctx)
 	case data == "logs":
@@ -1170,9 +1182,10 @@ func (r *Runner) opsMenu() response {
 
 - 从站点或账号页进入，可执行同步、签到
 - 从路由组页进入，可执行测试对话
-- /report 查看运维报告，/balance 查看余额，/top 查看排行
+- 可直接查看报告、余额和排行
 - 这里保留快捷入口到站点和渠道管理`),
 		Buttons: [][]inlineButton{
+			{{Text: "运维报告", Data: "ops:report"}, {Text: "余额", Data: "ops:balance"}, {Text: "Top", Data: "ops:top"}},
 			{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},
 			{{Text: "监控", Data: "monitor"}, {Text: "主页", Data: "home"}},
 		},
@@ -1201,6 +1214,7 @@ func (r *Runner) monitorMenu(ctx context.Context) response {
 	return response{
 		Text: text,
 		Buttons: [][]inlineButton{
+			{{Text: "运维报告", Data: "ops:report"}, {Text: "余额", Data: "ops:balance"}, {Text: "Top", Data: "ops:top"}},
 			{{Text: "错误日志", Data: "logs"}, {Text: "站点管理", Data: "site_mgmt"}},
 			{{Text: "渠道管理", Data: "group_mgmt"}, {Text: "主页", Data: "home"}},
 		},
@@ -2423,7 +2437,15 @@ func mainMenuButtons() [][]inlineButton {
 	return [][]inlineButton{
 		{{Text: "站点管理", Data: "site_mgmt"}, {Text: "渠道管理", Data: "group_mgmt"}},
 		{{Text: "分组管理", Data: "model_groups"}, {Text: "运维", Data: "ops"}},
-		{{Text: "监控", Data: "monitor"}},
+		{{Text: "监控", Data: "monitor"}, {Text: "运维报告", Data: "ops:report"}},
+	}
+}
+
+func opsReportButtons() [][]inlineButton {
+	return [][]inlineButton{
+		{{Text: "今日报告", Data: "ops:report"}, {Text: "昨日报告", Data: "ops:report:yesterday"}, {Text: "24小时", Data: "ops:report:24h"}},
+		{{Text: "余额", Data: "ops:balance"}, {Text: "Top 今日", Data: "ops:top"}, {Text: "Top 24h", Data: "ops:top:24h"}},
+		{{Text: "监控", Data: "monitor"}, {Text: "主页", Data: "home"}},
 	}
 }
 
