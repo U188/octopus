@@ -150,14 +150,14 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if body["store"] != false || body["stream"] != true {
 		t.Fatalf("unexpected codex body flags: %#v", body)
 	}
-	if _, ok := body["tools"]; ok {
-		t.Fatalf("codex test conversation should not include tools: %#v", body["tools"])
+	if tools, ok := body["tools"].([]map[string]any); !ok || len(tools) == 0 {
+		t.Fatalf("expected codex tool definitions, got %#v", body["tools"])
 	}
-	if _, ok := body["tool_choice"]; ok {
-		t.Fatalf("codex test conversation should not set tool_choice: %#v", body["tool_choice"])
+	if body["tool_choice"] != "auto" {
+		t.Fatalf("expected codex tool_choice auto, got %#v", body["tool_choice"])
 	}
-	if _, ok := body["parallel_tool_calls"]; ok {
-		t.Fatalf("codex test conversation should not enable parallel tool calls: %#v", body["parallel_tool_calls"])
+	if body["parallel_tool_calls"] != true {
+		t.Fatalf("expected codex parallel tool calls, got %#v", body["parallel_tool_calls"])
 	}
 	if instructions, ok := body["instructions"].(string); !ok || !strings.Contains(instructions, "Do not call tools") {
 		t.Fatalf("expected no-tools instruction, got %#v", body["instructions"])
