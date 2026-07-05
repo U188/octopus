@@ -16,8 +16,8 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
     const setSetting = useSetSetting();
 
     const [value, setValue] = useState('');
+    const [initialStored, setInitialStored] = useState(false);
     const initial = useRef('');
-    const initialStored = useRef(false);
     const initialized = useRef(false);
 
     useEffect(() => {
@@ -25,9 +25,11 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
         const found = settings.find((s) => s.key === key);
         if (found) {
             const displayValue = found.value_status === 'stored' ? MASKED_SETTING_VALUE : found.value;
-            queueMicrotask(() => setValue(displayValue));
+            queueMicrotask(() => {
+                setValue(displayValue);
+                setInitialStored(found.value_status === 'stored');
+            });
             initial.current = displayValue;
-            initialStored.current = found.value_status === 'stored';
         }
         initialized.current = true;
     }, [settings, key]);
@@ -41,7 +43,7 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
             );
             toast.success(t('saved'));
             initial.current = next;
-            initialStored.current = false;
+            setInitialStored(false);
         } catch (error) {
             toast.error(t('saveFailed'), { description: (error as ApiError)?.message });
             setValue(initial.current);
@@ -50,7 +52,7 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
 
     const save = useCallback(() => commit(value), [commit, value]);
 
-    return { value, setValue, save, commit, isMasked: initialStored.current && value === MASKED_SETTING_VALUE };
+    return { value, setValue, save, commit, isMasked: initialStored && value === MASKED_SETTING_VALUE };
 }
 
 export function useSettingToggle(key: string) {
