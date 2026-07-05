@@ -3,14 +3,13 @@
 import {
     useCallback,
     useLayoutEffect,
-    useMemo,
     useRef,
     useState,
     type FormEvent,
     type ReactNode,
 } from 'react';
 import { useTranslations } from 'next-intl';
-import { CalendarCheck2, RefreshCw, UserRound, XIcon } from 'lucide-react';
+import { CalendarCheck2, KeyRound, RefreshCw, ShieldCheck, UserRound, XIcon } from 'lucide-react';
 import { AnimatePresence, motion, type Transition } from 'motion/react';
 import {
     Dialog,
@@ -19,12 +18,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Switch } from '@/components/ui/switch';
 import { ProxySelector } from '@/components/modules/proxy-pool/ProxySelector';
 import { toast } from '@/components/common/Toast';
@@ -62,10 +60,15 @@ type SiteAccountFormState = {
 };
 
 const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
-    [SiteCredentialType.UsernamePassword]: '用户名 / 密码',
-    [SiteCredentialType.AccessToken]: 'Access Token',
-    [SiteCredentialType.APIKey]: 'API Key',
+    [SiteCredentialType.UsernamePassword]: '用户名 / 密码兼容',
+    [SiteCredentialType.AccessToken]: '托管账号',
+    [SiteCredentialType.APIKey]: 'API Key 账号',
 };
+
+const DIRECT_API_KEY_PLATFORMS = new Set<SitePlatform>([
+    SitePlatform.API,
+    SitePlatform.DeepSeek,
+]);
 
 const FORM_SECTION_TRANSITION: Transition = {
     duration: 0.2,
@@ -110,27 +113,37 @@ function AnimatedFormSection({ children }: { children: ReactNode }) {
 }
 
 function defaultCredentialType(platform?: SitePlatform): SiteCredentialType {
-    if (platform === SitePlatform.DeepSeek) {
+    if (platform && DIRECT_API_KEY_PLATFORMS.has(platform)) {
         return SiteCredentialType.APIKey;
     }
     return SiteCredentialType.AccessToken;
 }
 
-function credentialOptions(platform: SitePlatform) {
-    switch (platform) {
-        case SitePlatform.DeepSeek:
-            return [SiteCredentialType.APIKey];
-        case SitePlatform.Sub2API:
-            return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
-        case SitePlatform.API:
-            return [SiteCredentialType.AccessToken, SiteCredentialType.APIKey];
-        default:
-            return [
-                SiteCredentialType.AccessToken,
-                SiteCredentialType.UsernamePassword,
-                SiteCredentialType.APIKey,
-            ];
+function isDirectAPIKeyPlatform(platform: SitePlatform) {
+    return DIRECT_API_KEY_PLATFORMS.has(platform);
+}
+
+function inferCredentialType(platform: SitePlatform, form: SiteAccountFormState): SiteCredentialType | null {
+    if (isDirectAPIKeyPlatform(platform)) {
+        return form.api_key.trim() ? SiteCredentialType.APIKey : null;
     }
+    if (form.access_token.trim()) {
+        return SiteCredentialType.AccessToken;
+    }
+    if (form.api_key.trim()) {
+        return SiteCredentialType.APIKey;
+    }
+    if (form.username.trim() || form.password.trim()) {
+        return SiteCredentialType.UsernamePassword;
+    }
+    return null;
+}
+
+function credentialDetectionText(type: SiteCredentialType | null, platform: SitePlatform) {
+    if (!type) {
+        return isDirectAPIKeyPlatform(platform) ? '等待 API Key' : '等待 Token/Cookie 或 API Key';
+    }
+    return CREDENTIAL_LABELS[type];
 }
 
 function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
@@ -157,19 +170,17 @@ function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
 }
 
 function createAccountForm(account: SiteAccount, platform?: SitePlatform): SiteAccountFormState {
-    const allowedCredentials = platform ? credentialOptions(platform) : null;
-    const credentialType =
-        allowedCredentials && !allowedCredentials.includes(account.credential_type)
-            ? allowedCredentials[0]
-            : account.credential_type;
+    const directAPIKey = platform ? isDirectAPIKeyPlatform(platform) : false;
+    const credentialType = directAPIKey ? SiteCredentialType.APIKey : account.credential_type;
+    const fallbackAPIKey = directAPIKey && !account.api_key ? account.access_token : account.api_key;
     return {
         site_id: account.site_id,
         name: account.name,
         credential_type: credentialType,
         username: account.username,
         password: account.password,
-        access_token: account.access_token,
-        api_key: account.api_key,
+        access_token: directAPIKey ? '' : account.access_token,
+        api_key: fallbackAPIKey,
         refresh_token: account.refresh_token ?? '',
         token_expires_at:
             account.token_expires_at > 0 ? String(account.token_expires_at) : '',
@@ -240,10 +251,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
     });
 
     const currentPlatform = site?.platform ?? SitePlatform.NewAPI;
-    const currentCredentialOptions = useMemo(
-        () => credentialOptions(currentPlatform),
-        [currentPlatform],
-    );
+    const directAPIKeyPlatform = isDirectAPIKeyPlatform(currentPlatform);
 
     const handleSubmit = useCallback(
         async (event: FormEvent<HTMLFormElement>) => {
@@ -257,21 +265,20 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                 return;
             }
 
-            if (accountForm.credential_type === SiteCredentialType.UsernamePassword) {
-                if (!accountForm.username.trim() || !accountForm.password.trim()) {
-                    toast.error('用户名和密码不能为空');
-                    return;
-                }
-            }
-            if (
-                accountForm.credential_type === SiteCredentialType.AccessToken &&
-                !accountForm.access_token.trim()
-            ) {
-                toast.error('请输入 Access Token');
+            const inferredCredentialType = inferCredentialType(currentPlatform, accountForm);
+            if (!inferredCredentialType) {
+                toast.error(directAPIKeyPlatform ? '请输入 API Key' : '请输入管理 Token/Cookie 或 API Key');
                 return;
             }
             if (
-                accountForm.credential_type === SiteCredentialType.APIKey &&
+                inferredCredentialType === SiteCredentialType.UsernamePassword &&
+                (!accountForm.username.trim() || !accountForm.password.trim())
+            ) {
+                toast.error('用户名和密码不能为空');
+                return;
+            }
+            if (
+                inferredCredentialType === SiteCredentialType.APIKey &&
                 !accountForm.api_key.trim()
             ) {
                 toast.error('请输入 API Key');
@@ -298,7 +305,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
 
             const shouldIncludePlatformUserID =
                 currentPlatform === SitePlatform.NewAPI &&
-                accountForm.credential_type === SiteCredentialType.AccessToken;
+                inferredCredentialType === SiteCredentialType.AccessToken;
             const platformUserIDInput = shouldIncludePlatformUserID
                 ? accountForm.platform_user_id.trim()
                 : '';
@@ -330,9 +337,10 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
             const trimmedAccessToken = accountForm.access_token.trim();
             const trimmedAPIKey = accountForm.api_key.trim();
             const isUsernamePassword =
-                accountForm.credential_type === SiteCredentialType.UsernamePassword;
+                inferredCredentialType === SiteCredentialType.UsernamePassword;
             const isAccessToken =
-                accountForm.credential_type === SiteCredentialType.AccessToken;
+                inferredCredentialType === SiteCredentialType.AccessToken;
+            const submittedAccessToken = directAPIKeyPlatform ? '' : trimmedAccessToken;
 
             if (accountForm.proxy_mode === 'pool' && !accountForm.proxy_config_id) {
                 toast.error(tProxy('selectRequired'));
@@ -342,10 +350,10 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
             const payload = {
                 site_id: accountForm.site_id,
                 name: accountForm.name.trim(),
-                credential_type: accountForm.credential_type,
+                credential_type: inferredCredentialType,
                 username: isUsernamePassword ? accountForm.username.trim() : '',
                 password: isUsernamePassword ? accountForm.password.trim() : '',
-                access_token: trimmedAccessToken,
+                access_token: submittedAccessToken,
                 api_key: trimmedAPIKey,
                 refresh_token: isAccessToken ? accountForm.refresh_token.trim() : '',
                 token_expires_at: isAccessToken ? parsedTokenExpiresAt : 0,
@@ -385,6 +393,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
             account,
             accountForm,
             currentPlatform,
+            directAPIKeyPlatform,
             tProxy,
             updateSiteAccount,
             createSiteAccount,
@@ -405,6 +414,13 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
             </Dialog>
         );
     }
+
+    const detectedCredentialType = inferCredentialType(currentPlatform, accountForm);
+    const showManagedFields = !directAPIKeyPlatform;
+    const showPlatformUserID =
+        showManagedFields &&
+        currentPlatform === SitePlatform.NewAPI &&
+        accountForm.access_token.trim() !== '';
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -447,250 +463,197 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                 />
                             </label>
 
-                            <label className="grid gap-2 text-sm">
-                                <span className="font-medium">凭据类型</span>
-                                <Select
-                                    value={accountForm.credential_type}
-                                    onValueChange={(value) =>
-                                        setAccountForm((current) => {
-                                            if (!current) return current;
-                                            const nextType = value as SiteCredentialType;
-                                            return {
-                                                ...current,
-                                                credential_type: nextType,
-                                                platform_user_id:
-                                                    nextType === SiteCredentialType.AccessToken &&
-                                                    currentPlatform === SitePlatform.NewAPI
-                                                        ? current.platform_user_id
-                                                        : '',
-                                            };
-                                        })
-                                    }
-                                >
-                                    <SelectTrigger className="w-full rounded-xl">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl">
-                                        {currentCredentialOptions.map((value) => (
-                                            <SelectItem className="rounded-xl" key={value} value={value}>
-                                                {CREDENTIAL_LABELS[value]}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </label>
+                            <div className="grid gap-2 text-sm">
+                                <span className="font-medium">凭据识别</span>
+                                <div className="flex h-10 items-center gap-2 rounded-xl border border-input bg-muted/30 px-3 text-sm">
+                                    <ShieldCheck className="size-4 text-muted-foreground" />
+                                    <span className="truncate">
+                                        {credentialDetectionText(detectedCredentialType, currentPlatform)}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
 
                         <AnimatedFormSection>
-                            <AnimatePresence initial={false} mode="popLayout">
-                                {accountForm.credential_type === SiteCredentialType.UsernamePassword ? (
-                                    <motion.div
-                                        key={SiteCredentialType.UsernamePassword}
-                                        initial={{ opacity: 0, y: -6 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -6 }}
-                                        transition={FORM_SECTION_TRANSITION}
-                                    >
+                            <div className="grid gap-4">
+                                {showManagedFields ? (
+                                    <label className="grid gap-2 text-sm">
+                                        <span className="font-medium">管理 Token / Cookie</span>
+                                        <Input
+                                            value={accountForm.access_token}
+                                            onChange={(event) =>
+                                                setAccountForm((current) =>
+                                                    current
+                                                        ? { ...current, access_token: event.target.value }
+                                                        : current,
+                                                )
+                                            }
+                                            placeholder="可选：用于同步分组、创建 Key、签到"
+                                            className="rounded-xl"
+                                        />
+                                        <span className="text-xs text-muted-foreground">
+                                            填写后按托管账号处理；不填写时只用 API Key 同步模型和对话。
+                                        </span>
+                                    </label>
+                                ) : null}
+
+                                <label className="grid gap-2 text-sm">
+                                    <span className="flex items-center gap-2 font-medium">
+                                        <KeyRound className="size-4 text-muted-foreground" />
+                                        API Key
+                                    </span>
+                                    <Input
+                                        value={accountForm.api_key}
+                                        onChange={(event) =>
+                                            setAccountForm((current) =>
+                                                current
+                                                    ? { ...current, api_key: event.target.value }
+                                                    : current,
+                                            )
+                                        }
+                                        placeholder={directAPIKeyPlatform ? '请输入 API Key' : '可选：账号级默认 API Key'}
+                                        className="rounded-xl"
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                        {directAPIKeyPlatform
+                                            ? '用于官方 API 站点的模型同步、余额查询、测试对话和投影渠道。'
+                                            : '托管账号会把它作为默认对话 Key；分组缺少专属 Key 时自动用它补齐。'}
+                                    </span>
+                                </label>
+
+                                <AnimatePresence initial={false}>
+                                    {showPlatformUserID ? (
+                                        <motion.label
+                                            key="platform-user-id"
+                                            initial={{ opacity: 0, y: -6 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -6 }}
+                                            transition={FORM_SECTION_TRANSITION}
+                                            className="grid gap-2 text-sm"
+                                        >
+                                            <span className="font-medium">Platform User ID</span>
+                                            <Input
+                                                value={accountForm.platform_user_id}
+                                                onChange={(event) =>
+                                                    setAccountForm((current) =>
+                                                        current
+                                                            ? {
+                                                                  ...current,
+                                                                  platform_user_id: event.target.value,
+                                                              }
+                                                            : current,
+                                                    )
+                                                }
+                                                placeholder="例如 11494"
+                                                className="rounded-xl"
+                                                required
+                                            />
+                                            <span className="text-xs text-muted-foreground">
+                                                New API 站点使用管理 Token 同步时需要用户 ID。
+                                            </span>
+                                        </motion.label>
+                                    ) : null}
+                                </AnimatePresence>
+
+                                {showManagedFields && currentPlatform === SitePlatform.Sub2API ? (
+                                    <div className="grid gap-2">
                                         <div className="grid gap-4 md:grid-cols-2">
                                             <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">用户名</span>
+                                                <span className="font-medium">Refresh Token</span>
                                                 <Input
-                                                    value={accountForm.username}
+                                                    value={accountForm.refresh_token}
                                                     onChange={(event) =>
                                                         setAccountForm((current) =>
                                                             current
-                                                                ? { ...current, username: event.target.value }
+                                                                ? {
+                                                                      ...current,
+                                                                      refresh_token: event.target.value,
+                                                                  }
                                                                 : current,
                                                         )
                                                     }
-                                                    placeholder="请输入用户名"
+                                                    placeholder="可选：refresh_token"
                                                     className="rounded-xl"
                                                 />
                                             </label>
 
                                             <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">密码</span>
+                                                <span className="font-medium">token_expires_at</span>
                                                 <Input
-                                                    type="password"
-                                                    value={accountForm.password}
+                                                    value={accountForm.token_expires_at}
                                                     onChange={(event) =>
                                                         setAccountForm((current) =>
                                                             current
-                                                                ? { ...current, password: event.target.value }
+                                                                ? {
+                                                                      ...current,
+                                                                      token_expires_at: event.target.value,
+                                                                  }
                                                                 : current,
                                                         )
                                                     }
-                                                    placeholder="请输入密码"
+                                                    placeholder="可选：时间戳或时间字符串"
                                                     className="rounded-xl"
                                                 />
                                             </label>
                                         </div>
-                                    </motion.div>
-                                ) : accountForm.credential_type === SiteCredentialType.AccessToken ? (
-                                    <motion.div
-                                        key={SiteCredentialType.AccessToken}
-                                        initial={{ opacity: 0, y: -6 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -6 }}
-                                        transition={FORM_SECTION_TRANSITION}
-                                    >
-                                        <div className="grid gap-4">
-                                            <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">Access Token</span>
-                                                <Input
-                                                    value={accountForm.access_token}
-                                                    onChange={(event) =>
-                                                        setAccountForm((current) =>
-                                                            current
-                                                                ? { ...current, access_token: event.target.value }
-                                                                : current,
-                                                        )
-                                                    }
-                                                    placeholder="请输入 Access Token"
-                                                    className="rounded-xl"
-                                                />
-                                            </label>
+                                    </div>
+                                ) : null}
 
-                                            <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">API Key</span>
-                                                <Input
-                                                    value={accountForm.api_key}
-                                                    onChange={(event) =>
-                                                        setAccountForm((current) =>
-                                                            current
-                                                                ? { ...current, api_key: event.target.value }
-                                                                : current,
-                                                        )
-                                                    }
-                                                    placeholder="请输入 API Key"
-                                                    className="rounded-xl"
-                                                />
-                                                <span className="text-xs text-muted-foreground">
-                                                    作为账号级默认对话 Key 使用。同步到的分组没有专属
-                                                    Key 时，会自动使用它恢复模型和投影。
-                                                </span>
-                                            </label>
+                                {showManagedFields ? (
+                                    <Accordion type="single" collapsible className="w-full rounded-xl border bg-card">
+                                        <AccordionItem value="compat" className="border-none">
+                                            <AccordionTrigger className="rounded-xl px-4 py-3 text-sm font-medium text-card-foreground transition-colors hover:bg-muted/30 hover:no-underline">
+                                                高级兼容
+                                            </AccordionTrigger>
+                                            <AccordionContent className="space-y-4 border-t px-4 pb-4 pt-4">
+                                                <div className="grid gap-4 md:grid-cols-2">
+                                                    <label className="grid gap-2 text-sm">
+                                                        <span className="font-medium">用户名</span>
+                                                        <Input
+                                                            value={accountForm.username}
+                                                            onChange={(event) =>
+                                                                setAccountForm((current) =>
+                                                                    current
+                                                                        ? {
+                                                                              ...current,
+                                                                              username: event.target.value,
+                                                                          }
+                                                                        : current,
+                                                                )
+                                                            }
+                                                            placeholder="可选"
+                                                            className="rounded-xl"
+                                                        />
+                                                    </label>
 
-                                            {currentPlatform === SitePlatform.Sub2API ? (
-                                                <div className="grid gap-2">
-                                                    <div className="grid gap-4 md:grid-cols-2">
-                                                        <label className="grid gap-2 text-sm">
-                                                            <span className="font-medium">Refresh Token</span>
-                                                            <Input
-                                                                value={accountForm.refresh_token}
-                                                                onChange={(event) =>
-                                                                    setAccountForm((current) =>
-                                                                        current
-                                                                            ? {
-                                                                                  ...current,
-                                                                                  refresh_token: event.target.value,
-                                                                              }
-                                                                            : current,
-                                                                    )
-                                                                }
-                                                                placeholder="可选：请输入 refresh_token"
-                                                                className="rounded-xl"
-                                                            />
-                                                        </label>
-
-                                                        <label className="grid gap-2 text-sm">
-                                                            <span className="font-medium">token_expires_at</span>
-                                                            <Input
-                                                                value={accountForm.token_expires_at}
-                                                                onChange={(event) =>
-                                                                    setAccountForm((current) =>
-                                                                        current
-                                                                            ? {
-                                                                                  ...current,
-                                                                                  token_expires_at: event.target.value,
-                                                                              }
-                                                                            : current,
-                                                                    )
-                                                                }
-                                                                placeholder="可选：F12 中的时间戳或时间字符串"
-                                                                className="rounded-xl"
-                                                            />
-                                                        </label>
-                                                    </div>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        Sub2API 推荐同时填写 F12 里的 <code>refresh_token</code>{' '}
-                                                        与 <code>token_expires_at</code>，会在快过期或 401
-                                                        时自动续期。
-                                                    </span>
+                                                    <label className="grid gap-2 text-sm">
+                                                        <span className="font-medium">密码</span>
+                                                        <Input
+                                                            type="password"
+                                                            value={accountForm.password}
+                                                            onChange={(event) =>
+                                                                setAccountForm((current) =>
+                                                                    current
+                                                                        ? {
+                                                                              ...current,
+                                                                              password: event.target.value,
+                                                                          }
+                                                                        : current,
+                                                                )
+                                                            }
+                                                            placeholder="可选"
+                                                            className="rounded-xl"
+                                                        />
+                                                    </label>
                                                 </div>
-                                            ) : null}
-
-                                            {currentPlatform === SitePlatform.NewAPI ? (
-                                                <label className="grid gap-2 text-sm">
-                                                    <span className="font-medium">Platform User ID</span>
-                                                    <Input
-                                                        value={accountForm.platform_user_id}
-                                                        onChange={(event) =>
-                                                            setAccountForm((current) =>
-                                                                current
-                                                                    ? {
-                                                                          ...current,
-                                                                          platform_user_id: event.target.value,
-                                                                      }
-                                                                    : current,
-                                                            )
-                                                        }
-                                                        placeholder="例如 11494"
-                                                        className="rounded-xl"
-                                                        required
-                                                    />
-                                                    <span className="text-xs text-muted-foreground">
-                                                        New API 站点同步 token、分组和签到时需要用户
-                                                        ID。导入数据会尽量自动填充该值。
-                                                    </span>
-                                                </label>
-                                            ) : null}
-                                        </div>
-                                    </motion.div>
-                                ) : (
-                                    <motion.div
-                                        key={SiteCredentialType.APIKey}
-                                        initial={{ opacity: 0, y: -6 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -6 }}
-                                        transition={FORM_SECTION_TRANSITION}
-                                    >
-                                        <div className="grid gap-4">
-                                            <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">API Key</span>
-                                                <Input
-                                                    value={accountForm.api_key}
-                                                    onChange={(event) =>
-                                                        setAccountForm((current) =>
-                                                            current
-                                                                ? { ...current, api_key: event.target.value }
-                                                                : current,
-                                                        )
-                                                    }
-                                                    placeholder="请输入 API Key"
-                                                    className="rounded-xl"
-                                                />
-                                            </label>
-
-                                            <label className="grid gap-2 text-sm">
-                                                <span className="font-medium">Access Token</span>
-                                                <Input
-                                                    value={accountForm.access_token}
-                                                    onChange={(event) =>
-                                                        setAccountForm((current) =>
-                                                            current
-                                                                ? { ...current, access_token: event.target.value }
-                                                                : current,
-                                                        )
-                                                    }
-                                                    placeholder="可选：请输入 Access Token"
-                                                    className="rounded-xl"
-                                                />
-                                            </label>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                                <p className="text-xs text-muted-foreground">
+                                                    仅在站点仍支持用户名密码登录且没有 Token/API Key 时使用。
+                                                </p>
+                                            </AccordionContent>
+                                        </AccordionItem>
+                                    </Accordion>
+                                ) : null}
+                            </div>
                         </AnimatedFormSection>
 
                         <div className="rounded-xl border border-border/50 bg-muted/20 p-4">

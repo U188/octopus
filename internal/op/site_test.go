@@ -552,7 +552,78 @@ func TestSiteUpdateRejectsInvalidMergedSite(t *testing.T) {
 	}
 }
 
-func TestSiteAccountUpdateRejectsInvalidMergedCredentials(t *testing.T) {
+func TestSiteAccountCreateInfersCredentialTypeFromFields(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	managedSite := &model.Site{
+		Name:     "managed-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(managedSite, ctx); err != nil {
+		t.Fatalf("SiteCreate managed failed: %v", err)
+	}
+
+	managed := &model.SiteAccount{
+		SiteID:      managedSite.ID,
+		Name:        "managed-account",
+		AccessToken: " session-token ",
+		APIKey:      " sk-managed ",
+		Enabled:     true,
+	}
+	if err := SiteAccountCreate(managed, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate managed failed: %v", err)
+	}
+	reloadedManaged, err := SiteAccountGet(managed.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet managed failed: %v", err)
+	}
+	if reloadedManaged.CredentialType != model.SiteCredentialTypeAccessToken {
+		t.Fatalf("expected managed credential type access_token, got %q", reloadedManaged.CredentialType)
+	}
+	if reloadedManaged.AccessToken != "session-token" {
+		t.Fatalf("expected trimmed managed access token, got %q", reloadedManaged.AccessToken)
+	}
+	if reloadedManaged.APIKey != "sk-managed" {
+		t.Fatalf("expected account API key to be stored, got %q", reloadedManaged.APIKey)
+	}
+
+	directSite := &model.Site{
+		Name:     "direct-site",
+		Platform: model.SitePlatformAPI,
+		BaseURL:  "https://api.example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(directSite, ctx); err != nil {
+		t.Fatalf("SiteCreate direct failed: %v", err)
+	}
+	direct := &model.SiteAccount{
+		SiteID:         directSite.ID,
+		Name:           "direct-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    " sk-direct ",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(direct, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate direct failed: %v", err)
+	}
+	reloadedDirect, err := SiteAccountGet(direct.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet direct failed: %v", err)
+	}
+	if reloadedDirect.CredentialType != model.SiteCredentialTypeAPIKey {
+		t.Fatalf("expected direct credential type api_key, got %q", reloadedDirect.CredentialType)
+	}
+	if reloadedDirect.APIKey != "sk-direct" {
+		t.Fatalf("expected direct key copied into api key, got %q", reloadedDirect.APIKey)
+	}
+	if reloadedDirect.AccessToken != "" {
+		t.Fatalf("expected direct access token to be cleared, got %q", reloadedDirect.AccessToken)
+	}
+}
+
+func TestSiteAccountUpdateInfersCredentialTypeFromMergedFields(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
 	site := &model.Site{
@@ -583,8 +654,8 @@ func TestSiteAccountUpdateRejectsInvalidMergedCredentials(t *testing.T) {
 	if _, err := SiteAccountUpdate(&model.SiteAccountUpdateRequest{
 		ID:             account.ID,
 		CredentialType: &newCredentialType,
-	}, ctx); err == nil {
-		t.Fatalf("expected SiteAccountUpdate to reject invalid merged credentials")
+	}, ctx); err != nil {
+		t.Fatalf("SiteAccountUpdate should infer username/password when token is absent: %v", err)
 	}
 
 	reloaded, err := SiteAccountGet(account.ID, ctx)
@@ -593,6 +664,49 @@ func TestSiteAccountUpdateRejectsInvalidMergedCredentials(t *testing.T) {
 	}
 	if reloaded.CredentialType != model.SiteCredentialTypeUsernamePassword {
 		t.Fatalf("expected credential type to remain username_password, got %q", reloaded.CredentialType)
+	}
+
+	apiAccount := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "api-account",
+		CredentialType: model.SiteCredentialTypeAPIKey,
+		APIKey:         "sk-account",
+		Enabled:        true,
+		AutoSync:       true,
+		AutoCheckin:    true,
+	}
+	if err := SiteAccountCreate(apiAccount, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate API account failed: %v", err)
+	}
+
+	sessionToken := "session-token"
+	updated, err := SiteAccountUpdate(&model.SiteAccountUpdateRequest{
+		ID:          apiAccount.ID,
+		AccessToken: &sessionToken,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountUpdate access token failed: %v", err)
+	}
+	if updated.CredentialType != model.SiteCredentialTypeAccessToken {
+		t.Fatalf("expected credential type to switch to access_token, got %q", updated.CredentialType)
+	}
+	if updated.AccessToken != "session-token" || updated.APIKey != "sk-account" {
+		t.Fatalf("expected token and account key to be retained, got token=%q key=%q", updated.AccessToken, updated.APIKey)
+	}
+
+	emptyToken := ""
+	updated, err = SiteAccountUpdate(&model.SiteAccountUpdateRequest{
+		ID:          apiAccount.ID,
+		AccessToken: &emptyToken,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountUpdate clearing access token failed: %v", err)
+	}
+	if updated.CredentialType != model.SiteCredentialTypeAPIKey {
+		t.Fatalf("expected credential type to switch back to api_key, got %q", updated.CredentialType)
+	}
+	if updated.AccessToken != "" || updated.APIKey != "sk-account" {
+		t.Fatalf("expected access token cleared and API key retained, got token=%q key=%q", updated.AccessToken, updated.APIKey)
 	}
 }
 

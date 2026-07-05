@@ -578,6 +578,20 @@ func SiteAccountGet(id int, ctx context.Context) (*model.SiteAccount, error) {
 	return &account, nil
 }
 
+func sitePlatformForAccount(ctx context.Context, siteID int) (model.SitePlatform, error) {
+	if siteID <= 0 {
+		return "", nil
+	}
+	var site model.Site
+	if err := db.GetDB().WithContext(ctx).Select("id", "platform").First(&site, siteID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("site not found")
+		}
+		return "", err
+	}
+	return site.Platform, nil
+}
+
 func loadSiteAccountAssociations(ctx context.Context, accounts []model.SiteAccount) error {
 	for i := range accounts {
 		if err := loadSiteAccountAssociationsByID(ctx, &accounts[i]); err != nil {
@@ -625,6 +639,11 @@ func SiteAccountCreate(account *model.SiteAccount, ctx context.Context) error {
 	if account == nil {
 		return fmt.Errorf("site account is nil")
 	}
+	platform, err := sitePlatformForAccount(ctx, account.SiteID)
+	if err != nil {
+		return err
+	}
+	account.InferCredentialType(platform)
 	if err := account.Validate(); err != nil {
 		return err
 	}
@@ -686,6 +705,10 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 	}
 	if loaded, err := SiteAccountGet(req.ID, ctx); err == nil {
 		account = *loaded
+	}
+	platform, err := sitePlatformForAccount(ctx, account.SiteID)
+	if err != nil {
+		return nil, err
 	}
 
 	merged := account
@@ -761,7 +784,18 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		selectFields = append(selectFields, "checkin_random_window_minutes")
 	}
 
-	if len(selectFields) > 0 {
+	beforeInferCredentialType := merged.CredentialType
+	beforeInferAccessToken := strings.TrimSpace(merged.AccessToken)
+	beforeInferAPIKey := strings.TrimSpace(merged.APIKey)
+	merged.InferCredentialType(platform)
+	inferredCredentialTypeChanged := merged.CredentialType != beforeInferCredentialType || merged.CredentialType != account.CredentialType
+	inferredAccessTokenChanged := strings.TrimSpace(merged.AccessToken) != beforeInferAccessToken || strings.TrimSpace(merged.AccessToken) != strings.TrimSpace(account.AccessToken)
+	inferredAPIKeyChanged := strings.TrimSpace(merged.APIKey) != beforeInferAPIKey || strings.TrimSpace(merged.APIKey) != strings.TrimSpace(account.APIKey)
+	if inferredCredentialTypeChanged && req.CredentialType == nil {
+		selectFields = append(selectFields, "credential_type")
+	}
+
+	if len(selectFields) > 0 || inferredAccessTokenChanged || inferredAPIKeyChanged {
 		if err := merged.Validate(); err != nil {
 			return nil, err
 		}
@@ -775,6 +809,9 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		updates.Name = merged.Name
 	}
 	if req.CredentialType != nil {
+		updates.CredentialType = merged.CredentialType
+	}
+	if inferredCredentialTypeChanged && req.CredentialType == nil {
 		updates.CredentialType = merged.CredentialType
 	}
 	if req.Username != nil {
@@ -823,7 +860,11 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 		updates.CheckinRandomWindowMinutes = merged.CheckinRandomWindowMinutes
 	}
 
-	if len(selectFields) > 0 || req.AccessToken != nil || req.APIKey != nil || req.RefreshToken != nil || req.TokenExpiresAt != nil {
+	setAccessToken := req.AccessToken != nil || inferredAccessTokenChanged
+	setAPIKey := req.APIKey != nil || inferredAPIKeyChanged
+	setRefreshToken := req.RefreshToken != nil
+	setTokenExpiresAt := req.TokenExpiresAt != nil
+	if len(selectFields) > 0 || setAccessToken || setAPIKey || setRefreshToken || setTokenExpiresAt {
 		if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if len(selectFields) > 0 {
 				if err := tx.
@@ -841,10 +882,10 @@ func SiteAccountUpdate(req *model.SiteAccountUpdateRequest, ctx context.Context)
 				merged.APIKey,
 				merged.RefreshToken,
 				merged.TokenExpiresAt,
-				req.AccessToken != nil,
-				req.APIKey != nil,
-				req.RefreshToken != nil,
-				req.TokenExpiresAt != nil,
+				setAccessToken,
+				setAPIKey,
+				setRefreshToken,
+				setTokenExpiresAt,
 			)
 		}); err != nil {
 			return nil, err

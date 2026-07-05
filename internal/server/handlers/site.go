@@ -308,6 +308,7 @@ func createSiteAccount(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	account.InferCredentialType("")
 	if err := account.Validate(); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return

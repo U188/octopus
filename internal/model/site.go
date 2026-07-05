@@ -961,6 +961,15 @@ func (t SiteCredentialType) Validate() error {
 	}
 }
 
+func SitePlatformUsesDirectAPIKey(platform SitePlatform) bool {
+	switch platform {
+	case SitePlatformAPI, SitePlatformDeepSeek:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Site) Normalize() {
 	s.Name = strings.TrimSpace(s.Name)
 	s.BaseURL = strings.TrimRight(strings.TrimSpace(s.BaseURL), "/")
@@ -1110,11 +1119,39 @@ func (a *SiteAccount) Normalize() {
 	}
 }
 
+func (a *SiteAccount) InferCredentialType(platform SitePlatform) {
+	if a == nil {
+		return
+	}
+	a.Normalize()
+	if SitePlatformUsesDirectAPIKey(platform) {
+		if a.APIKey == "" && a.AccessToken != "" {
+			a.APIKey = a.AccessToken
+		}
+		if a.APIKey != "" {
+			a.AccessToken = ""
+			a.CredentialType = SiteCredentialTypeAPIKey
+			return
+		}
+	}
+	switch {
+	case a.AccessToken != "":
+		a.CredentialType = SiteCredentialTypeAccessToken
+	case a.APIKey != "":
+		a.CredentialType = SiteCredentialTypeAPIKey
+	case a.Username != "" || a.Password != "":
+		a.CredentialType = SiteCredentialTypeUsernamePassword
+	}
+}
+
 func (a *SiteAccount) Validate() error {
 	if a == nil {
 		return fmt.Errorf("site account is nil")
 	}
 	a.Normalize()
+	if strings.TrimSpace(string(a.CredentialType)) == "" {
+		a.InferCredentialType("")
+	}
 	if a.SiteID == 0 {
 		return fmt.Errorf("site id is required")
 	}
