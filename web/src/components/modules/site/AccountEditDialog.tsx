@@ -565,6 +565,10 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                                     placeholder="请输入 API Key"
                                                     className="rounded-xl"
                                                 />
+                                                <span className="text-xs text-muted-foreground">
+                                                    作为账号级默认对话 Key 使用。同步到的分组没有专属
+                                                    Key 时，会自动使用它恢复模型和投影。
+                                                </span>
                                             </label>
 
                                             {currentPlatform === SitePlatform.Sub2API ? (

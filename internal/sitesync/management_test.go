@@ -739,6 +739,111 @@ func TestSyncManagementPlatformReturnsPartialWhenSomeGroupsRemainUnresolved(t *t
 	}
 }
 
+func TestSyncManagementPlatformUsesAccountAPIKeyForGroupsWithoutKeys(t *testing.T) {
+	platformUserID := 7788
+	accountFallbackModelFetches := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/token/":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"items":[
+				{"name":"default-key","key":"managed-key-default","group":"default","status":1}
+			]}}`))
+		case r.URL.Path == "/api/user/self/groups":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"default","name":"default"},{"id":"vip","name":"VIP"}]}`))
+		case r.URL.Path == "/models":
+			w.Header().Set("Content-Type", "application/json")
+			switch r.Header.Get("Authorization") {
+			case "Bearer sk-managed-key-default":
+				_, _ = w.Write([]byte(`{"data":[{"id":"gpt-default"}]}`))
+			case "Bearer sk-account-default":
+				accountFallbackModelFetches++
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error":{"message":"account fallback should use explicit group metadata first"}}`))
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
+			}
+		case r.URL.Path == "/api/user/models":
+			w.Header().Set("Content-Type", "application/json")
+			if r.Header.Get("Authorization") != "Bearer test-access-token" || r.Header.Get("New-API-User") != "7788" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"success":false,"message":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":["gpt-default","gpt-vip"]}`))
+		case r.URL.Path == "/api/pricing":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[
+				{"model_name":"gpt-default","enable_groups":["default"],"supported_endpoint_types":["/v1/chat/completions"]},
+				{"model_name":"gpt-vip","enable_groups":["vip"],"supported_endpoint_types":["/v1/chat/completions"]}
+			]}`))
+		case r.URL.Path == "/api/available_model":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case r.URL.Path == "/api/user/self":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":7788,"username":"managed-user"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := syncManagementPlatform(context.Background(), &model.Site{
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  server.URL,
+	}, &model.SiteAccount{
+		Name:           "managed-user",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "test-access-token",
+		APIKey:         "sk-account-default",
+		PlatformUserID: &platformUserID,
+		Enabled:        true,
+		AutoSync:       true,
+	})
+	if err != nil {
+		t.Fatalf("syncManagementPlatform returned error: %v", err)
+	}
+	if snapshot.status != model.SiteExecutionStatusSuccess {
+		t.Fatalf("expected successful snapshot status, got %q (%s)", snapshot.status, snapshot.message)
+	}
+	if accountFallbackModelFetches != 0 {
+		t.Fatalf("expected account fallback key to use explicit group metadata before /models, got %d /models calls", accountFallbackModelFetches)
+	}
+	if len(snapshot.tokens) != 2 {
+		t.Fatalf("expected synced default token plus vip account fallback token, got %+v", snapshot.tokens)
+	}
+	fallbackFound := false
+	for _, token := range snapshot.tokens {
+		if token.GroupKey == "vip" && token.Source == siteTokenSourceAccountFallback && token.Token == "sk-account-default" {
+			fallbackFound = true
+		}
+	}
+	if !fallbackFound {
+		t.Fatalf("expected vip account fallback token, got %+v", snapshot.tokens)
+	}
+	modelsByGroup := make(map[string][]string)
+	for _, item := range snapshot.models {
+		modelsByGroup[item.GroupKey] = append(modelsByGroup[item.GroupKey], item.ModelName)
+	}
+	if strings.Join(modelsByGroup["default"], ",") != "gpt-default" {
+		t.Fatalf("expected default group model from group key, got %+v", modelsByGroup)
+	}
+	if strings.Join(modelsByGroup["vip"], ",") != "gpt-vip" {
+		t.Fatalf("expected vip group model from account fallback metadata, got %+v", modelsByGroup)
+	}
+	groupStatus := make(map[string]siteGroupSyncStatus)
+	for _, item := range snapshot.groupResults {
+		groupStatus[item.GroupKey] = item.Status
+	}
+	if groupStatus["default"] != siteGroupSyncStatusSynced || groupStatus["vip"] != siteGroupSyncStatusSynced {
+		t.Fatalf("expected both groups synced, got %+v", snapshot.groupResults)
+	}
+}
+
 func TestSyncManagementPlatformCachesFallbackUserModelsAcrossFailedGroups(t *testing.T) {
 	platformUserID := 7788
 	userModelCalls := 0

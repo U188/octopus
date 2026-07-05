@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	siteModelSourceSync         = "sync"
-	siteModelSourceSyncFallback = "sync_fallback"
+	siteModelSourceSync            = "sync"
+	siteModelSourceSyncFallback    = "sync_fallback"
+	siteTokenSourceAccountFallback = "account_fallback"
 )
 
 type siteModelFetchResult struct {
@@ -309,6 +310,19 @@ func fetchManagementModels(
 	token model.SiteToken,
 	sessionFallbackFetcher func(token model.SiteToken) (siteModelFetchResult, error),
 ) (siteModelFetchResult, error) {
+	if token.Source == siteTokenSourceAccountFallback && siteRecord.Platform == model.SitePlatformNewAPI && sessionFallbackFetcher != nil {
+		fallbackResult, fallbackErr := sessionFallbackFetcher(token)
+		if len(fallbackResult.names) > 0 || fallbackResult.authoritative {
+			if strings.TrimSpace(fallbackResult.source) == "" {
+				fallbackResult.source = siteModelSourceSyncFallback
+			}
+			return fallbackResult, nil
+		}
+		if fallbackErr != nil {
+			return fallbackResult, fallbackErr
+		}
+	}
+
 	models, err := fetchModelsForSiteToken(ctx, siteRecord, account, token)
 	if len(models) > 0 {
 		return siteModelFetchResult{names: models, source: siteModelSourceSync, authoritative: true, message: fmt.Sprintf("同步到 %d 个模型", len(models))}, nil

@@ -97,6 +97,7 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 	if err != nil {
 		groups = nil
 	}
+	tokens = addAccountAPIKeyForMissingGroups(tokens, groups, account.APIKey)
 	if len(tokens) == 0 && strings.TrimSpace(account.APIKey) != "" {
 		tokens = append(tokens, model.SiteToken{Name: "default", Token: strings.TrimSpace(account.APIKey), GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "fallback", IsDefault: true})
 	}
@@ -217,6 +218,7 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 	if err != nil {
 		groups = nil
 	}
+	tokens = addAccountAPIKeyForMissingGroups(tokens, groups, account.APIKey)
 	groups = mergeSiteGroups(groups, tokens)
 	siteModels, tokenGroupResults := syncSiteModelsByGroup(
 		ctx,
@@ -262,6 +264,48 @@ func completeMaskedTokensFromAccountAPIKey(tokens []model.SiteToken, apiKey stri
 		}
 		out[i].Token = apiKey
 		out[i].ValueStatus = model.SiteTokenValueStatusReady
+	}
+	return out
+}
+
+func addAccountAPIKeyForMissingGroups(tokens []model.SiteToken, groups []model.SiteUserGroup, apiKey string) []model.SiteToken {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" || len(groups) == 0 {
+		return tokens
+	}
+
+	hasReadyKey := make(map[string]bool)
+	for _, token := range tokens {
+		groupKey := model.NormalizeSiteGroupKey(token.GroupKey)
+		if groupKey == "" {
+			groupKey = model.SiteDefaultGroupKey
+		}
+		if token.Enabled && strings.TrimSpace(token.Token) != "" && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
+			hasReadyKey[groupKey] = true
+		}
+	}
+
+	out := append([]model.SiteToken(nil), tokens...)
+	for _, group := range groups {
+		groupKey := model.NormalizeSiteGroupKey(group.GroupKey)
+		if groupKey == "" {
+			groupKey = model.SiteDefaultGroupKey
+		}
+		if hasReadyKey[groupKey] {
+			continue
+		}
+		groupName := model.NormalizeSiteGroupName(groupKey, group.Name)
+		out = append(out, model.SiteToken{
+			Name:        "account",
+			Token:       apiKey,
+			GroupKey:    groupKey,
+			GroupName:   groupName,
+			Enabled:     true,
+			ValueStatus: model.SiteTokenValueStatusReady,
+			Source:      siteTokenSourceAccountFallback,
+			IsDefault:   groupKey == model.SiteDefaultGroupKey,
+		})
+		hasReadyKey[groupKey] = true
 	}
 	return out
 }

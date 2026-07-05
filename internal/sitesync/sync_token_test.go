@@ -133,3 +133,55 @@ func TestCompleteMaskedTokensFromAccountAPIKeyLeavesReadyTokenUnchanged(t *testi
 		t.Fatalf("expected ready token to stay ready, got %q", completed[0].ValueStatus)
 	}
 }
+
+func TestAddAccountAPIKeyForMissingGroupsAddsFallbackOnlyWhereNeeded(t *testing.T) {
+	tokens := []model.SiteToken{
+		{
+			Name:        "ready",
+			Token:       "ready-chat-key",
+			GroupKey:    "default",
+			GroupName:   "default",
+			Enabled:     true,
+			ValueStatus: model.SiteTokenValueStatusReady,
+			Source:      "sync",
+		},
+		{
+			Name:        "masked",
+			Token:       "sk-****1234",
+			GroupKey:    "vip",
+			GroupName:   "VIP",
+			Enabled:     false,
+			ValueStatus: model.SiteTokenValueStatusMaskedPending,
+			Source:      "sync",
+		},
+	}
+	groups := []model.SiteUserGroup{
+		{GroupKey: "default", Name: "default"},
+		{GroupKey: "vip", Name: "VIP"},
+		{GroupKey: "svip", Name: "SVIP"},
+	}
+
+	completed := addAccountAPIKeyForMissingGroups(tokens, groups, "sk-account")
+
+	if len(completed) != 4 {
+		t.Fatalf("expected two original tokens plus two account fallback tokens, got %+v", completed)
+	}
+	fallbackByGroup := map[string]model.SiteToken{}
+	for _, token := range completed {
+		if token.Source == siteTokenSourceAccountFallback {
+			fallbackByGroup[token.GroupKey] = token
+		}
+	}
+	if _, ok := fallbackByGroup["default"]; ok {
+		t.Fatalf("did not expect fallback token for group with ready key: %+v", completed)
+	}
+	for _, groupKey := range []string{"vip", "svip"} {
+		token, ok := fallbackByGroup[groupKey]
+		if !ok {
+			t.Fatalf("expected fallback token for group %q, got %+v", groupKey, completed)
+		}
+		if token.Token != "sk-account" || !token.Enabled || token.ValueStatus != model.SiteTokenValueStatusReady {
+			t.Fatalf("unexpected fallback token for group %q: %+v", groupKey, token)
+		}
+	}
+}
