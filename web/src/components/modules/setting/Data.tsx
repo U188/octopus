@@ -46,8 +46,8 @@ export function SettingData() {
     const davCredentials = useMemo(() => ({
         url: autoDAVURL.value.trim(),
         username: autoDAVUsername.value.trim(),
-        password: autoDAVPassword.value,
-    }), [autoDAVPassword.value, autoDAVURL.value, autoDAVUsername.value]);
+        password: autoDAVPassword.isMasked ? '' : autoDAVPassword.value,
+    }), [autoDAVPassword.isMasked, autoDAVPassword.value, autoDAVURL.value, autoDAVUsername.value]);
 
     const rowsAffected = importDB.data?.rows_affected ?? null;
     const rowsAffectedList = useMemo(() => {

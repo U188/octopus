@@ -15,12 +15,17 @@ var settingCache = cache.New[model.SettingKey, string](16)
 func SettingList(ctx context.Context) ([]model.Setting, error) {
 	settings := make([]model.Setting, 0, settingCache.Len())
 	for key, value := range settingCache.GetAll() {
+		valueStatus := ""
 		if model.IsSensitiveSettingKey(key) {
+			if value != "" {
+				valueStatus = "stored"
+			}
 			value = ""
 		}
 		settings = append(settings, model.Setting{
-			Key:   key,
-			Value: value,
+			Key:         key,
+			Value:       value,
+			ValueStatus: valueStatus,
 		})
 	}
 	return settings, nil

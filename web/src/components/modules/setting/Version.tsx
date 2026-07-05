@@ -113,7 +113,6 @@ export function SettingVersion() {
 
             <ConfirmActionButton
                 type="button"
-                variant="outline"
                 className="w-full rounded-xl"
                 onConfirm={onRestart}
                 disabled={restartCore.isPending || updateCore.isPending}

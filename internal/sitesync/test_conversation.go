@@ -569,7 +569,6 @@ func codexTestConversationTools() []map[string]any {
 		codexFunctionTool("get_goal", "Get the current goal for this thread."),
 		codexFunctionTool("create_goal", "Create a goal only when explicitly requested by the user or system/developer instructions."),
 		codexFunctionTool("update_goal", "Update the existing goal."),
-		{"type": "tool_search", "description": "# Tool discovery\n\nSearches over deferred tool metadata."},
 		{"type": "web_search"},
 	}
 }
@@ -1025,20 +1024,22 @@ func extractResponsesResponseText(response map[string]any) string {
 	if response == nil {
 		return ""
 	}
+	output, ok := response["output"].([]any)
+	if ok {
+		parts := make([]string, 0)
+		for _, item := range output {
+			if text := extractResponsesOutputItemText(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "")
+		}
+	}
 	if text := jsonString(response["output_text"]); text != "" {
 		return text
 	}
-	output, ok := response["output"].([]any)
-	if !ok {
-		return ""
-	}
-	parts := make([]string, 0)
-	for _, item := range output {
-		if text := extractResponsesOutputItemText(item); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "")
+	return ""
 }
 
 func extractResponsesText(value any) string {

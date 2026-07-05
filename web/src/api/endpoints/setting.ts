@@ -9,6 +9,7 @@ import { useAuthStore } from './user';
 export interface Setting {
     key: string;
     value: string;
+    value_status?: 'stored';
 }
 
 export const SettingKey = {

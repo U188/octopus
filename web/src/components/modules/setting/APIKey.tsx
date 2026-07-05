@@ -550,6 +550,13 @@ function APIKeyStatsCard({
     );
 }
 
+function formatAPIKeyPreview(value: string): string {
+    const key = value.trim();
+    if (!key) return '';
+    if (key.length <= 18) return key;
+    return `${key.slice(0, 11)}...${key.slice(-4)}`;
+}
+
 function APIKeyKeyItem({
     apiKey,
     statsLayoutId,
@@ -575,6 +582,7 @@ function APIKeyKeyItem({
 }) {
     const t = useTranslations('setting');
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const apiKeyPreview = formatAPIKeyPreview(apiKey.api_key);
 
     return (
         <motion.div
@@ -585,9 +593,16 @@ function APIKeyKeyItem({
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
             className="group relative flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/50 overflow-hidden origin-top"
         >
-            <span className="text-sm font-medium truncate">{apiKey.name}</span>
+            <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium truncate">{apiKey.name}</div>
+                {apiKeyPreview && (
+                    <div className="mt-0.5 font-mono text-[11px] leading-4 text-muted-foreground truncate" title={apiKeyPreview}>
+                        {apiKeyPreview}
+                    </div>
+                )}
+            </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
                 <motion.button
                     type="button"
                     layoutId={statsLayoutId}

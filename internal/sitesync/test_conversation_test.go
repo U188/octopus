@@ -153,6 +153,11 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if tools, ok := body["tools"].([]map[string]any); !ok || len(tools) == 0 {
 		t.Fatalf("expected codex tool definitions, got %#v", body["tools"])
 	}
+	for _, tool := range body["tools"].([]map[string]any) {
+		if tool["type"] == "tool_search" {
+			t.Fatalf("codex test conversation must not include tool_search; some upstreams end the stream after codex.rate_limits")
+		}
+	}
 	if body["tool_choice"] != "auto" {
 		t.Fatalf("expected codex tool_choice auto, got %#v", body["tool_choice"])
 	}
@@ -433,6 +438,24 @@ func TestExtractTestConversationReplyHandlesWrappedResponsesPayload(t *testing.T
 
 	if got := extractTestConversationReply(TestConversationModeOpenAIResponse, payload); got != "wrapped text" {
 		t.Fatalf("expected wrapped text, got %q", got)
+	}
+}
+
+func TestExtractTestConversationReplyPrefersStructuredResponsesOutput(t *testing.T) {
+	payload := map[string]any{
+		"output_text": "Hi!HowcanIhelp?",
+		"output": []any{
+			map[string]any{
+				"type": "message",
+				"content": []any{
+					map[string]any{"type": "output_text", "text": "Hi! How can I help?"},
+				},
+			},
+		},
+	}
+
+	if got := extractTestConversationReply(TestConversationModeOpenAIResponse, payload); got != "Hi! How can I help?" {
+		t.Fatalf("expected structured output text, got %q", got)
 	}
 }
 

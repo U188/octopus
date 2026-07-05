@@ -8,11 +8,8 @@ import { toast } from '@/components/common/Toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import type { ApiError } from '@/api/types';
 
-// 文本/数字设置项的本地编辑状态。
-// 仅首次拿到数据时回填：useSettingList 每 30s 轮询、保存成功又会 invalidate，
-// 反复回填会覆盖正在编辑但尚未保存的输入。
-// 回填经 queueMicrotask 延迟：lint 规则 react-hooks/set-state-in-effect 禁止 effect 内同步 setState。
-// mirrorKeys 用于一个输入同时写多个 key（需传模块级常量保持引用稳定），回显以 key 为准。
+export const MASKED_SETTING_VALUE = '********';
+
 export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
     const t = useTranslations('setting');
     const { data: settings } = useSettingList();
@@ -20,14 +17,17 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
 
     const [value, setValue] = useState('');
     const initial = useRef('');
+    const initialStored = useRef(false);
     const initialized = useRef(false);
 
     useEffect(() => {
         if (!settings || initialized.current) return;
         const found = settings.find((s) => s.key === key);
         if (found) {
-            queueMicrotask(() => setValue(found.value));
-            initial.current = found.value;
+            const displayValue = found.value_status === 'stored' ? MASKED_SETTING_VALUE : found.value;
+            queueMicrotask(() => setValue(displayValue));
+            initial.current = displayValue;
+            initialStored.current = found.value_status === 'stored';
         }
         initialized.current = true;
     }, [settings, key]);
@@ -37,10 +37,11 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
         if (next === initial.current) return;
         try {
             await Promise.all(
-                [key, ...(mirrorKeys ?? [])].map((k) => setSetting.mutateAsync({ key: k, value: next }))
+                [key, ...(mirrorKeys ?? [])].map((k) => setSetting.mutateAsync({ key: k, value: next })),
             );
             toast.success(t('saved'));
             initial.current = next;
+            initialStored.current = false;
         } catch (error) {
             toast.error(t('saveFailed'), { description: (error as ApiError)?.message });
             setValue(initial.current);
@@ -49,10 +50,9 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
 
     const save = useCallback(() => commit(value), [commit, value]);
 
-    return { value, setValue, save, commit };
+    return { value, setValue, save, commit, isMasked: initialStored.current && value === MASKED_SETTING_VALUE };
 }
 
-// 开关型设置项：切换立即保存，失败回滚。
 export function useSettingToggle(key: string) {
     const t = useTranslations('setting');
     const { data: settings } = useSettingList();
@@ -86,7 +86,7 @@ export function useSettingToggle(key: string) {
                     setEnabled(initial.current);
                     toast.error(t('saveFailed'));
                 },
-            }
+            },
         );
     }, [key, setSetting, t]);
 
@@ -100,8 +100,6 @@ export function SettingHelpTip({ children }: { children: React.ReactNode }) {
                 <TooltipTrigger asChild>
                     <HelpCircle className="size-4 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
-                {/* 限宽让长描述自动换行；内层覆盖组件自带的 text-balance——
-                    balance 会把各行收窄至近似等宽，导致盒子右侧留白 */}
                 <TooltipContent className="max-w-xs">
                     <span className="block text-wrap">{children}</span>
                 </TooltipContent>
@@ -146,7 +144,6 @@ export function SettingRow({ icon: Icon, label, tooltip, children }: {
     );
 }
 
-// 合并卡片内的小节标题：上边框分隔 + 标题 + 可选说明
 export function SettingSection({ title, tooltip }: { title: string; tooltip?: React.ReactNode }) {
     return (
         <div className="flex items-center gap-2 border-t border-border pt-4 text-sm font-semibold text-card-foreground">

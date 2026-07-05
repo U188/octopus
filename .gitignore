@@ -1,5 +1,6 @@
 data
 build
+bin/
 static/out/*
 !static/out/.gitkeep
 octopus

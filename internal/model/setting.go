@@ -67,8 +67,9 @@ const (
 )
 
 type Setting struct {
-	Key   SettingKey `json:"key" gorm:"primaryKey"`
-	Value string     `json:"value" gorm:"not null"`
+	Key         SettingKey `json:"key" gorm:"primaryKey"`
+	Value       string     `json:"value" gorm:"not null"`
+	ValueStatus string     `json:"value_status,omitempty" gorm:"-"`
 }
 
 func DefaultSettings() []Setting {

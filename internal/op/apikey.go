@@ -87,6 +87,8 @@ func apiKeyRefreshCache(ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Find(&apiKeys).Error; err != nil {
 		return err
 	}
+	apiKeyCache.Clear()
+	apiKeyIDMap.Clear()
 	for _, apiKey := range apiKeys {
 		apiKeyCache.Set(apiKey.ID, apiKey)
 		apiKeyIDMap.Set(apiKey.APIKey, apiKey.ID)
