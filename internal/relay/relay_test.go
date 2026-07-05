@@ -1648,7 +1648,7 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	if err := json.Unmarshal([]byte(headers.Get("X-Codex-Turn-Metadata")), &metadata); err != nil {
 		t.Fatalf("expected valid turn metadata JSON: %v", err)
 	}
-	if metadata["originator"] != codexmode.Originator {
+	if metadata["sandbox"] != codexmode.Sandbox || metadata["window_id"] == "" {
 		t.Fatalf("expected codex turn metadata, got %#v", metadata)
 	}
 }

@@ -32,9 +32,8 @@ const (
 	TestConversationClientCodex   TestConversationClient = "codex"
 	TestConversationClientClaude  TestConversationClient = "claude"
 
-	codexTestConversationInstallationID = codexmode.InstallationID
-	claudeTestConversationUserAgent     = claudemode.UserAgent
-	claudeTestConversationBeta          = claudemode.BaseAnthropicBeta
+	claudeTestConversationUserAgent = claudemode.UserAgent
+	claudeTestConversationBeta      = claudemode.BaseAnthropicBeta
 )
 
 type TestConversationRequest struct {
@@ -331,9 +330,10 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 	if client == TestConversationClientCodex {
 		baseURL := testConversationBaseURL(siteRecord, model.SiteModelRouteTypeOpenAIResponse)
 		sessionID, turnID := newCodexTestConversationIDs()
-		turnMetadata := buildCodexTurnMetadata(sessionID, turnID)
+		installationID := newCodexLikeUUID()
+		turnMetadata := buildCodexTurnMetadata(sessionID, turnID, installationID)
 		return buildSiteURL(baseURL, "/responses"),
-			buildCodexTestConversationBody(modelName, greeting, sessionID, turnID, turnMetadata),
+			buildCodexTestConversationBody(modelName, greeting, sessionID, turnID, installationID, turnMetadata),
 			map[string]string{
 				"Authorization":         ensureBearer(key),
 				"Accept":                "text/event-stream",
@@ -510,7 +510,7 @@ func buildClaudeTestConversationBody(modelName string, greeting string, sessionI
 	}
 }
 
-func buildCodexTestConversationBody(modelName string, greeting string, sessionID string, turnID string, turnMetadata string) map[string]any {
+func buildCodexTestConversationBody(modelName string, greeting string, sessionID string, turnID string, installationID string, turnMetadata string) map[string]any {
 	return map[string]any{
 		"model":        modelName,
 		"instructions": codexTestConversationInstructions(greeting),
@@ -533,7 +533,7 @@ func buildCodexTestConversationBody(modelName string, greeting string, sessionID
 			"session_id":              sessionID,
 			"thread_id":               sessionID,
 			"turn_id":                 turnID,
-			"x-codex-installation-id": codexTestConversationInstallationID,
+			"x-codex-installation-id": installationID,
 			"x-codex-turn-metadata":   turnMetadata,
 			"x-codex-window-id":       sessionID + ":0",
 		},
@@ -599,16 +599,16 @@ func newCodexLikeUUID() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-func buildCodexTurnMetadata(sessionID string, turnID string) string {
+func buildCodexTurnMetadata(sessionID string, turnID string, installationID string) string {
 	payload := map[string]any{
-		"installation_id":         codexTestConversationInstallationID,
+		"installation_id":         installationID,
 		"session_id":              sessionID,
 		"thread_id":               sessionID,
 		"turn_id":                 turnID,
 		"window_id":               sessionID + ":0",
 		"request_kind":            "turn",
 		"thread_source":           "user",
-		"sandbox":                 "windows_sandbox",
+		"sandbox":                 codexmode.Sandbox,
 		"turn_started_at_unix_ms": time.Now().UnixMilli(),
 	}
 	data, _ := json.Marshal(payload)

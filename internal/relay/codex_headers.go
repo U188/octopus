@@ -27,28 +27,26 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	req.Header = http.Header{}
 
 	sessionID := uuid.NewString()
-	threadID := uuid.NewString()
-	windowID := uuid.NewString()
+	threadID := sessionID
+	windowID := sessionID + ":0"
 	turnID := uuid.NewString()
-	clientRequestID := uuid.NewString()
+	clientRequestID := sessionID
+	installationID := uuid.NewString()
 	turnMetadata := map[string]any{
-		"originator":              codexmode.Originator,
-		"client_request_id":       clientRequestID,
-		"installation_id":         codexmode.InstallationID,
+		"installation_id":         installationID,
 		"session_id":              sessionID,
 		"thread_id":               threadID,
 		"turn_id":                 turnID,
 		"window_id":               windowID,
 		"request_kind":            "turn",
 		"thread_source":           "user",
-		"sandbox":                 "windows_sandbox",
+		"sandbox":                 codexmode.Sandbox,
 		"turn_started_at_unix_ms": time.Now().UnixMilli(),
-		"timestamp":               time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	turnMetadataJSON, _ := json.Marshal(turnMetadata)
 	turnMetadataString := string(turnMetadataJSON)
 
-	ra.normalizeCodexResponsesBody(req, sessionID, threadID, turnID, windowID, turnMetadataString)
+	ra.normalizeCodexResponsesBody(req, sessionID, threadID, turnID, windowID, installationID, turnMetadataString)
 
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
@@ -63,7 +61,7 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+ra.usedKey.ChannelKey)
 }
 
-func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID, threadID, turnID, windowID, turnMetadata string) {
+func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID, threadID, turnID, windowID, installationID, turnMetadata string) {
 	if req == nil || req.Body == nil {
 		return
 	}
@@ -110,7 +108,7 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 	setDefaultMetadata(metadata, "session_id", sessionID)
 	setDefaultMetadata(metadata, "thread_id", threadID)
 	setDefaultMetadata(metadata, "turn_id", turnID)
-	setDefaultMetadata(metadata, "x-codex-installation-id", codexmode.InstallationID)
+	setDefaultMetadata(metadata, "x-codex-installation-id", installationID)
 	setDefaultMetadata(metadata, "x-codex-turn-metadata", turnMetadata)
 	setDefaultMetadata(metadata, "x-codex-window-id", windowID)
 
