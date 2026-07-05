@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/U188/octopus/internal/codexmode"
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -1620,10 +1621,10 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	if path := <-seenPath; path != "/v1/responses" {
 		t.Fatalf("expected /v1/responses path, got %q", path)
 	}
-	if got := headers.Get("User-Agent"); got != codexExecUserAgent {
+	if got := headers.Get("User-Agent"); got != codexmode.UserAgent {
 		t.Fatalf("expected codex user-agent, got %q", got)
 	}
-	if got := headers.Get("Originator"); got != "codex_exec" {
+	if got := headers.Get("Originator"); got != codexmode.Originator {
 		t.Fatalf("expected codex originator, got %q", got)
 	}
 	if got := headers.Get("Accept"); got != "text/event-stream" {
@@ -1637,7 +1638,7 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 			t.Fatalf("expected codex mode to drop client header %s, got %q", key, got)
 		}
 	}
-	if got := headers.Get("X-Codex-Beta-Features"); got != "remote_compaction_v2" {
+	if got := headers.Get("X-Codex-Beta-Features"); got != codexmode.BetaFeatures {
 		t.Fatalf("expected codex beta features header, got %q", got)
 	}
 	if headers.Get("Session-Id") == "" || headers.Get("Thread-Id") == "" || headers.Get("X-Client-Request-Id") == "" {
@@ -1647,7 +1648,7 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	if err := json.Unmarshal([]byte(headers.Get("X-Codex-Turn-Metadata")), &metadata); err != nil {
 		t.Fatalf("expected valid turn metadata JSON: %v", err)
 	}
-	if metadata["originator"] != "codex_exec" {
+	if metadata["originator"] != codexmode.Originator {
 		t.Fatalf("expected codex turn metadata, got %#v", metadata)
 	}
 }

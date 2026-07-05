@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/U188/octopus/internal/claudemode"
+	"github.com/U188/octopus/internal/codexmode"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/utils/log"
@@ -31,7 +32,7 @@ const (
 	TestConversationClientCodex   TestConversationClient = "codex"
 	TestConversationClientClaude  TestConversationClient = "claude"
 
-	codexTestConversationInstallationID = "00000000-0000-4000-8000-000000000001"
+	codexTestConversationInstallationID = codexmode.InstallationID
 	claudeTestConversationUserAgent     = claudemode.UserAgent
 	claudeTestConversationBeta          = claudemode.BaseAnthropicBeta
 )
@@ -336,12 +337,12 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 			map[string]string{
 				"Authorization":         ensureBearer(key),
 				"Accept":                "text/event-stream",
-				"Originator":            "codex_exec",
+				"Originator":            codexmode.Originator,
 				"Session-Id":            sessionID,
 				"Thread-Id":             sessionID,
-				"User-Agent":            "codex_exec/0.142.4 (Windows 10.0.19044; x86_64) unknown (codex_exec; 0.142.4)",
+				"User-Agent":            codexmode.UserAgent,
 				"X-Client-Request-Id":   sessionID,
-				"X-Codex-Beta-Features": "remote_compaction_v2",
+				"X-Codex-Beta-Features": codexmode.BetaFeatures,
 				"X-Codex-Turn-Metadata": turnMetadata,
 				"X-Codex-Window-Id":     sessionID + ":0",
 			}

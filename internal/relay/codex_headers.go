@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/U188/octopus/internal/codexmode"
 	"github.com/U188/octopus/internal/transformer/outbound"
 	"github.com/google/uuid"
 )
-
-const codexExecUserAgent = "codex_exec/0.142.4 (Windows 10.0.19044; x86_64) unknown (codex_exec; 0.142.4)"
-const codexRelayInstallationID = "00000000-0000-4000-8000-000000000001"
 
 func (ra *relayAttempt) shouldUseCodexResponseHeaders() bool {
 	return ra != nil &&
@@ -34,9 +32,9 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	turnID := uuid.NewString()
 	clientRequestID := uuid.NewString()
 	turnMetadata := map[string]any{
-		"originator":              "codex_exec",
+		"originator":              codexmode.Originator,
 		"client_request_id":       clientRequestID,
-		"installation_id":         codexRelayInstallationID,
+		"installation_id":         codexmode.InstallationID,
 		"session_id":              sessionID,
 		"thread_id":               threadID,
 		"turn_id":                 turnID,
@@ -54,9 +52,9 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", codexExecUserAgent)
-	req.Header.Set("Originator", "codex_exec")
-	req.Header.Set("X-Codex-Beta-Features", "remote_compaction_v2")
+	req.Header.Set("User-Agent", codexmode.UserAgent)
+	req.Header.Set("Originator", codexmode.Originator)
+	req.Header.Set("X-Codex-Beta-Features", codexmode.BetaFeatures)
 	req.Header.Set("Session-Id", sessionID)
 	req.Header.Set("Thread-Id", threadID)
 	req.Header.Set("X-Codex-Window-Id", windowID)
@@ -112,7 +110,7 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 	setDefaultMetadata(metadata, "session_id", sessionID)
 	setDefaultMetadata(metadata, "thread_id", threadID)
 	setDefaultMetadata(metadata, "turn_id", turnID)
-	setDefaultMetadata(metadata, "x-codex-installation-id", codexRelayInstallationID)
+	setDefaultMetadata(metadata, "x-codex-installation-id", codexmode.InstallationID)
 	setDefaultMetadata(metadata, "x-codex-turn-metadata", turnMetadata)
 	setDefaultMetadata(metadata, "x-codex-window-id", windowID)
 

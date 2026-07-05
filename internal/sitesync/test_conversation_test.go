@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/U188/octopus/internal/codexmode"
 	"github.com/U188/octopus/internal/model"
 )
 
@@ -137,13 +138,13 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if headers["Accept"] != "text/event-stream" {
 		t.Fatalf("expected codex stream accept header, got %q", headers["Accept"])
 	}
-	if headers["Originator"] != "codex_exec" {
+	if headers["Originator"] != codexmode.Originator {
 		t.Fatalf("expected codex originator, got %q", headers["Originator"])
 	}
-	if !strings.HasPrefix(headers["User-Agent"], "codex_exec/0.142.4") {
+	if headers["User-Agent"] != codexmode.UserAgent {
 		t.Fatalf("expected codex user agent, got %q", headers["User-Agent"])
 	}
-	if headers["X-Codex-Beta-Features"] != "remote_compaction_v2" {
+	if headers["X-Codex-Beta-Features"] != codexmode.BetaFeatures {
 		t.Fatalf("expected codex beta features header, got %q", headers["X-Codex-Beta-Features"])
 	}
 	if body["store"] != false || body["stream"] != true {
