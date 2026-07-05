@@ -64,13 +64,77 @@ function modeFromRouteType(routeType: string | null | undefined): SiteTestConver
   }
 }
 
-function extractImageResultUrls(reply: string) {
-  const urls: string[] = [];
+type ImageResultPreview = {
+  key: string;
+  src: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function imageMimeType(item: Record<string, unknown>) {
+  const raw = stringValue(item.mime_type) || stringValue(item.mimeType);
+  if (raw.startsWith("image/")) return raw;
+
+  const format = (stringValue(item.output_format) || stringValue(item.format)).toLowerCase();
+  switch (format) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "png":
+    default:
+      return "image/png";
+  }
+}
+
+function extractImageResultPreviews(reply: string, raw: unknown) {
+  const previews: ImageResultPreview[] = [];
+  const seen = new Set<string>();
+  const addPreview = (src: string, key: string) => {
+    if (!src || seen.has(src)) return;
+    seen.add(src);
+    previews.push({ src, key });
+  };
+
   for (const line of reply.split(/\r?\n/)) {
     const match = line.match(/^Image\s+\d+:\s+(https?:\/\/\S+)/i);
-    if (match?.[1]) urls.push(match[1]);
+    if (match?.[1]) addPreview(match[1], match[1]);
   }
-  return urls;
+
+  const payloadData = isRecord(raw) ? raw.data : null;
+  const items = Array.isArray(payloadData)
+    ? payloadData
+    : isRecord(payloadData) && Array.isArray(payloadData.data)
+      ? payloadData.data
+      : [];
+
+  items.forEach((item, index) => {
+    if (!isRecord(item)) return;
+    const url = stringValue(item.url);
+    if (url) {
+      addPreview(url, url);
+      return;
+    }
+    const b64 = stringValue(item.b64_json);
+    if (!b64) return;
+    addPreview(`data:${imageMimeType(item)};base64,${b64}`, `b64-${index}-${b64.length}`);
+  });
+
+  if (isRecord(raw)) {
+    const url = stringValue(raw.url);
+    if (url) addPreview(url, url);
+    const b64 = stringValue(raw.b64_json);
+    if (b64) addPreview(`data:${imageMimeType(raw)};base64,${b64}`, `b64-root-${b64.length}`);
+  }
+
+  return previews;
 }
 
 function errorMessage(error: unknown) {
@@ -205,6 +269,10 @@ export function TestConversationPanel({
   const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
   const isImageMode = effectiveMode === "openai_image";
+  const imagePreviews =
+    conversationResult?.mode === "openai_image"
+      ? extractImageResultPreviews(conversationResult.reply, conversationResult.raw)
+      : [];
   const tokenLabel = (token: (typeof enabledTokenOptions)[number]) =>
     [token.group_name || token.group_key || "default", token.name || `Key ${token.id}`].filter(Boolean).join(" / ");
 
@@ -449,13 +517,13 @@ export function TestConversationPanel({
                     </div>
                     <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border/70 bg-background px-3 py-2 text-sm leading-relaxed">
                       {conversationResult.reply || (isStreaming ? "..." : "No text content returned.")}
-                      {conversationResult.mode === "openai_image" && extractImageResultUrls(conversationResult.reply).length > 0 ? (
+                      {conversationResult.mode === "openai_image" && imagePreviews.length > 0 ? (
                         <div className="mt-3 grid gap-2">
-                          {extractImageResultUrls(conversationResult.reply).map((url) => (
+                          {imagePreviews.map((preview) => (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              key={url}
-                              src={url}
+                              key={preview.key}
+                              src={preview.src}
                               alt="Generated result"
                               className="max-h-64 w-full rounded-lg border border-border/70 object-contain"
                             />
