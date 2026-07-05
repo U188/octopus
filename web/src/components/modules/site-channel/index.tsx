@@ -714,6 +714,41 @@ function getGroupStatusBadge(group: SiteChannelGroup): { label: string; classNam
     return null;
 }
 
+function summarizeRepairResiduals(account: SiteChannelAccount) {
+    let maskedPendingKeyCount = 0;
+    let maskedPendingGroupCount = 0;
+    let unsupportedRouteCount = 0;
+
+    for (const group of account.groups) {
+        maskedPendingKeyCount += group.masked_pending_key_count;
+        if (group.masked_pending_key_count > 0 && group.enabled_key_count === 0) {
+            maskedPendingGroupCount += 1;
+        }
+        unsupportedRouteCount += group.models.filter((model) => !isSupportedRouteType(model.route_type)).length;
+    }
+
+    return {
+        maskedPendingKeyCount,
+        maskedPendingGroupCount,
+        unsupportedRouteCount,
+    };
+}
+
+function formatRepairResiduals(account: SiteChannelAccount) {
+    const summary = summarizeRepairResiduals(account);
+    const parts: string[] = [];
+
+    if (summary.maskedPendingKeyCount > 0) {
+        const groupText = summary.maskedPendingGroupCount > 0 ? `，${summary.maskedPendingGroupCount} 个分组无可用 Key` : '';
+        parts.push(`待补全文明文 Key ${summary.maskedPendingKeyCount} 个${groupText}`);
+    }
+    if (summary.unsupportedRouteCount > 0) {
+        parts.push(`未识别端点模型 ${summary.unsupportedRouteCount} 个`);
+    }
+
+    return parts.join('；');
+}
+
 function HistorySummary({ model }: { model: SiteModelView }) {
     const summary = summarizeHistory(model.history);
     const buckets = model.history?.buckets ?? [];
@@ -1904,8 +1939,14 @@ function SiteAccountPanel({
                 const counts = result.sync_result
                     ? `（${result.sync_result.group_count} 个分组，${result.sync_result.token_count} 个 Key，${result.sync_result.model_count} 个模型）`
                     : '';
+                const residuals = formatRepairResiduals(result.account);
                 if (result.warning) {
-                    toast.warning(`已使用现有数据重建投影${counts}`, { description: translateSiteError(result.warning, result.warning) });
+                    const description = [translateSiteError(result.warning, result.warning), residuals].filter(Boolean).join('；');
+                    toast.warning(`已使用现有数据重建投影${counts}`, { description });
+                    return;
+                }
+                if (residuals) {
+                    toast.warning(`修复流程已完成${counts}`, { description: residuals });
                     return;
                 }
                 if (syncStatus === 'partial') {
