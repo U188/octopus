@@ -129,16 +129,17 @@ function extractImageResultPreviews(reply: string, raw: unknown, images: SiteTes
   };
   const addImage = (item: SiteTestConversationImage) => {
     const revisedPrompt = stringValue(item.revised_prompt);
-    if (item.url) {
-      addURL(stringValue(item.url), revisedPrompt);
-      return;
-    }
     if (item.b64_json) {
       addB64(stringValue(item.b64_json), stringValue(item.mime_type), revisedPrompt);
+      return;
+    }
+    if (item.url) {
+      addURL(stringValue(item.url), revisedPrompt);
     }
   };
 
   images?.forEach(addImage);
+  if (previews.length > 0) return previews;
 
   for (const line of reply.split(/\r?\n/)) {
     const match = line.match(/^Image\s+\d+:\s+(https?:\/\/\S+)/i);
@@ -154,21 +155,25 @@ function extractImageResultPreviews(reply: string, raw: unknown, images: SiteTes
 
   items.forEach((item) => {
     if (!isRecord(item)) return;
+    const b64 = stringValue(item.b64_json);
+    if (b64) {
+      addB64(b64, imageMimeType(item), stringValue(item.revised_prompt));
+      return;
+    }
     const url = stringValue(item.url);
     if (url) {
       addURL(url, stringValue(item.revised_prompt));
-      return;
     }
-    const b64 = stringValue(item.b64_json);
-    if (!b64) return;
-    addB64(b64, imageMimeType(item), stringValue(item.revised_prompt));
   });
 
   if (isRecord(raw)) {
-    const url = stringValue(raw.url);
-    if (url) addURL(url, stringValue(raw.revised_prompt));
     const b64 = stringValue(raw.b64_json);
-    if (b64) addB64(b64, imageMimeType(raw), stringValue(raw.revised_prompt));
+    if (b64) {
+      addB64(b64, imageMimeType(raw), stringValue(raw.revised_prompt));
+    } else {
+      const url = stringValue(raw.url);
+      if (url) addURL(url, stringValue(raw.revised_prompt));
+    }
   }
 
   return previews;
