@@ -216,12 +216,20 @@ export type SiteTestConversationRequest = {
   client?: SiteTestConversationClient;
 };
 
+export type SiteTestConversationImage = {
+  url?: string;
+  b64_json?: string;
+  mime_type?: string;
+  revised_prompt?: string;
+};
+
 export type SiteTestConversationResult = {
   model: string;
   mode: SiteTestConversationMode;
   greeting: string;
   reply: string;
   duration_ms: number;
+  images?: SiteTestConversationImage[];
   raw?: unknown;
 };
 

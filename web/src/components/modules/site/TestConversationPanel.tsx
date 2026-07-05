@@ -6,6 +6,7 @@ import {
   type Site,
   type SiteAccount,
   type SiteTestConversationClient,
+  type SiteTestConversationImage,
   type SiteTestConversationResult,
   type SiteTestConversationMode,
   streamTestSiteConversation,
@@ -66,7 +67,10 @@ function modeFromRouteType(routeType: string | null | undefined): SiteTestConver
 
 type ImageResultPreview = {
   key: string;
-  src: string;
+  url?: string;
+  b64Json?: string;
+  mimeType: string;
+  revisedPrompt?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,18 +98,51 @@ function imageMimeType(item: Record<string, unknown>) {
   }
 }
 
-function extractImageResultPreviews(reply: string, raw: unknown) {
+function normalizeBase64Image(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:([^;,]+);base64,(.+)$/i);
+  if (!match) return { b64Json: trimmed, mimeType: "" };
+  return { b64Json: match[2].trim(), mimeType: match[1].trim() };
+}
+
+function previewKeyForB64(mimeType: string, b64Json: string) {
+  return `b64-${mimeType}-${b64Json.length}-${b64Json.slice(0, 24)}`;
+}
+
+function extractImageResultPreviews(reply: string, raw: unknown, images: SiteTestConversationImage[] | undefined) {
   const previews: ImageResultPreview[] = [];
   const seen = new Set<string>();
-  const addPreview = (src: string, key: string) => {
-    if (!src || seen.has(src)) return;
-    seen.add(src);
-    previews.push({ src, key });
+  const addURL = (url: string, revisedPrompt = "") => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    previews.push({ key: url, url, mimeType: "", revisedPrompt });
   };
+  const addB64 = (b64Value: string, mimeType: string, revisedPrompt = "") => {
+    const normalized = normalizeBase64Image(b64Value);
+    const b64Json = normalized.b64Json;
+    const resolvedMimeType = normalized.mimeType || mimeType || "image/png";
+    if (!b64Json) return;
+    const key = previewKeyForB64(resolvedMimeType, b64Json);
+    if (seen.has(key)) return;
+    seen.add(key);
+    previews.push({ key, b64Json, mimeType: resolvedMimeType, revisedPrompt });
+  };
+  const addImage = (item: SiteTestConversationImage) => {
+    const revisedPrompt = stringValue(item.revised_prompt);
+    if (item.url) {
+      addURL(stringValue(item.url), revisedPrompt);
+      return;
+    }
+    if (item.b64_json) {
+      addB64(stringValue(item.b64_json), stringValue(item.mime_type), revisedPrompt);
+    }
+  };
+
+  images?.forEach(addImage);
 
   for (const line of reply.split(/\r?\n/)) {
     const match = line.match(/^Image\s+\d+:\s+(https?:\/\/\S+)/i);
-    if (match?.[1]) addPreview(match[1], match[1]);
+    if (match?.[1]) addURL(match[1]);
   }
 
   const payloadData = isRecord(raw) ? raw.data : null;
@@ -115,26 +152,42 @@ function extractImageResultPreviews(reply: string, raw: unknown) {
       ? payloadData.data
       : [];
 
-  items.forEach((item, index) => {
+  items.forEach((item) => {
     if (!isRecord(item)) return;
     const url = stringValue(item.url);
     if (url) {
-      addPreview(url, url);
+      addURL(url, stringValue(item.revised_prompt));
       return;
     }
     const b64 = stringValue(item.b64_json);
     if (!b64) return;
-    addPreview(`data:${imageMimeType(item)};base64,${b64}`, `b64-${index}-${b64.length}`);
+    addB64(b64, imageMimeType(item), stringValue(item.revised_prompt));
   });
 
   if (isRecord(raw)) {
     const url = stringValue(raw.url);
-    if (url) addPreview(url, url);
+    if (url) addURL(url, stringValue(raw.revised_prompt));
     const b64 = stringValue(raw.b64_json);
-    if (b64) addPreview(`data:${imageMimeType(raw)};base64,${b64}`, `b64-root-${b64.length}`);
+    if (b64) addB64(b64, imageMimeType(raw), stringValue(raw.revised_prompt));
   }
 
   return previews;
+}
+
+function base64ToBlobURL(b64Json: string, mimeType: string) {
+  const binary = window.atob(b64Json);
+  const chunkSize = 8192;
+  const chunks: BlobPart[] = [];
+  for (let offset = 0; offset < binary.length; offset += chunkSize) {
+    const slice = binary.slice(offset, offset + chunkSize);
+    const buffer = new ArrayBuffer(slice.length);
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < slice.length; i++) {
+      bytes[i] = slice.charCodeAt(i);
+    }
+    chunks.push(buffer);
+  }
+  return URL.createObjectURL(new Blob(chunks, { type: mimeType || "image/png" }));
 }
 
 function errorMessage(error: unknown) {
@@ -269,12 +322,32 @@ export function TestConversationPanel({
   const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
   const isImageMode = effectiveMode === "openai_image";
-  const imagePreviews =
-    conversationResult?.mode === "openai_image"
-      ? extractImageResultPreviews(conversationResult.reply, conversationResult.raw)
-      : [];
+  const imagePreviews = useMemo(
+    () =>
+      conversationResult?.mode === "openai_image"
+        ? extractImageResultPreviews(conversationResult.reply, conversationResult.raw, conversationResult.images)
+        : [],
+    [conversationResult],
+  );
+  const [imageObjectURLs, setImageObjectURLs] = useState<Record<string, string>>({});
   const tokenLabel = (token: (typeof enabledTokenOptions)[number]) =>
     [token.group_name || token.group_key || "default", token.name || `Key ${token.id}`].filter(Boolean).join(" / ");
+
+  useEffect(() => {
+    const urls: Record<string, string> = {};
+    for (const preview of imagePreviews) {
+      if (!preview.b64Json) continue;
+      try {
+        urls[preview.key] = base64ToBlobURL(preview.b64Json, preview.mimeType);
+      } catch {
+        // Keep the failed preview visible as text instead of breaking the panel.
+      }
+    }
+    setImageObjectURLs(urls);
+    return () => {
+      Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [imagePreviews]);
 
   useEffect(() => {
     if (!tokenID) return;
@@ -519,15 +592,30 @@ export function TestConversationPanel({
                       {conversationResult.reply || (isStreaming ? "..." : "No text content returned.")}
                       {conversationResult.mode === "openai_image" && imagePreviews.length > 0 ? (
                         <div className="mt-3 grid gap-2">
-                          {imagePreviews.map((preview) => (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={preview.key}
-                              src={preview.src}
-                              alt="Generated result"
-                              className="max-h-64 w-full rounded-lg border border-border/70 object-contain"
-                            />
-                          ))}
+                          {imagePreviews.map((preview) => {
+                            const src = preview.url || imageObjectURLs[preview.key] || "";
+                            return (
+                              <div key={preview.key} className="grid gap-1.5">
+                                {src ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={src}
+                                    alt="Generated result"
+                                    className="max-h-64 w-full rounded-lg border border-border/70 object-contain"
+                                  />
+                                ) : (
+                                  <div className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                                    图片数据正在准备。
+                                  </div>
+                                )}
+                                {preview.revisedPrompt ? (
+                                  <div className="line-clamp-2 text-xs text-muted-foreground">
+                                    {preview.revisedPrompt}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                     </div>

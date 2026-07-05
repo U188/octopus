@@ -51,7 +51,15 @@ type TestConversationResult struct {
 	Greeting   string         `json:"greeting"`
 	Reply      string         `json:"reply"`
 	DurationMS int64          `json:"duration_ms"`
+	Images     []TestImage    `json:"images,omitempty"`
 	Raw        map[string]any `json:"raw,omitempty"`
+}
+
+type TestImage struct {
+	URL           string `json:"url,omitempty"`
+	B64JSON       string `json:"b64_json,omitempty"`
+	MimeType      string `json:"mime_type,omitempty"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
 }
 
 type TestConversationStreamEvent struct {
@@ -127,6 +135,7 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 		Greeting:   greeting,
 		Reply:      extractTestConversationReply(mode, payload),
 		DurationMS: duration.Milliseconds(),
+		Images:     extractTestConversationImages(mode, payload),
 		Raw:        payload,
 	}
 	if emit != nil {
@@ -1439,4 +1448,90 @@ func extractImagesGenerationSummary(payload map[string]any) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func extractTestConversationImages(mode TestConversationMode, payload map[string]any) []TestImage {
+	if mode != TestConversationModeOpenAIImage || payload == nil {
+		return nil
+	}
+
+	images := make([]TestImage, 0)
+	seen := make(map[string]struct{})
+	add := func(item TestImage) {
+		item.URL = strings.TrimSpace(item.URL)
+		item.B64JSON = strings.TrimSpace(item.B64JSON)
+		item.MimeType = strings.TrimSpace(item.MimeType)
+		item.RevisedPrompt = strings.TrimSpace(item.RevisedPrompt)
+		if item.URL == "" && item.B64JSON == "" {
+			return
+		}
+		if item.MimeType == "" {
+			item.MimeType = "image/png"
+		}
+		key := item.URL
+		if key == "" {
+			key = fmt.Sprintf("%s:%d:%s", item.MimeType, len(item.B64JSON), firstN(item.B64JSON, 64))
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		images = append(images, item)
+	}
+	addFromMap := func(obj map[string]any) {
+		if obj == nil {
+			return
+		}
+		add(TestImage{
+			URL:           jsonString(obj["url"]),
+			B64JSON:       jsonString(obj["b64_json"]),
+			MimeType:      imageMimeTypeFromPayload(obj),
+			RevisedPrompt: jsonString(obj["revised_prompt"]),
+		})
+	}
+
+	addFromMap(payload)
+	if data, ok := payload["data"].([]any); ok {
+		for _, item := range data {
+			if obj, ok := item.(map[string]any); ok {
+				addFromMap(obj)
+			}
+		}
+	}
+	if data, ok := payload["data"].(map[string]any); ok {
+		addFromMap(data)
+		if nested, ok := data["data"].([]any); ok {
+			for _, item := range nested {
+				if obj, ok := item.(map[string]any); ok {
+					addFromMap(obj)
+				}
+			}
+		}
+	}
+	return images
+}
+
+func imageMimeTypeFromPayload(payload map[string]any) string {
+	raw := firstNonEmptyString(jsonString(payload["mime_type"]), jsonString(payload["mimeType"]))
+	if strings.HasPrefix(raw, "image/") {
+		return raw
+	}
+	format := strings.ToLower(firstNonEmptyString(jsonString(payload["output_format"]), jsonString(payload["format"])))
+	switch format {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "webp":
+		return "image/webp"
+	case "gif":
+		return "image/gif"
+	default:
+		return "image/png"
+	}
+}
+
+func firstN(value string, n int) string {
+	if n <= 0 || len(value) <= n {
+		return value
+	}
+	return value[:n]
 }

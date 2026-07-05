@@ -146,6 +146,28 @@ function hasCacheTokens(log: RelayLog) {
         || (log.cache_write_tokens != null && log.cache_write_tokens > 0);
 }
 
+function finalRoutedAttempt(log: RelayLog): ChannelAttempt | null {
+    const attempts = log.attempts ?? [];
+    for (let i = attempts.length - 1; i >= 0; i--) {
+        if (attempts[i].status === 'success') return attempts[i];
+    }
+    for (let i = attempts.length - 1; i >= 0; i--) {
+        if (attempts[i].status === 'failed') return attempts[i];
+    }
+    return attempts[attempts.length - 1] ?? null;
+}
+
+function routedModelName(log: RelayLog): string {
+    const attemptModel = finalRoutedAttempt(log)?.model_name?.trim();
+    return attemptModel || log.actual_model_name?.trim() || log.request_model_name?.trim() || '';
+}
+
+function upstreamResponseModelName(log: RelayLog, routeModel: string): string {
+    const actual = log.actual_model_name?.trim() || '';
+    if (!actual || !routeModel || actual === routeModel) return '';
+    return actual;
+}
+
 // 投影渠道命名 "站点/账号/分组-端点后缀"，Anthropic 端点后缀为 -Anthropic。
 // 仅 Anthropic 端点的 input_tokens 不含 cache_read（Anthropic 原生语义），不应做减法；
 // OpenAI/Gemini 等的 input_tokens 已含 cache_read。见 SiteModelRouteType 后缀映射。
@@ -538,13 +560,17 @@ function extractRequestHeadersContent(requestHeaders: string | undefined, conten
 
 export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogSiteActionTargets | null }) {
     const t = useTranslations('log.card');
-    const displayActualModelName = useMemo(
-        () => log.actual_model_name?.trim() || log.request_model_name?.trim() || '',
-        [log.actual_model_name, log.request_model_name],
+    const displayRouteModelName = useMemo(
+        () => routedModelName(log),
+        [log],
+    );
+    const displayUpstreamModelName = useMemo(
+        () => upstreamResponseModelName(log, displayRouteModelName),
+        [log, displayRouteModelName],
     );
     const { Avatar: ModelAvatar, color: brandColor } = useMemo(
-        () => getModelIcon(displayActualModelName),
-        [displayActualModelName]
+        () => getModelIcon(displayRouteModelName),
+        [displayRouteModelName]
     );
     const requestAPIKeyName = useMemo(() => log.request_api_key_name?.trim() ?? '', [log.request_api_key_name]);
     const disableMutation = useUpdateSiteChannelModelDisabled();
@@ -685,9 +711,18 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                             {log.channel_name}
                                         </Badge>
                                     )}
-                                    <span className="text-muted-foreground truncate" title={displayActualModelName}>
-                                        {displayActualModelName}
+                                    <span className="text-muted-foreground truncate" title={displayRouteModelName}>
+                                        {displayRouteModelName}
                                     </span>
+                                    {displayUpstreamModelName ? (
+                                        <Badge
+                                            variant="outline"
+                                            className="max-w-40 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                                            title={`上游返回：${displayUpstreamModelName}`}
+                                        >
+                                            上游 {displayUpstreamModelName}
+                                        </Badge>
+                                    ) : null}
                                     {log.attempts?.some((attempt) => attempt.sticky) ? (
                                         <Pin className="size-3.5 shrink-0 text-amber-500" />
                                     ) : null}
@@ -769,7 +804,16 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                         {log.channel_name}
                                     </Badge>
                                 )}
-                                <span className="text-muted-foreground truncate">{displayActualModelName}</span>
+                                <span className="text-muted-foreground truncate">{displayRouteModelName}</span>
+                                {displayUpstreamModelName ? (
+                                    <Badge
+                                        variant="outline"
+                                        className="max-w-52 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                                        title={`上游返回：${displayUpstreamModelName}`}
+                                    >
+                                        上游 {displayUpstreamModelName}
+                                    </Badge>
+                                ) : null}
                                 {log.attempts?.some((attempt) => attempt.sticky) ? (
                                     <Pin className="size-3.5 shrink-0 text-amber-500" />
                                 ) : null}

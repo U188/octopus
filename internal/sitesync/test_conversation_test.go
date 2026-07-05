@@ -482,3 +482,39 @@ func TestExtractTestConversationReplyHandlesImageGeneration(t *testing.T) {
 		t.Fatalf("expected b64 summary, got %q", got)
 	}
 }
+
+func TestExtractTestConversationImagesHandlesImageGeneration(t *testing.T) {
+	payload := map[string]any{
+		"data": []any{
+			map[string]any{"url": "https://cdn.example.com/image.png", "revised_prompt": "clean prompt"},
+			map[string]any{"b64_json": "abcdef", "output_format": "webp"},
+		},
+	}
+
+	images := extractTestConversationImages(TestConversationModeOpenAIImage, payload)
+	if len(images) != 2 {
+		t.Fatalf("expected 2 images, got %#v", images)
+	}
+	if images[0].URL != "https://cdn.example.com/image.png" || images[0].RevisedPrompt != "clean prompt" {
+		t.Fatalf("unexpected URL image: %#v", images[0])
+	}
+	if images[1].B64JSON != "abcdef" || images[1].MimeType != "image/webp" {
+		t.Fatalf("unexpected b64 image: %#v", images[1])
+	}
+
+	wrapped := map[string]any{
+		"data": map[string]any{
+			"data": []any{
+				map[string]any{"b64_json": "xyz", "mime_type": "image/jpeg"},
+			},
+		},
+	}
+	images = extractTestConversationImages(TestConversationModeOpenAIImage, wrapped)
+	if len(images) != 1 || images[0].B64JSON != "xyz" || images[0].MimeType != "image/jpeg" {
+		t.Fatalf("unexpected wrapped image: %#v", images)
+	}
+
+	if got := extractTestConversationImages(TestConversationModeOpenAIChat, payload); len(got) != 0 {
+		t.Fatalf("expected non-image mode to return no images, got %#v", got)
+	}
+}
