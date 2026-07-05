@@ -35,6 +35,7 @@ type usageSummary struct {
 
 type topUsageItem struct {
 	Name         string
+	LastTime     int64
 	Requests     int
 	Success      int
 	Failed       int
@@ -129,7 +130,7 @@ func buildTopReport(ctx context.Context, args []string) string {
 		formatFloat(usage.Cost),
 	)
 	appendTopItems(&b, "\n\n🤖 模型 Top", models, 10)
-	appendTopItems(&b, "\n\n🧭 渠道 Top", channels, 10)
+	appendChannelTopItems(&b, "\n\n🧭 渠道 Top", channels, 10)
 	return b.String()
 }
 
@@ -234,8 +235,9 @@ func parseReportWindow(args []string, now time.Time) reportWindow {
 func loadUsage(ctx context.Context, window reportWindow) (usageSummary, []topUsageItem, []topUsageItem, error) {
 	var rows []model.RelayLog
 	err := db.GetDB().WithContext(ctx).
-		Select("request_model_name", "channel_id", "channel_name", "actual_model_name", "input_tokens", "output_tokens", "ftut", "use_time", "cost", "success").
+		Select("time", "request_model_name", "channel_id", "channel_name", "actual_model_name", "input_tokens", "output_tokens", "ftut", "use_time", "cost", "success").
 		Where("time >= ? AND time < ?", window.Start.Unix(), window.End.Unix()).
+		Where("channel_name IS NULL OR channel_name = '' OR channel_name NOT LIKE ?", "Site Test Conversation%").
 		Find(&rows).Error
 	if err != nil {
 		return usageSummary{}, nil, nil, err
@@ -257,18 +259,22 @@ func loadUsage(ctx context.Context, window reportWindow) (usageSummary, []topUsa
 		usage.UseTimeTotal += row.UseTime
 
 		modelName := firstNonEmpty(row.RequestModelName, row.ActualModelName, "-")
-		addTopUsage(modelMap, modelName, row)
+		addTopUsage(modelMap, modelName, modelName, row)
 		channelName := firstNonEmpty(row.ChannelName, fmt.Sprintf("channel#%d", row.ChannelId))
-		addTopUsage(channelMap, channelName, row)
+		addTopUsage(channelMap, channelUsageKey(row), channelName, row)
 	}
-	return usage, sortTopUsage(modelMap), sortTopUsage(channelMap), nil
+	return usage, sortTopUsage(modelMap), sortTopUsageBySuccess(channelMap), nil
 }
 
-func addTopUsage(items map[string]*topUsageItem, name string, row model.RelayLog) {
-	item := items[name]
+func addTopUsage(items map[string]*topUsageItem, key string, displayName string, row model.RelayLog) {
+	item := items[key]
 	if item == nil {
-		item = &topUsageItem{Name: name}
-		items[name] = item
+		item = &topUsageItem{Name: displayName}
+		items[key] = item
+	}
+	if displayName != "" && row.Time >= item.LastTime {
+		item.Name = displayName
+		item.LastTime = row.Time
 	}
 	item.Requests++
 	if row.Success {
@@ -281,12 +287,39 @@ func addTopUsage(items map[string]*topUsageItem, name string, row model.RelayLog
 	item.Cost += row.Cost
 }
 
+func channelUsageKey(row model.RelayLog) string {
+	if row.ChannelId > 0 {
+		return fmt.Sprintf("channel:%d", row.ChannelId)
+	}
+	return "name:" + firstNonEmpty(row.ChannelName, fmt.Sprintf("channel#%d", row.ChannelId))
+}
+
 func sortTopUsage(items map[string]*topUsageItem) []topUsageItem {
 	result := make([]topUsageItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, *item)
 	}
 	sort.Slice(result, func(i, j int) bool {
+		if result[i].Requests != result[j].Requests {
+			return result[i].Requests > result[j].Requests
+		}
+		if result[i].InputTokens+result[i].OutputTokens != result[j].InputTokens+result[j].OutputTokens {
+			return result[i].InputTokens+result[i].OutputTokens > result[j].InputTokens+result[j].OutputTokens
+		}
+		return result[i].Name < result[j].Name
+	})
+	return result
+}
+
+func sortTopUsageBySuccess(items map[string]*topUsageItem) []topUsageItem {
+	result := make([]topUsageItem, 0, len(items))
+	for _, item := range items {
+		result = append(result, *item)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Success != result[j].Success {
+			return result[i].Success > result[j].Success
+		}
 		if result[i].Requests != result[j].Requests {
 			return result[i].Requests > result[j].Requests
 		}
@@ -371,7 +404,7 @@ func formatOpsReport(window reportWindow, usage usageSummary, models []topUsageI
 		}
 	}
 	appendTopItems(&b, "\n\n🤖 模型 Top", models, 5)
-	appendTopItems(&b, "\n\n🧭 渠道 Top", channels, 5)
+	appendChannelTopItems(&b, "\n\n🧭 渠道 Top", channels, 5)
 	appendBalanceDigest(&b, sites.Balances)
 	return b.String()
 }
@@ -386,6 +419,25 @@ func appendTopItems(b *strings.Builder, title string, items []topUsageItem, limi
 		fmt.Fprintf(b, "\n%s %s\n   %s 次｜%s｜🎟 %s｜💸 %s",
 			rankLabel(idx+1),
 			shortReportName(item.Name, 52),
+			formatInt(item.Requests),
+			formatPercent(item.Success, item.Requests),
+			formatInt(item.InputTokens+item.OutputTokens),
+			formatFloat(item.Cost),
+		)
+	}
+}
+
+func appendChannelTopItems(b *strings.Builder, title string, items []topUsageItem, limit int) {
+	b.WriteString(title)
+	if len(items) == 0 {
+		b.WriteString("\n暂无请求")
+		return
+	}
+	for idx, item := range limitTopUsageItems(items, limit) {
+		fmt.Fprintf(b, "\n%s %s\n   ✅ %s｜请求 %s｜%s｜🎟 %s｜💸 %s",
+			rankLabel(idx+1),
+			shortReportName(item.Name, 52),
+			formatInt(item.Success),
 			formatInt(item.Requests),
 			formatPercent(item.Success, item.Requests),
 			formatInt(item.InputTokens+item.OutputTokens),
