@@ -130,11 +130,11 @@ function inferCredentialType(platform: SitePlatform, form: SiteAccountFormState)
     if (form.access_token.trim()) {
         return SiteCredentialType.AccessToken;
     }
-    if (form.api_key.trim()) {
-        return SiteCredentialType.APIKey;
-    }
     if (form.username.trim() || form.password.trim()) {
         return SiteCredentialType.UsernamePassword;
+    }
+    if (form.api_key.trim()) {
+        return SiteCredentialType.APIKey;
     }
     return null;
 }

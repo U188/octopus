@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { useLogin } from "@/api/endpoints/user"
 import { useAPIKeyLogin } from "@/api/endpoints/apikey"
 import Logo from "@/components/modules/logo"
+import { toast } from "@/components/common/Toast"
 import { KeyRound, User } from "lucide-react"
 import {
   Tabs,
@@ -48,10 +49,12 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
         await apiKeyLoginMutation.mutateAsync(apiKey)
       }
 
+      toast.success(mode === 'user' ? t('success.user') : t('success.apikey'))
       onLoginSuccess?.()
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : t('error.generic')
       setError(errorMessage)
+      toast.error(t('error.title'), { description: errorMessage })
     }
   }
 

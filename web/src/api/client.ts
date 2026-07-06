@@ -16,11 +16,16 @@ export function setAuthStoreGetter(getter: () => { token: string | null; logout:
 /**
  * 全局错误处理
  */
-const handleError = (error: ApiError) => {
+type RequestOptions = {
+    authToken?: string;
+    suppressUnauthorizedLogout?: boolean;
+};
+
+const handleError = (error: ApiError, options?: RequestOptions) => {
     console.error('API Error:', error);
 
     // 401 未授权，调用 store 的 logout
-    if (error.code === HttpStatus.UNAUTHORIZED) {
+    if (error.code === HttpStatus.UNAUTHORIZED && !options?.suppressUnauthorizedLogout) {
         if (getAuthStore) {
             const store = getAuthStore();
             store.logout();
@@ -44,7 +49,7 @@ function isApiErrorParams(value: unknown): value is ApiErrorParams {
 /**
  * 处理响应
  */
-async function handleResponse<T>(response: Response): Promise<T> {
+async function handleResponse<T>(response: Response, options?: RequestOptions): Promise<T> {
     const contentType = response.headers.get('content-type');
     const isJson = contentType?.includes('application/json');
 
@@ -77,7 +82,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
             message: translateApiErrorCode(errorCode, rawMessage, errorParams),
         };
 
-        handleError(error);
+        handleError(error, options);
         throw error;
     }
 
@@ -96,7 +101,8 @@ async function request<T>(
     method: string,
     path: string,
     body?: BodyInit,
-    params?: Record<string, string | number | boolean>
+    params?: Record<string, string | number | boolean>,
+    options?: RequestOptions
 ): Promise<T> {
     // 构建 URL
     const searchParams = params ? new URLSearchParams(
@@ -113,7 +119,11 @@ async function request<T>(
     }
 
     // 添加 Authorization - 从 zustand store 获取 token
-    if (typeof window !== 'undefined' && getAuthStore) {
+    if (options?.authToken !== undefined) {
+        if (options.authToken) {
+            headers.set('Authorization', `Bearer ${options.authToken}`);
+        }
+    } else if (typeof window !== 'undefined' && getAuthStore) {
         const store = getAuthStore();
         if (store.token) {
             headers.set('Authorization', `Bearer ${store.token}`);
@@ -127,7 +137,7 @@ async function request<T>(
         body,
     });
 
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, options);
 }
 
 /**
@@ -139,6 +149,9 @@ export const apiClient = {
      */
     get: <T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> =>
         request<T>('GET', path, undefined, params),
+
+    getWithToken: <T>(path: string, token: string, params?: Record<string, string | number | boolean>): Promise<T> =>
+        request<T>('GET', path, undefined, params, { authToken: token, suppressUnauthorizedLogout: true }),
 
     /**
      * POST 请求

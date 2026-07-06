@@ -710,6 +710,53 @@ func TestSiteAccountUpdateInfersCredentialTypeFromMergedFields(t *testing.T) {
 	}
 }
 
+func TestSiteAccountUpdateUsernamePasswordWinsOverRetainedAPIKey(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	site := &model.Site{
+		Name:     "sub2api-site",
+		Platform: model.SitePlatformSub2API,
+		BaseURL:  "https://sub2api.example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "sub2api-account",
+		CredentialType: model.SiteCredentialTypeAPIKey,
+		APIKey:         "sk-existing-default",
+		Enabled:        true,
+		AutoSync:       true,
+		AutoCheckin:    true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate API account failed: %v", err)
+	}
+
+	username := "user@example.com"
+	password := "password"
+	updated, err := SiteAccountUpdate(&model.SiteAccountUpdateRequest{
+		ID:       account.ID,
+		Username: &username,
+		Password: &password,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountUpdate username/password failed: %v", err)
+	}
+	if updated.CredentialType != model.SiteCredentialTypeUsernamePassword {
+		t.Fatalf("expected credential type username_password, got %q", updated.CredentialType)
+	}
+	if updated.Username != username || updated.Password != password {
+		t.Fatalf("expected username/password saved, got username=%q password=%q", updated.Username, updated.Password)
+	}
+	if updated.APIKey != "sk-existing-default" {
+		t.Fatalf("expected retained account API key, got %q", updated.APIKey)
+	}
+}
+
 func TestSiteUpdateMergesRouteBaseURLs(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 

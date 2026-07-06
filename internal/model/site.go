@@ -1137,10 +1137,10 @@ func (a *SiteAccount) InferCredentialType(platform SitePlatform) {
 	switch {
 	case a.AccessToken != "":
 		a.CredentialType = SiteCredentialTypeAccessToken
-	case a.APIKey != "":
-		a.CredentialType = SiteCredentialTypeAPIKey
 	case a.Username != "" || a.Password != "":
 		a.CredentialType = SiteCredentialTypeUsernamePassword
+	case a.APIKey != "":
+		a.CredentialType = SiteCredentialTypeAPIKey
 	}
 }
 

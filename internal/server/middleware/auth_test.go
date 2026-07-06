@@ -2,11 +2,13 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"github.com/U188/octopus/internal/apperror"
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -36,6 +38,28 @@ func TestAPIKeyAuthAcceptsCustomXAPIKey(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected custom x-api-key to pass, status=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAPIKeyAuthInvalidKeyUsesAPIKeyErrorCode(t *testing.T) {
+	router := setupAPIKeyAuthTest(t, "valid-local-test-key")
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set("Authorization", "Bearer wrong-local-test-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized, status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.ErrorCode != apperror.CodeAuthAPIKeyInvalid {
+		t.Fatalf("expected %q, got %q body=%s", apperror.CodeAuthAPIKeyInvalid, body.ErrorCode, resp.Body.String())
 	}
 }
 

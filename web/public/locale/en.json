@@ -11,7 +11,12 @@
             "apikey": "API Key"
         },
         "error": {
+            "title": "Login failed",
             "generic": "Login failed, please check your credentials"
+        },
+        "success": {
+            "user": "Signed in",
+            "apikey": "API Key signed in"
         },
         "button": {
             "loading": "Logging in...",
@@ -1122,6 +1127,7 @@
             "invalid_credentials": "The username or password is incorrect.",
             "api_key_expired": "The API key has expired.",
             "api_key_missing": "The API key is missing.",
+            "api_key_invalid": "The API key is invalid. Check it and try again.",
             "password_incorrect": "The old password is incorrect.",
             "api_key_disabled": "The API key is disabled.",
             "api_key_cost_exceeded": "The API key has reached the maximum cost limit.",

@@ -11,7 +11,12 @@
             "apikey": "金鑰登入"
         },
         "error": {
+            "title": "登入失敗",
             "generic": "登入失敗，請檢查登入憑證"
+        },
+        "success": {
+            "user": "帳號登入成功",
+            "apikey": "API Key 登入成功"
         },
         "button": {
             "loading": "登入中...",
@@ -1122,6 +1127,7 @@
             "invalid_credentials": "使用者名稱或密碼錯誤。",
             "api_key_expired": "API Key 已過期。",
             "api_key_missing": "缺少 API Key。",
+            "api_key_invalid": "API Key 無效，請檢查後重試。",
             "password_incorrect": "原密碼不正確。",
             "api_key_disabled": "API Key 已被停用。",
             "api_key_cost_exceeded": "API Key 已達到最大費用限制。",

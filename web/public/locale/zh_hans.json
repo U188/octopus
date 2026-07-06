@@ -11,7 +11,12 @@
             "apikey": "密钥登录"
         },
         "error": {
+            "title": "登录失败",
             "generic": "登录失败,请检查登录凭据"
+        },
+        "success": {
+            "user": "账号登录成功",
+            "apikey": "API Key 登录成功"
         },
         "button": {
             "loading": "登录中...",
@@ -1122,6 +1127,7 @@
             "invalid_credentials": "用户名或密码错误。",
             "api_key_expired": "API Key 已过期。",
             "api_key_missing": "缺少 API Key。",
+            "api_key_invalid": "API Key 无效，请检查后重试。",
             "password_incorrect": "原密码不正确。",
             "api_key_disabled": "API Key 已被禁用。",
             "api_key_cost_exceeded": "API Key 已达到最大费用限制。",

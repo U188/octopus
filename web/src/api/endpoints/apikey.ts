@@ -40,10 +40,11 @@ export function useAPIKeyLogin() {
 
     return useMutation({
         mutationFn: async (apiKey: string) => {
-            // 先设置以便 apiClient 发送请求时带上 token
-            setAPIKeyAuth(apiKey);
-            await apiClient.get<null>('/api/v1/apikey/login');
+            await apiClient.getWithToken<null>('/api/v1/apikey/login', apiKey);
             return apiKey;
+        },
+        onSuccess: (apiKey) => {
+            setAPIKeyAuth(apiKey);
         },
         onError: (error) => {
             logout();

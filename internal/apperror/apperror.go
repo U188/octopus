@@ -23,10 +23,11 @@ const (
 	CodeAuthInvalidCredentials = "auth.invalid_credentials"
 	CodeAuthAPIKeyExpired      = "auth.api_key_expired"
 	CodeAuthAPIKeyMissing      = "auth.api_key_missing"
+	CodeAuthAPIKeyInvalid      = "auth.api_key_invalid"
 	CodeAuthPasswordIncorrect  = "auth.password_incorrect"
 	CodeAuthAPIKeyDisabled     = "auth.api_key_disabled"
 	CodeAuthAPIKeyCostExceeded = "auth.api_key_cost_exceeded"
-	CodeAuthAPIKeyRateLimited = "auth.api_key_rate_limited"
+	CodeAuthAPIKeyRateLimited  = "auth.api_key_rate_limited"
 
 	CodeSiteSub2APIAPIKeyRequired      = "site.sub2api.api_key_required"
 	CodeSiteSub2APIModelAPIKeyRequired = "site.sub2api.model_api_key_required"

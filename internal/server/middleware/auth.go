@@ -51,7 +51,7 @@ func APIKeyAuth() gin.HandlerFunc {
 
 		apiKeyObj, err := op.APIKeyGetByAPIKey(apiKey, c.Request.Context())
 		if err != nil {
-			resp.InvalidToken(c)
+			resp.APIKeyInvalid(c)
 			c.Abort()
 			return
 		}
