@@ -181,6 +181,11 @@
             "placeholder": "https://octopus.example.com",
             "description": "客户端访问本服务的基础地址，填写后 API 密钥列表将显示导出按钮"
         },
+        "updateDownloadUrl": {
+            "label": "更新加速地址",
+            "placeholder": "https://gh.llkk.cc/",
+            "description": "系统更新下载地址或加速前缀；留空使用 GitHub 官方地址，支持 {url} 或 {filename} 模板"
+        },
         "telegramBot": {
             "title": "Telegram Bot",
             "description": "通过 Telegram 管理站点、Key、测试对话和分组",

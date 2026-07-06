@@ -57,6 +57,7 @@ export const SettingKey = {
     TelegramAlertFailureWindow: 'telegram_alert_failure_window_minutes',
     TelegramAlertMinRequests: 'telegram_alert_min_requests',
     TelegramAlertCooldownMinutes: 'telegram_alert_cooldown_minutes',
+    UpdateDownloadURL: 'update_download_url',
     WebDAVAutoBackupEnabled: 'webdav_auto_backup_enabled',
     WebDAVAutoBackupURL: 'webdav_auto_backup_url',
     WebDAVAutoBackupUsername: 'webdav_auto_backup_username',

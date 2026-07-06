@@ -15,6 +15,8 @@ import (
 
 	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/conf"
+	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/utils/log"
 )
 
@@ -57,7 +59,7 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 		return nil, err
 	}
 
-	if github_pat != "" {
+	if github_pat != "" && shouldAttachGitHubToken(req.URL.Hostname()) {
 		req.Header.Set("Authorization", "Bearer "+github_pat)
 	}
 
@@ -91,6 +93,37 @@ func GetLatestInfo() (*LatestInfo, error) {
 		return nil, fmt.Errorf("failed to get latest info: %s", latestInfo.Message)
 	}
 	return &latestInfo, nil
+}
+
+func BuildDownloadURL(filename string) string {
+	custom, err := op.SettingGetString(model.SettingKeyUpdateDownloadURL)
+	if err != nil {
+		return buildDownloadURL(filename, "")
+	}
+	return buildDownloadURL(filename, custom)
+}
+
+func buildDownloadURL(filename, custom string) string {
+	cleanFilename := strings.TrimLeft(filename, "/")
+	official := updateUrl + "/" + cleanFilename
+	custom = strings.TrimSpace(custom)
+	if custom == "" {
+		return official
+	}
+	if strings.Contains(custom, "{url}") {
+		return strings.ReplaceAll(custom, "{url}", official)
+	}
+	if strings.Contains(custom, "{filename}") {
+		return strings.ReplaceAll(custom, "{filename}", cleanFilename)
+	}
+	if strings.HasSuffix(strings.TrimRight(custom, "/"), "/download") {
+		return strings.TrimRight(custom, "/") + "/" + cleanFilename
+	}
+	return strings.TrimRight(custom, "/") + "/" + official
+}
+
+func shouldAttachGitHubToken(host string) bool {
+	return host == "github.com" || host == "api.github.com"
 }
 
 func unzip(data []byte, dest string) error {

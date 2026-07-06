@@ -181,6 +181,11 @@
             "placeholder": "https://octopus.example.com",
             "description": "Base URL clients use to reach this service. When set, an export button appears in the API key list"
         },
+        "updateDownloadUrl": {
+            "label": "Update Download URL",
+            "placeholder": "https://gh.llkk.cc/",
+            "description": "Download URL or acceleration prefix for system updates. Leave empty to use official GitHub; {url} and {filename} templates are supported"
+        },
         "telegramBot": {
             "title": "Telegram Bot",
             "description": "Manage sites, keys, test conversations, and groups from Telegram",

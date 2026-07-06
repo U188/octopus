@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Globe, Link, Network, Radio, Shield, X } from 'lucide-react';
+import { Activity, Download, Globe, Link, Network, Radio, Shield, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -84,6 +84,7 @@ export function SettingNetwork() {
 
     const proxyUrl = useSettingField(SettingKey.ProxyURL);
     const apiBaseUrl = useSettingField(SettingKey.ApiBaseUrl);
+    const updateDownloadURL = useSettingField(SettingKey.UpdateDownloadURL);
     const cors = useSettingField(SettingKey.CORSAllowOrigins);
     const sseHeartbeat = useSettingField(SettingKey.SSEHeartbeatInterval, SSE_MIRROR_KEYS);
     const responsesWS = useResponsesWSMode();
@@ -153,6 +154,17 @@ export function SettingNetwork() {
                     onChange={(e) => apiBaseUrl.setValue(e.target.value)}
                     onBlur={apiBaseUrl.save}
                     placeholder={t('apiBaseUrl.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </SettingRow>
+
+            {/* 系统更新下载加速地址 */}
+            <SettingRow icon={Download} label={t('updateDownloadUrl.label')} tooltip={t('updateDownloadUrl.description')}>
+                <Input
+                    value={updateDownloadURL.value}
+                    onChange={(e) => updateDownloadURL.setValue(e.target.value)}
+                    onBlur={updateDownloadURL.save}
+                    placeholder={t('updateDownloadUrl.placeholder')}
                     className="w-48 rounded-xl"
                 />
             </SettingRow>

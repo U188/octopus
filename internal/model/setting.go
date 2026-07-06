@@ -58,6 +58,7 @@ const (
 	SettingKeyTelegramAlertMinRequests         SettingKey = "telegram_alert_min_requests"           // Telegram 失败率告警最小请求数
 	SettingKeyTelegramAlertCooldownMinutes     SettingKey = "telegram_alert_cooldown_minutes"       // Telegram 告警冷却时间(分钟)
 	SettingKeyTelegramAlertState               SettingKey = "telegram_alert_state"                  // Telegram 告警发送状态(JSON)
+	SettingKeyUpdateDownloadURL                SettingKey = "update_download_url"                   // 系统更新下载地址/加速前缀，支持 {url} 模板
 	SettingKeyWebDAVAutoBackupEnabled          SettingKey = "webdav_auto_backup_enabled"            // 是否启用 WebDAV 自动轻量备份（不含历史对话日志）
 	SettingKeyWebDAVAutoBackupURL              SettingKey = "webdav_auto_backup_url"                // WebDAV 自动备份地址
 	SettingKeyWebDAVAutoBackupUsername         SettingKey = "webdav_auto_backup_username"           // WebDAV 自动备份用户名
@@ -122,6 +123,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyTelegramAlertMinRequests, Value: "10"},
 		{Key: SettingKeyTelegramAlertCooldownMinutes, Value: "60"},
 		{Key: SettingKeyTelegramAlertState, Value: "{}"},
+		{Key: SettingKeyUpdateDownloadURL, Value: ""},
 		{Key: SettingKeyWebDAVAutoBackupEnabled, Value: "false"},
 		{Key: SettingKeyWebDAVAutoBackupURL, Value: ""},
 		{Key: SettingKeyWebDAVAutoBackupUsername, Value: ""},
@@ -249,7 +251,7 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("proxy URL must have a host")
 		}
 		return nil
-	case SettingKeyApiBaseUrl, SettingKeyTelegramBotAPIBaseURL, SettingKeyWebDAVAutoBackupURL:
+	case SettingKeyApiBaseUrl, SettingKeyTelegramBotAPIBaseURL, SettingKeyUpdateDownloadURL, SettingKeyWebDAVAutoBackupURL:
 		if s.Value == "" {
 			return nil
 		}

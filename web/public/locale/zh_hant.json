@@ -181,6 +181,11 @@
             "placeholder": "https://octopus.example.com",
             "description": "用戶端存取本服務的基礎位址，填寫後 API 金鑰列表將顯示匯出按鈕"
         },
+        "updateDownloadUrl": {
+            "label": "更新加速位址",
+            "placeholder": "https://gh.llkk.cc/",
+            "description": "系統更新下載位址或加速前綴；留空使用 GitHub 官方位址，支援 {url} 或 {filename} 範本"
+        },
         "telegramBot": {
             "title": "Telegram Bot",
             "description": "透過 Telegram 管理站點、Key、測試對話和分組",
