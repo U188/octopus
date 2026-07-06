@@ -176,7 +176,17 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 
 func syncSub2API(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*syncSnapshot, error) {
 	if account.CredentialType == model.SiteCredentialTypeUsernamePassword {
-		return nil, fmt.Errorf("sub2api does not support username/password login")
+		credentials, err := loginSub2API(ctx, siteRecord, account)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := syncSub2APIWithAccessToken(ctx, siteRecord, account, credentials.AccessToken)
+		if snapshot != nil {
+			snapshot.accessToken = credentials.AccessToken
+			snapshot.refreshToken = credentials.RefreshToken
+			snapshot.tokenExpiresAt = credentials.TokenExpiresAt
+		}
+		return snapshot, err
 	}
 	if account.CredentialType == model.SiteCredentialTypeAPIKey {
 		return syncWithDirectToken(ctx, siteRecord, account, resolveDirectToken(account), "manual")
@@ -190,8 +200,17 @@ func syncSub2API(ctx context.Context, siteRecord *model.Site, account *model.Sit
 	if err != nil && shouldRetrySub2APIAfterRefresh(err, account) {
 		refreshedToken, refreshErr := ensureFreshSub2APIAccessToken(ctx, siteRecord, account, true)
 		if refreshErr == nil && stripBearerPrefix(refreshedToken) != stripBearerPrefix(accessToken) {
-			return syncSub2APIWithAccessToken(ctx, siteRecord, account, refreshedToken)
+			refreshedSnapshot, refreshedErr := syncSub2APIWithAccessToken(ctx, siteRecord, account, refreshedToken)
+			if refreshedSnapshot != nil {
+				refreshedSnapshot.refreshToken = account.RefreshToken
+				refreshedSnapshot.tokenExpiresAt = account.TokenExpiresAt
+			}
+			return refreshedSnapshot, refreshedErr
 		}
+	}
+	if snapshot != nil {
+		snapshot.refreshToken = account.RefreshToken
+		snapshot.tokenExpiresAt = account.TokenExpiresAt
 	}
 	return snapshot, err
 }

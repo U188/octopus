@@ -105,7 +105,12 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 			return err
 		}
 		if strings.TrimSpace(snapshot.accessToken) != "" {
-			if err := upsertSessionCredentialTx(tx, accountID, strings.TrimSpace(snapshot.accessToken), 0); err != nil {
+			if err := upsertSessionCredentialTx(tx, accountID, strings.TrimSpace(snapshot.accessToken), snapshot.tokenExpiresAt); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(snapshot.refreshToken) != "" {
+			if err := upsertRefreshCredentialTx(tx, accountID, strings.TrimSpace(snapshot.refreshToken)); err != nil {
 				return err
 			}
 		}

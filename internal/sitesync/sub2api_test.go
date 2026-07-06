@@ -2,6 +2,7 @@ package sitesync
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,99 @@ import (
 
 	"github.com/U188/octopus/internal/model"
 )
+
+func TestSyncSub2APIUsernamePasswordLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode login body failed: %v", err)
+			}
+			if body["email"] != "user@example.com" || body["password"] != "secret" {
+				t.Fatalf("unexpected login body: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"access_token":"sub2-session-token","refresh_token":"sub2-refresh-token","expires_in":3600,"token_type":"Bearer"}}`))
+		case "/api/v1/keys":
+			if r.Header.Get("Authorization") != "Bearer sub2-session-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":11,"name":"managed-key","key":"sub2-user-key","group_id":7,"group_name":"VIP 7","enabled":true}]}}`))
+		case "/api/v1/groups/available":
+			if r.Header.Get("Authorization") != "Bearer sub2-session-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"groups":[{"id":7,"name":"vip"}]}}`))
+		case "/api/v1/models":
+			if r.Header.Get("Authorization") != "Bearer sub2-user-key" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":"gpt-4o-mini"}]}}`))
+		case "/api/v1/auth/me":
+			if r.Header.Get("Authorization") != "Bearer sub2-session-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"balance":12.5}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := syncSub2API(context.Background(), &model.Site{
+		BaseURL:  server.URL,
+		Platform: model.SitePlatformSub2API,
+	}, &model.SiteAccount{
+		CredentialType: model.SiteCredentialTypeUsernamePassword,
+		Username:       "user@example.com",
+		Password:       "secret",
+	})
+	if err != nil {
+		t.Fatalf("syncSub2API returned error: %v", err)
+	}
+	if snapshot.accessToken != "sub2-session-token" || snapshot.refreshToken != "sub2-refresh-token" || snapshot.tokenExpiresAt <= 0 {
+		t.Fatalf("expected login credentials in snapshot, got access=%q refresh=%q expires=%d", snapshot.accessToken, snapshot.refreshToken, snapshot.tokenExpiresAt)
+	}
+	if snapshot.balance != 12.5 {
+		t.Fatalf("expected balance 12.5, got %v", snapshot.balance)
+	}
+	if len(snapshot.tokens) != 1 || snapshot.tokens[0].Token != "sub2-user-key" {
+		t.Fatalf("expected managed token synced after login, got %+v", snapshot.tokens)
+	}
+}
+
+func TestSyncSub2APIUsernamePasswordLoginRequiresAccessTokenWhen2FA(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{"requires_2fa":true,"temp_token":"tmp","user_email_masked":"u***@example.com"}}`))
+	}))
+	defer server.Close()
+
+	_, err := syncSub2API(context.Background(), &model.Site{
+		BaseURL:  server.URL,
+		Platform: model.SitePlatformSub2API,
+	}, &model.SiteAccount{
+		CredentialType: model.SiteCredentialTypeUsernamePassword,
+		Username:       "user@example.com",
+		Password:       "secret",
+	})
+	if err == nil {
+		t.Fatalf("expected 2FA login to fail")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "2fa") || !strings.Contains(strings.ToLower(err.Error()), "access token") {
+		t.Fatalf("expected 2FA access token hint, got %v", err)
+	}
+}
 
 func TestSyncSub2APIUsesManagedKeyAndAPIModelEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

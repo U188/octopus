@@ -128,6 +128,47 @@ func refreshSub2APIManagedSession(ctx context.Context, siteRecord *model.Site, a
 	return refreshed.AccessToken, nil
 }
 
+func loginSub2API(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (sub2APIRefreshedCredentials, error) {
+	if siteRecord == nil || account == nil {
+		return sub2APIRefreshedCredentials{}, fmt.Errorf("site or account is nil")
+	}
+	email := strings.TrimSpace(account.Username)
+	password := strings.TrimSpace(account.Password)
+	if email == "" || password == "" {
+		return sub2APIRefreshedCredentials{}, fmt.Errorf("sub2api email and password are required")
+	}
+
+	payload, err := requestJSON(
+		ctx,
+		siteRecord,
+		"POST",
+		buildSiteURL(siteRecord.BaseURL, "/api/v1/auth/login"),
+		map[string]any{"email": email, "password": password},
+		map[string]string{"Content-Type": "application/json"},
+		account,
+	)
+	if err != nil {
+		return sub2APIRefreshedCredentials{}, fmt.Errorf("sub2api login request failed: %w", err)
+	}
+	data, err := unwrapSub2APIData(payload, "/api/v1/auth/login")
+	if err != nil {
+		return sub2APIRefreshedCredentials{}, err
+	}
+	if response, ok := data.(map[string]any); ok && jsonBool(response["requires_2fa"]) {
+		return sub2APIRefreshedCredentials{}, fmt.Errorf("sub2api login requires 2FA; use access token credential instead")
+	}
+
+	refreshed, ok := parseSub2APIAuthData(data)
+	if !ok {
+		return sub2APIRefreshedCredentials{}, fmt.Errorf("sub2api login response missing access token")
+	}
+
+	account.AccessToken = refreshed.AccessToken
+	account.RefreshToken = refreshed.RefreshToken
+	account.TokenExpiresAt = refreshed.TokenExpiresAt
+	return refreshed, nil
+}
+
 func upsertRefreshCredentialTx(tx *gorm.DB, accountID int, refreshToken string) error {
 	refreshToken = strings.TrimSpace(refreshToken)
 	if refreshToken == "" {
@@ -170,22 +211,33 @@ func parseSub2APIRefreshPayload(payload map[string]any) (sub2APIRefreshedCredent
 		}
 	}
 
-	data, ok := payload["data"].(map[string]any)
+	refreshed, ok := parseSub2APIAuthData(payload["data"])
+	if !ok || refreshed.RefreshToken == "" || refreshed.TokenExpiresAt <= 0 {
+		return sub2APIRefreshedCredentials{}, false
+	}
+	return refreshed, true
+}
+
+func parseSub2APIAuthData(value any) (sub2APIRefreshedCredentials, bool) {
+	data, ok := value.(map[string]any)
 	if !ok {
 		return sub2APIRefreshedCredentials{}, false
 	}
-
 	accessToken := stripBearerPrefix(jsonString(data["access_token"]))
 	refreshToken := strings.TrimSpace(jsonString(data["refresh_token"]))
 	expiresInSeconds := anyToInt64(data["expires_in"])
-	if accessToken == "" || refreshToken == "" || expiresInSeconds <= 0 {
+	if accessToken == "" {
 		return sub2APIRefreshedCredentials{}, false
+	}
+	tokenExpiresAt := int64(0)
+	if expiresInSeconds > 0 {
+		tokenExpiresAt = time.Now().Add(time.Duration(expiresInSeconds) * time.Second).UnixMilli()
 	}
 
 	return sub2APIRefreshedCredentials{
 		AccessToken:    accessToken,
 		RefreshToken:   refreshToken,
-		TokenExpiresAt: time.Now().Add(time.Duration(expiresInSeconds) * time.Second).UnixMilli(),
+		TokenExpiresAt: tokenExpiresAt,
 	}, true
 }
 
