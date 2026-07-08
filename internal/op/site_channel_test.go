@@ -403,6 +403,165 @@ func TestSiteChannelAccountGetIncludesFullProjectedKeys(t *testing.T) {
 	}
 }
 
+func TestSiteChannelAccountGetHidesProjectedArtifactsForSystemPausedGroup(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	site := &model.Site{
+		Name:     "site-channel-paused-projected-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "site-channel-paused-projected-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "token",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+
+	group := model.SiteUserGroup{
+		SiteAccountID:           account.ID,
+		GroupKey:                "old-group",
+		Name:                    "old-group",
+		ProjectionSuspended:     true,
+		ProjectionSuspendReason: "该分组没有可用 Key，已暂停投影",
+		ModelSyncStatus:         model.SiteGroupModelSyncStatusMissingKey,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&group).Error; err != nil {
+		t.Fatalf("create site group failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteModel{
+		SiteAccountID: account.ID,
+		GroupKey:      "old-group",
+		ModelName:     "claude-opus-test",
+		Source:        "sync",
+		RouteType:     model.SiteModelRouteTypeAnthropic,
+	}).Error; err != nil {
+		t.Fatalf("create site model failed: %v", err)
+	}
+
+	channel := &model.Channel{
+		Name:    "managed-paused-channel",
+		Type:    outbound.OutboundTypeAnthropic,
+		Enabled: false,
+		BaseUrls: []model.BaseUrl{{
+			URL:   "https://example.com",
+			Delay: 0,
+		}},
+		Keys: []model.ChannelKey{{
+			Enabled:    true,
+			ChannelKey: "sk-old-group-secret-key",
+			Remark:     "old-group",
+		}},
+		Model:     "claude-opus-test",
+		AutoSync:  false,
+		AutoGroup: model.AutoGroupTypeNone,
+	}
+	if err := ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	binding := model.SiteChannelBinding{
+		SiteID:          site.ID,
+		SiteAccountID:   account.ID,
+		SiteUserGroupID: &group.ID,
+		GroupKey:        "old-group",
+		ChannelID:       channel.ID,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&binding).Error; err != nil {
+		t.Fatalf("create site channel binding failed: %v", err)
+	}
+
+	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteChannelAccountGet failed: %v", err)
+	}
+	if len(view.Groups) != 1 {
+		t.Fatalf("expected one group, got %+v", view.Groups)
+	}
+	paused := view.Groups[0]
+	if len(paused.ProjectedChannelIDs) != 0 || len(paused.ProjectedChannels) != 0 || len(paused.ProjectedKeys) != 0 {
+		t.Fatalf("expected paused group projected artifacts to be hidden, got %+v", paused)
+	}
+	if len(paused.Models) != 1 {
+		t.Fatalf("expected one retained model, got %+v", paused.Models)
+	}
+	if paused.Models[0].ProjectedChannelID != nil {
+		t.Fatalf("expected paused group model projected channel to be hidden, got %+v", paused.Models[0].ProjectedChannelID)
+	}
+}
+
+func TestSiteChannelAccountGetDoesNotResurrectGroupFromStaleBinding(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	site := &model.Site{
+		Name:     "site-channel-stale-binding-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "site-channel-stale-binding-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "token",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+
+	channel := &model.Channel{
+		Name:    "managed-deleted-group-channel",
+		Type:    outbound.OutboundTypeOpenAIChat,
+		Enabled: false,
+		BaseUrls: []model.BaseUrl{{
+			URL:   "https://example.com/v1",
+			Delay: 0,
+		}},
+		Keys: []model.ChannelKey{{
+			Enabled:    true,
+			ChannelKey: "sk-deleted-group-secret-key",
+			Remark:     "deleted-group",
+		}},
+		Model:     "gpt-4o-mini",
+		AutoSync:  false,
+		AutoGroup: model.AutoGroupTypeNone,
+	}
+	if err := ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+	binding := model.SiteChannelBinding{
+		SiteID:        site.ID,
+		SiteAccountID: account.ID,
+		GroupKey:      "deleted-group",
+		ChannelID:     channel.ID,
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&binding).Error; err != nil {
+		t.Fatalf("create stale site channel binding failed: %v", err)
+	}
+
+	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteChannelAccountGet failed: %v", err)
+	}
+	if len(view.Groups) != 0 {
+		t.Fatalf("expected stale binding not to resurrect deleted group, got %+v", view.Groups)
+	}
+}
+
 func TestSiteChannelAccountGetShowsExplicitGroupModelsWithoutKeys(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 

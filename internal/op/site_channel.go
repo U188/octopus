@@ -226,7 +226,10 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 	}
 	for _, binding := range account.ChannelBindings {
 		baseKey, _ := model.ParseSiteChannelBindingKey(binding.GroupKey)
-		group := ensureSiteChannelGroup(groups, baseKey, baseKey)
+		group, ok := groups[model.NormalizeSiteGroupKey(baseKey)]
+		if !ok || shouldHideSiteProjectedArtifactsInChannelView(group) {
+			continue
+		}
 		group.HasProjectedChannel = true
 		group.ProjectedChannelIDs = append(group.ProjectedChannelIDs, binding.ChannelID)
 		channel, err := ChannelGet(binding.ChannelID, ctx)
@@ -291,7 +294,7 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 			RouteMetadata:  routeMetadata,
 			History:        historyMap[key+"\x00"+item.ModelName],
 		}
-		if hasChannel {
+		if hasChannel && !shouldHideSiteProjectedArtifactsInChannelView(group) {
 			id := channelID
 			modelView.ProjectedChannelID = &id
 		}
@@ -330,6 +333,21 @@ func shouldHideSiteAccountCredentialTokenInChannelView(site model.Site, token mo
 		return false
 	default:
 		return true
+	}
+}
+
+func shouldHideSiteProjectedArtifactsInChannelView(group *model.SiteChannelGroup) bool {
+	if group == nil {
+		return true
+	}
+	if group.ProjectionSuspended {
+		return true
+	}
+	switch group.ModelSyncStatus {
+	case model.SiteGroupModelSyncStatusEmpty, model.SiteGroupModelSyncStatusMissingKey, model.SiteGroupModelSyncStatusRemoved:
+		return true
+	default:
+		return false
 	}
 }
 
