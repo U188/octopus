@@ -104,7 +104,7 @@ func TestMergePersistedSiteTokensPreservesManualFullTokenWhenIncomingIsMasked(t 
 		Source:      "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected exactly one merged token, got %+v", merged)
 	}
@@ -141,7 +141,7 @@ func TestMergePersistedSiteTokensTreatsOptionalSKPrefixAsSameReadyToken(t *testi
 		Source:    "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected exactly one merged token, got %+v", merged)
 	}
@@ -178,9 +178,63 @@ func TestMergePersistedSiteTokensSkipsIncomingDuplicateOfAccountToken(t *testing
 		IsDefault:   true,
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 0 {
 		t.Fatalf("expected duplicate incoming account token to be skipped, got %+v", merged)
+	}
+}
+
+func TestMergePersistedSiteTokensMovesReadyTokenAcrossGroups(t *testing.T) {
+	now := time.Unix(1711929600, 0)
+	existing := []model.SiteToken{{
+		ID:            7,
+		SiteAccountID: 9,
+		Name:          "primary",
+		Token:         "sk-moved-key",
+		GroupKey:      "old",
+		GroupName:     "Old",
+		Enabled:       false,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "manual",
+	}}
+	incoming := []model.SiteToken{{
+		Name:      "primary",
+		Token:     "sk-moved-key",
+		GroupKey:  "new",
+		GroupName: "New",
+		Enabled:   true,
+		Source:    "sync",
+	}}
+
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
+	if len(merged) != 1 {
+		t.Fatalf("expected moved token to replace stale group copy, got %+v", merged)
+	}
+	if merged[0].GroupKey != "new" || merged[0].GroupName != "New" {
+		t.Fatalf("expected token to move to new group, got %+v", merged[0])
+	}
+	if merged[0].Enabled {
+		t.Fatalf("expected local disabled state to move with token")
+	}
+}
+
+func TestMergePersistedSiteTokensDropsManualTokenForRemovedGroup(t *testing.T) {
+	now := time.Unix(1711929600, 0)
+	existing := []model.SiteToken{{
+		ID:            7,
+		SiteAccountID: 9,
+		Name:          "old",
+		Token:         "sk-old-group-key",
+		GroupKey:      "old",
+		GroupName:     "Old",
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "manual",
+	}}
+
+	merged := mergePersistedSiteTokens(9, existing, nil, now, map[string]struct{}{"old": {}})
+	if len(merged) != 0 {
+		t.Fatalf("expected removed group manual token to be dropped, got %+v", merged)
 	}
 }
 
@@ -246,7 +300,7 @@ func TestMergePersistedSiteTokensDropsStaleManualTokenWithSameGroupAndName(t *te
 		Source:    "manual",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected stale duplicate to be dropped, got %+v", merged)
 	}
@@ -277,7 +331,7 @@ func TestMergePersistedSiteTokensPreservesLocalDisabledStateForReadyToken(t *tes
 		Source:    "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected exactly one merged token, got %+v", merged)
 	}
@@ -308,7 +362,7 @@ func TestMergePersistedSiteTokensPreservesLocalEnabledStateWhenIncomingDisabled(
 		Source:    "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected exactly one merged token, got %+v", merged)
 	}
@@ -353,7 +407,7 @@ func TestMergePersistedSiteTokensKeepsMaskedPendingWhenMatchIsAmbiguous(t *testi
 		Source:      "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 3 {
 		t.Fatalf("expected masked pending token plus two preserved manual tokens, got %+v", merged)
 	}
@@ -397,7 +451,7 @@ func TestMergePersistedSiteTokensDemotesReadyTokenWhenMaskedPatternMismatches(t 
 		Source:      "sync",
 	}}
 
-	merged := mergePersistedSiteTokens(9, existing, incoming, now)
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
 	if len(merged) != 1 {
 		t.Fatalf("expected exactly one merged token, got %+v", merged)
 	}
@@ -446,6 +500,78 @@ func TestPersistSyncSnapshotPreservesGroupProjectionDisabled(t *testing.T) {
 	}
 	if reloaded.Name != "VIP Renamed" {
 		t.Fatalf("expected synced group metadata to be updated, got %q", reloaded.Name)
+	}
+}
+
+func TestPersistSyncSnapshotPrunesRemovedGroupManualKeysAndProjection(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	site, account := createProjectionFixture(t, ctx)
+
+	vipGroup := model.SiteUserGroup{SiteAccountID: account.ID, GroupKey: "vip", Name: "VIP"}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&vipGroup).Error; err != nil {
+		t.Fatalf("create vip group failed: %v", err)
+	}
+	vipToken := model.SiteToken{
+		SiteAccountID: account.ID,
+		Name:          "vip",
+		Token:         "key-vip",
+		GroupKey:      "vip",
+		GroupName:     "VIP",
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "manual",
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&vipToken).Error; err != nil {
+		t.Fatalf("create vip token failed: %v", err)
+	}
+	vipModel := model.SiteModel{SiteAccountID: account.ID, GroupKey: "vip", ModelName: "gpt-4o-vip", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIChat, RouteSource: model.SiteModelRouteSourceSyncInferred}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&vipModel).Error; err != nil {
+		t.Fatalf("create vip model failed: %v", err)
+	}
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("initial ProjectAccount failed: %v", err)
+	}
+	if channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID); channelsByGroup["vip"].ID == 0 {
+		t.Fatalf("expected initial vip projected channel, got %+v", channelsByGroup)
+	}
+
+	snapshot := &syncSnapshot{
+		accessToken: account.AccessToken,
+		groups:      []model.SiteUserGroup{{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}},
+		tokens:      []model.SiteToken{{Name: "primary", Token: "key-primary", GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "sync"}},
+		models:      []model.SiteModel{{GroupKey: model.SiteDefaultGroupKey, ModelName: "gpt-4o-mini", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIChat, RouteSource: model.SiteModelRouteSourceSyncInferred}},
+		groupResults: []siteGroupSyncResult{
+			{GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, HasKey: true, Status: siteGroupSyncStatusSynced, Authoritative: true, ModelCount: 1},
+			{GroupKey: "vip", GroupName: "VIP", HasKey: false, Status: siteGroupSyncStatusRemoved, Authoritative: true, Message: "上游已移除此分组，已清理历史模型"},
+		},
+		status:  model.SiteExecutionStatusSuccess,
+		message: "同步完成",
+	}
+	if err := persistSyncSnapshot(ctx, account.ID, snapshot); err != nil {
+		t.Fatalf("persistSyncSnapshot returned error: %v", err)
+	}
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("ProjectAccount after removed group failed: %v", err)
+	}
+
+	var vipTokenCount int64
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.SiteToken{}).Where("site_account_id = ? AND group_key = ?", account.ID, "vip").Count(&vipTokenCount).Error; err != nil {
+		t.Fatalf("count vip tokens failed: %v", err)
+	}
+	if vipTokenCount != 0 {
+		t.Fatalf("expected vip tokens to be pruned, got %d", vipTokenCount)
+	}
+	if channelsByGroup := loadProjectedChannelsByGroupKey(t, ctx, account.ID); channelsByGroup["vip"].ID != 0 {
+		t.Fatalf("expected vip projected channel binding to be removed, got %+v", channelsByGroup)
+	}
+	channelView, err := op.SiteChannelAccountGet(site.ID, account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteChannelAccountGet failed: %v", err)
+	}
+	for _, group := range channelView.Groups {
+		if group.GroupKey == "vip" {
+			t.Fatalf("expected removed vip group to disappear from channel view, got %+v", channelView.Groups)
+		}
 	}
 }
 

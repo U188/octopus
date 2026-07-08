@@ -134,7 +134,7 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 				copyPersistedGroupSyncState(&snapshot.groups[i], *existing)
 			}
 		}
-		mergedTokens := mergePersistedSiteTokens(accountID, existingTokens, snapshot.tokens, now)
+		mergedTokens := mergePersistedSiteTokens(accountID, existingTokens, snapshot.tokens, now, removedSiteGroupKeys(snapshot.groupResults))
 		incomingModels := preparePersistedSyncModels(accountID, snapshot.models, existingModelMap, now)
 		finalModels := mergePersistedSiteModelsByGroup(existingModels, incomingModels, snapshot.groupResults)
 
@@ -298,7 +298,22 @@ func mergePersistedSiteModelsByGroup(existing []model.SiteModel, incoming []mode
 	return compactPersistedSiteModels(merged)
 }
 
-func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, incomingTokens []model.SiteToken, now time.Time) []model.SiteToken {
+func removedSiteGroupKeys(results []siteGroupSyncResult) map[string]struct{} {
+	removed := make(map[string]struct{})
+	for _, result := range results {
+		if result.Status != siteGroupSyncStatusRemoved || !result.Authoritative {
+			continue
+		}
+		groupKey := model.NormalizeSiteGroupKey(result.GroupKey)
+		if groupKey == "" {
+			continue
+		}
+		removed[groupKey] = struct{}{}
+	}
+	return removed
+}
+
+func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, incomingTokens []model.SiteToken, now time.Time, removedGroups map[string]struct{}) []model.SiteToken {
 	preparedExisting := make([]model.SiteToken, 0, len(existingTokens))
 	for _, token := range existingTokens {
 		token.SiteAccountID = accountID
@@ -361,6 +376,9 @@ func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, i
 			}
 		}
 		if strings.TrimSpace(existing.Source) != "manual" {
+			continue
+		}
+		if _, removed := removedGroups[model.NormalizeSiteGroupKey(existing.GroupKey)]; removed {
 			continue
 		}
 		if conflictsWithIncomingSiteToken(existing, result) {
@@ -437,6 +455,27 @@ func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []mode
 				continue
 			}
 		}
+		if !sameComparableSiteTokenValue(existing.Token, incoming.Token) {
+			continue
+		}
+		incoming.ID = existing.ID
+		incomingsToken := strings.TrimSpace(incoming.Token)
+		existingToken := strings.TrimSpace(existing.Token)
+		if existingToken != "" && existingToken != incomingsToken {
+			incoming.Token = existingToken
+		}
+		incoming.Enabled = existing.Enabled
+		if existing.ID != 0 {
+			usedExistingIDs[existing.ID] = struct{}{}
+		}
+		return incoming
+	}
+	for _, existing := range existingTokens {
+		if existing.ID != 0 {
+			if _, used := usedExistingIDs[existing.ID]; used {
+				continue
+			}
+		}
 		if strings.TrimSpace(existing.Source) == "manual" {
 			continue
 		}
@@ -487,9 +526,6 @@ func mergeMaskedIncomingSiteToken(incoming model.SiteToken, existingTokens []mod
 			if _, used := usedExistingIDs[existing.ID]; used {
 				continue
 			}
-		}
-		if model.NormalizeSiteGroupKey(existing.GroupKey) != incoming.GroupKey {
-			continue
 		}
 		if normalizeSiteTokenName(incoming.Name) != "" && normalizeSiteTokenName(existing.Name) != normalizeSiteTokenName(incoming.Name) {
 			continue
