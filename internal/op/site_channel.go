@@ -195,6 +195,9 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		groups[key] = newSiteChannelGroupView(key, model.NormalizeSiteGroupName(key, group.Name), group)
 	}
 	for _, token := range account.Tokens {
+		if shouldHideSiteAccountCredentialTokenInChannelView(site, token) {
+			continue
+		}
 		key := model.NormalizeSiteGroupKey(token.GroupKey)
 		group := ensureSiteChannelGroup(groups, key, token.GroupName)
 		group.KeyCount++
@@ -316,6 +319,18 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].GroupKey < result[j].GroupKey })
 	return result
+}
+
+func shouldHideSiteAccountCredentialTokenInChannelView(site model.Site, token model.SiteToken) bool {
+	if strings.TrimSpace(token.Source) != "account" {
+		return false
+	}
+	switch site.Platform {
+	case model.SitePlatformAPI, model.SitePlatformDeepSeek:
+		return false
+	default:
+		return true
+	}
 }
 
 func siteModelBelongsToGroup(item model.SiteModel, groupKey string) bool {

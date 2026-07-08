@@ -68,6 +68,38 @@ func TestBuildSub2APITokensIgnoresAccessTokenFields(t *testing.T) {
 	}
 }
 
+func TestBuildSub2APITokensSkipsInactiveNestedGroup(t *testing.T) {
+	tokens := buildSub2APITokensFromItems([]map[string]any{
+		{
+			"name":     "free",
+			"key":      "sk-free",
+			"group_id": 14,
+			"group": map[string]any{
+				"id":     14,
+				"name":   "免费分组",
+				"status": "inactive",
+			},
+		},
+		{
+			"name":     "pro",
+			"key":      "sk-pro",
+			"group_id": 2,
+			"group": map[string]any{
+				"id":     2,
+				"name":   "纯Pro号池",
+				"status": "active",
+			},
+		},
+	})
+
+	if len(tokens) != 1 {
+		t.Fatalf("expected only active group token, got %+v", tokens)
+	}
+	if tokens[0].GroupKey != "2" || tokens[0].Token != "sk-pro" {
+		t.Fatalf("unexpected active group token: %+v", tokens[0])
+	}
+}
+
 func TestCompleteMaskedTokensFromAccountAPIKeyRestoresMatchingToken(t *testing.T) {
 	tokens := []model.SiteToken{
 		{
@@ -134,7 +166,7 @@ func TestCompleteMaskedTokensFromAccountAPIKeyLeavesReadyTokenUnchanged(t *testi
 	}
 }
 
-func TestAddAccountAPIKeyForMissingGroupsAddsFallbackOnlyWhereNeeded(t *testing.T) {
+func TestAddAccountAPIKeyForMissingGroupsDoesNotFanOutAccountKey(t *testing.T) {
 	tokens := []model.SiteToken{
 		{
 			Name:        "ready",
@@ -163,25 +195,63 @@ func TestAddAccountAPIKeyForMissingGroupsAddsFallbackOnlyWhereNeeded(t *testing.
 
 	completed := addAccountAPIKeyForMissingGroups(tokens, groups, "sk-account")
 
-	if len(completed) != 4 {
-		t.Fatalf("expected two original tokens plus two account fallback tokens, got %+v", completed)
+	if len(completed) != len(tokens) {
+		t.Fatalf("expected account key not to be copied into unrelated groups, got %+v", completed)
 	}
-	fallbackByGroup := map[string]model.SiteToken{}
 	for _, token := range completed {
 		if token.Source == siteTokenSourceAccountFallback {
-			fallbackByGroup[token.GroupKey] = token
+			t.Fatalf("did not expect account fallback token, got %+v", completed)
 		}
 	}
-	if _, ok := fallbackByGroup["default"]; ok {
-		t.Fatalf("did not expect fallback token for group with ready key: %+v", completed)
+}
+
+func TestConstrainTokensToAvailableGroupsDropsTokenOnlyDeletedGroup(t *testing.T) {
+	tokens := []model.SiteToken{
+		{Name: "free", Token: "sk-free", GroupKey: "14", GroupName: "免费分组", Enabled: true},
+		{Name: "pro", Token: "sk-pro", GroupKey: "2", GroupName: "纯Pro号池", Enabled: true},
 	}
-	for _, groupKey := range []string{"vip", "svip"} {
-		token, ok := fallbackByGroup[groupKey]
-		if !ok {
-			t.Fatalf("expected fallback token for group %q, got %+v", groupKey, completed)
-		}
-		if token.Token != "sk-account" || !token.Enabled || token.ValueStatus != model.SiteTokenValueStatusReady {
-			t.Fatalf("unexpected fallback token for group %q: %+v", groupKey, token)
-		}
+	groups := []model.SiteUserGroup{
+		{GroupKey: "2", Name: "纯Pro号池"},
+		{GroupKey: "4", Name: "纯Plus号池"},
+	}
+
+	filtered := constrainTokensToAvailableGroups(tokens, groups)
+
+	if len(filtered) != 1 {
+		t.Fatalf("expected token-only deleted group to be dropped, got %+v", filtered)
+	}
+	if filtered[0].GroupKey != "2" {
+		t.Fatalf("expected available group token to remain, got %+v", filtered[0])
+	}
+}
+
+func TestCompleteMaskedTokensFromExistingReadyTokensMatchesMovedGroup(t *testing.T) {
+	tokens := []model.SiteToken{{
+		Name:        "me",
+		Token:       "sk-abc**********wxyz",
+		GroupKey:    "new",
+		GroupName:   "New",
+		Enabled:     true,
+		ValueStatus: model.SiteTokenValueStatusMaskedPending,
+		Source:      "sync",
+	}}
+	existing := []model.SiteToken{{
+		ID:          7,
+		Name:        "me",
+		Token:       "sk-abcREALVALUEwxyz",
+		GroupKey:    "old",
+		GroupName:   "Old",
+		Enabled:     true,
+		ValueStatus: model.SiteTokenValueStatusReady,
+		Source:      "manual",
+	}}
+
+	completed := completeMaskedTokensFromExistingReadyTokens(tokens, existing)
+
+	if completed[0].Token != "sk-abcREALVALUEwxyz" {
+		t.Fatalf("expected moved masked token to be completed from old group key, got %+v", completed[0])
+	}
+	if completed[0].ValueStatus != model.SiteTokenValueStatusReady {
+		t.Fatalf("expected moved token to become ready, got %+v", completed[0])
 	}
 }

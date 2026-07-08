@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/U188/octopus/internal/apperror"
 	"github.com/U188/octopus/internal/model"
 )
 
@@ -97,6 +96,7 @@ func syncManagementPlatform(ctx context.Context, siteRecord *model.Site, account
 	if err != nil {
 		groups = nil
 	}
+	tokens = constrainTokensToAvailableGroups(tokens, groups)
 	tokens = addAccountAPIKeyForMissingGroups(tokens, groups, account.APIKey)
 	if len(tokens) == 0 && strings.TrimSpace(account.APIKey) != "" {
 		tokens = append(tokens, model.SiteToken{Name: "default", Token: strings.TrimSpace(account.APIKey), GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "fallback", IsDefault: true})
@@ -226,17 +226,12 @@ func syncSub2APIWithAccessToken(ctx context.Context, siteRecord *model.Site, acc
 	}
 	tokens = completeMaskedTokensFromAccountAPIKey(tokens, account.APIKey)
 	tokens = completeMaskedTokensFromExistingReadyTokens(tokens, account.Tokens)
-	if len(tokens) == 0 && strings.TrimSpace(account.APIKey) != "" {
-		tokens = append(tokens, model.SiteToken{Name: "default", Token: strings.TrimSpace(account.APIKey), GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "fallback", IsDefault: true})
-	}
-	if len(tokens) == 0 {
-		return nil, apperror.New(apperror.CodeSiteSub2APIAPIKeyRequired, "sub2api sync requires an API key; create a key on the site and sync again")
-	}
 
 	groups, err := fetchSub2APIGroups(ctx, siteRecord, account, accessToken, tokens)
 	if err != nil {
 		groups = nil
 	}
+	tokens = constrainTokensToAvailableGroups(tokens, groups)
 	tokens = addAccountAPIKeyForMissingGroups(tokens, groups, account.APIKey)
 	groups = mergeSiteGroups(groups, tokens)
 	siteModels, tokenGroupResults := syncSiteModelsByGroup(
@@ -288,45 +283,34 @@ func completeMaskedTokensFromAccountAPIKey(tokens []model.SiteToken, apiKey stri
 }
 
 func addAccountAPIKeyForMissingGroups(tokens []model.SiteToken, groups []model.SiteUserGroup, apiKey string) []model.SiteToken {
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" || len(groups) == 0 {
+	return tokens
+}
+
+func constrainTokensToAvailableGroups(tokens []model.SiteToken, groups []model.SiteUserGroup) []model.SiteToken {
+	if len(tokens) == 0 || !shouldConstrainTokensToAvailableGroups(groups) {
 		return tokens
 	}
-
-	hasReadyKey := make(map[string]bool)
-	for _, token := range tokens {
-		groupKey := model.NormalizeSiteGroupKey(token.GroupKey)
-		if groupKey == "" {
-			groupKey = model.SiteDefaultGroupKey
-		}
-		if token.Enabled && strings.TrimSpace(token.Token) != "" && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
-			hasReadyKey[groupKey] = true
-		}
-	}
-
-	out := append([]model.SiteToken(nil), tokens...)
+	available := make(map[string]struct{}, len(groups))
 	for _, group := range groups {
-		groupKey := model.NormalizeSiteGroupKey(group.GroupKey)
-		if groupKey == "" {
-			groupKey = model.SiteDefaultGroupKey
-		}
-		if hasReadyKey[groupKey] {
-			continue
-		}
-		groupName := model.NormalizeSiteGroupName(groupKey, group.Name)
-		out = append(out, model.SiteToken{
-			Name:        "account",
-			Token:       apiKey,
-			GroupKey:    groupKey,
-			GroupName:   groupName,
-			Enabled:     true,
-			ValueStatus: model.SiteTokenValueStatusReady,
-			Source:      siteTokenSourceAccountFallback,
-			IsDefault:   groupKey == model.SiteDefaultGroupKey,
-		})
-		hasReadyKey[groupKey] = true
+		available[model.NormalizeSiteGroupKey(group.GroupKey)] = struct{}{}
 	}
-	return out
+	filtered := make([]model.SiteToken, 0, len(tokens))
+	for _, token := range tokens {
+		if _, ok := available[model.NormalizeSiteGroupKey(token.GroupKey)]; ok {
+			filtered = append(filtered, token)
+		}
+	}
+	return filtered
+}
+
+func shouldConstrainTokensToAvailableGroups(groups []model.SiteUserGroup) bool {
+	if len(groups) == 0 {
+		return false
+	}
+	if len(groups) == 1 && model.NormalizeSiteGroupKey(groups[0].GroupKey) == model.SiteDefaultGroupKey {
+		return false
+	}
+	return true
 }
 
 func completeMaskedTokensFromExistingReadyTokens(tokens []model.SiteToken, existingTokens []model.SiteToken) []model.SiteToken {
@@ -354,27 +338,9 @@ func completeMaskedTokensFromExistingReadyTokens(tokens []model.SiteToken, exist
 		}
 		groupKey := model.NormalizeSiteGroupKey(out[i].GroupKey)
 		name := normalizeSiteTokenName(out[i].Name)
-		matchIndex := -1
-		for idx, existing := range readyCandidates {
-			if existing.ID != 0 {
-				if _, ok := used[existing.ID]; ok {
-					continue
-				}
-			}
-			if model.NormalizeSiteGroupKey(existing.GroupKey) != groupKey {
-				continue
-			}
-			if name != "" && normalizeSiteTokenName(existing.Name) != name {
-				continue
-			}
-			if !model.SiteMaskedTokenMatches(existing.Token, out[i].Token) {
-				continue
-			}
-			if matchIndex != -1 {
-				matchIndex = -2
-				break
-			}
-			matchIndex = idx
+		matchIndex := findMaskedReadyTokenCandidate(out[i].Token, name, groupKey, true, readyCandidates, used)
+		if matchIndex < 0 {
+			matchIndex = findMaskedReadyTokenCandidate(out[i].Token, name, groupKey, false, readyCandidates, used)
 		}
 		if matchIndex < 0 {
 			continue
@@ -388,6 +354,31 @@ func completeMaskedTokensFromExistingReadyTokens(tokens []model.SiteToken, exist
 		}
 	}
 	return out
+}
+
+func findMaskedReadyTokenCandidate(maskedToken string, name string, groupKey string, requireSameGroup bool, candidates []model.SiteToken, used map[int]struct{}) int {
+	matchIndex := -1
+	for idx, existing := range candidates {
+		if existing.ID != 0 {
+			if _, ok := used[existing.ID]; ok {
+				continue
+			}
+		}
+		if requireSameGroup != (model.NormalizeSiteGroupKey(existing.GroupKey) == groupKey) {
+			continue
+		}
+		if name != "" && normalizeSiteTokenName(existing.Name) != name {
+			continue
+		}
+		if !model.SiteMaskedTokenMatches(existing.Token, maskedToken) {
+			continue
+		}
+		if matchIndex != -1 {
+			return -2
+		}
+		matchIndex = idx
+	}
+	return matchIndex
 }
 
 func syncOfficialPlatform(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount) (*syncSnapshot, error) {

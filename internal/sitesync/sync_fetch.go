@@ -90,7 +90,7 @@ func fetchSub2APITokens(ctx context.Context, siteRecord *model.Site, account *mo
 		}
 		items := parseTokenItemsFromAny(data)
 		tokens := buildSub2APITokensFromItems(items)
-		if len(tokens) > 0 {
+		if len(items) > 0 {
 			return tokens, nil
 		}
 	}
@@ -161,6 +161,9 @@ func unwrapSub2APIData(payload map[string]any, endpoint string) (any, error) {
 func buildSub2APITokensFromItems(items []map[string]any) []model.SiteToken {
 	tokens := make([]model.SiteToken, 0, len(items))
 	for index, item := range items {
+		if sub2APITokenGroupInactive(item) {
+			continue
+		}
 		tokenValue := firstNonEmptyString(
 			jsonString(item["key"]),
 			jsonString(item["token"]),
@@ -200,6 +203,26 @@ func buildSub2APITokensFromItems(items []map[string]any) []model.SiteToken {
 		})
 	}
 	return tokens
+}
+
+func sub2APITokenGroupInactive(item map[string]any) bool {
+	raw := nestedValue(item, "group", "status")
+	if raw == nil {
+		raw = nestedValue(item, "group", "enabled")
+	}
+	if raw == nil {
+		raw = nestedValue(item, "group", "active")
+	}
+	if raw == nil {
+		raw = nestedValue(item, "group", "is_active")
+	}
+	if raw == nil {
+		raw = nestedValue(item, "group", "isActive")
+	}
+	if raw == nil {
+		return false
+	}
+	return !parseEnabledFlag(raw)
 }
 
 func parseSub2APITokenEnabled(item map[string]any) bool {

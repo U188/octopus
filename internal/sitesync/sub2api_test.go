@@ -162,7 +162,7 @@ func TestSyncSub2APIUsesManagedKeyAndAPIModelEndpoint(t *testing.T) {
 	}
 }
 
-func TestSyncSub2APIRequiresRealAPIKeyWhenKeyListIsEmpty(t *testing.T) {
+func TestSyncSub2APIReturnsMissingKeySnapshotWhenKeyListIsEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -177,7 +177,7 @@ func TestSyncSub2APIRequiresRealAPIKeyWhenKeyListIsEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := syncSub2API(context.Background(), &model.Site{
+	snapshot, err := syncSub2API(context.Background(), &model.Site{
 		BaseURL:  server.URL,
 		Platform: model.SitePlatformSub2API,
 	}, &model.SiteAccount{
@@ -185,10 +185,19 @@ func TestSyncSub2APIRequiresRealAPIKeyWhenKeyListIsEmpty(t *testing.T) {
 		AccessToken:    "sub2-session-token",
 	})
 	if err == nil {
-		t.Fatalf("expected syncSub2API to require an API key")
+		t.Fatalf("expected syncSub2API to report missing key")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "api key") {
-		t.Fatalf("expected API key error, got %v", err)
+	if snapshot == nil {
+		t.Fatalf("expected missing key snapshot")
+	}
+	if snapshot.status != model.SiteExecutionStatusFailed {
+		t.Fatalf("expected failed snapshot status, got %+v", snapshot)
+	}
+	if len(snapshot.groupResults) != 1 || snapshot.groupResults[0].Status != siteGroupSyncStatusMissingKey {
+		t.Fatalf("expected missing key group result, got %+v", snapshot.groupResults)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "missing") && !strings.Contains(err.Error(), "缺少") && !strings.Contains(err.Error(), "没有可用 Key") {
+		t.Fatalf("expected missing key error, got %v", err)
 	}
 }
 

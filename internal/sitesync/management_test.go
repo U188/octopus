@@ -739,7 +739,7 @@ func TestSyncManagementPlatformReturnsPartialWhenSomeGroupsRemainUnresolved(t *t
 	}
 }
 
-func TestSyncManagementPlatformUsesAccountAPIKeyForGroupsWithoutKeys(t *testing.T) {
+func TestSyncManagementPlatformDoesNotFanOutAccountAPIKeyForGroupsWithoutKeys(t *testing.T) {
 	platformUserID := 7788
 	accountFallbackModelFetches := 0
 
@@ -807,23 +807,19 @@ func TestSyncManagementPlatformUsesAccountAPIKeyForGroupsWithoutKeys(t *testing.
 	if err != nil {
 		t.Fatalf("syncManagementPlatform returned error: %v", err)
 	}
-	if snapshot.status != model.SiteExecutionStatusSuccess {
-		t.Fatalf("expected successful snapshot status, got %q (%s)", snapshot.status, snapshot.message)
+	if snapshot.status != model.SiteExecutionStatusPartial {
+		t.Fatalf("expected partial snapshot status, got %q (%s)", snapshot.status, snapshot.message)
 	}
 	if accountFallbackModelFetches != 0 {
 		t.Fatalf("expected account fallback key to use explicit group metadata before /models, got %d /models calls", accountFallbackModelFetches)
 	}
-	if len(snapshot.tokens) != 2 {
-		t.Fatalf("expected synced default token plus vip account fallback token, got %+v", snapshot.tokens)
+	if len(snapshot.tokens) != 1 {
+		t.Fatalf("expected only the upstream synced token, got %+v", snapshot.tokens)
 	}
-	fallbackFound := false
 	for _, token := range snapshot.tokens {
-		if token.GroupKey == "vip" && token.Source == siteTokenSourceAccountFallback && token.Token == "sk-account-default" {
-			fallbackFound = true
+		if token.Source == siteTokenSourceAccountFallback {
+			t.Fatalf("did not expect account API key to be copied into a group without an upstream key, got %+v", snapshot.tokens)
 		}
-	}
-	if !fallbackFound {
-		t.Fatalf("expected vip account fallback token, got %+v", snapshot.tokens)
 	}
 	modelsByGroup := make(map[string][]string)
 	for _, item := range snapshot.models {
@@ -832,15 +828,15 @@ func TestSyncManagementPlatformUsesAccountAPIKeyForGroupsWithoutKeys(t *testing.
 	if strings.Join(modelsByGroup["default"], ",") != "gpt-default" {
 		t.Fatalf("expected default group model from group key, got %+v", modelsByGroup)
 	}
-	if strings.Join(modelsByGroup["vip"], ",") != "gpt-vip" {
-		t.Fatalf("expected vip group model from account fallback metadata, got %+v", modelsByGroup)
+	if len(modelsByGroup["vip"]) != 0 {
+		t.Fatalf("expected vip group without key to skip synced models, got %+v", modelsByGroup)
 	}
 	groupStatus := make(map[string]siteGroupSyncStatus)
 	for _, item := range snapshot.groupResults {
 		groupStatus[item.GroupKey] = item.Status
 	}
-	if groupStatus["default"] != siteGroupSyncStatusSynced || groupStatus["vip"] != siteGroupSyncStatusSynced {
-		t.Fatalf("expected both groups synced, got %+v", snapshot.groupResults)
+	if groupStatus["default"] != siteGroupSyncStatusSynced || groupStatus["vip"] != siteGroupSyncStatusMissingKey {
+		t.Fatalf("expected default synced and vip missing key, got %+v", snapshot.groupResults)
 	}
 }
 
