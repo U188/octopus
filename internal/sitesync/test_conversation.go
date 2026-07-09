@@ -268,10 +268,25 @@ func testConversationTarget(ctx context.Context, accountID int, tokenID int) (*m
 	}
 	for i := range accountInSite.Tokens {
 		if accountInSite.Tokens[i].ID == tokenID {
+			if shouldRejectAccountCredentialForTestConversation(siteRecord.Platform, accountInSite.Tokens[i]) {
+				return nil, nil, nil, fmt.Errorf("api key is an account credential, please select a synced site key")
+			}
 			return siteRecord, accountInSite, &accountInSite.Tokens[i], nil
 		}
 	}
 	return nil, nil, nil, fmt.Errorf("api key not found")
+}
+
+func shouldRejectAccountCredentialForTestConversation(platform model.SitePlatform, token model.SiteToken) bool {
+	if strings.TrimSpace(token.Source) != "account" {
+		return false
+	}
+	switch platform {
+	case model.SitePlatformAPI, model.SitePlatformDeepSeek:
+		return false
+	default:
+		return true
+	}
 }
 
 func normalizeTestConversationMode(mode TestConversationMode) TestConversationMode {

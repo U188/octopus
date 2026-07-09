@@ -10,6 +10,7 @@ import (
 
 	"github.com/U188/octopus/internal/codexmode"
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/op"
 )
 
 func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
@@ -66,6 +67,94 @@ func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.expected, requestURL)
 			}
 		})
+	}
+}
+
+func TestTestConversationTargetRejectsManagedAccountCredentialToken(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	siteRecord := &model.Site{
+		Name:     "managed-test-conversation-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := op.SiteCreate(siteRecord, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{
+		SiteID:         siteRecord.ID,
+		Name:           "managed-test-conversation-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-token",
+		APIKey:         "sk-account-key",
+		Enabled:        true,
+	}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	reloaded, err := op.SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet failed: %v", err)
+	}
+	var accountTokenID int
+	for _, token := range reloaded.Tokens {
+		if token.Source == "account" {
+			accountTokenID = token.ID
+			break
+		}
+	}
+	if accountTokenID == 0 {
+		t.Fatalf("expected account credential token, got %+v", reloaded.Tokens)
+	}
+
+	_, _, _, err = testConversationTarget(ctx, account.ID, accountTokenID)
+	if err == nil || !strings.Contains(err.Error(), "account credential") {
+		t.Fatalf("expected account credential token to be rejected, got %v", err)
+	}
+}
+
+func TestTestConversationTargetAllowsDirectAPIAccountCredentialToken(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	siteRecord := &model.Site{
+		Name:     "direct-test-conversation-site",
+		Platform: model.SitePlatformAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := op.SiteCreate(siteRecord, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{
+		SiteID:         siteRecord.ID,
+		Name:           "direct-test-conversation-account",
+		CredentialType: model.SiteCredentialTypeAPIKey,
+		APIKey:         "sk-direct-key",
+		Enabled:        true,
+	}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	reloaded, err := op.SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet failed: %v", err)
+	}
+	var accountTokenID int
+	for _, token := range reloaded.Tokens {
+		if token.Source == "account" {
+			accountTokenID = token.ID
+			break
+		}
+	}
+	if accountTokenID == 0 {
+		t.Fatalf("expected account credential token, got %+v", reloaded.Tokens)
+	}
+
+	_, _, token, err := testConversationTarget(ctx, account.ID, accountTokenID)
+	if err != nil {
+		t.Fatalf("expected direct API account token to be allowed, got %v", err)
+	}
+	if token == nil || token.Token != "sk-direct-key" {
+		t.Fatalf("expected direct account token, got %+v", token)
 	}
 }
 
