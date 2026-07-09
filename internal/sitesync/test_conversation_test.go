@@ -158,6 +158,18 @@ func TestTestConversationTargetAllowsDirectAPIAccountCredentialToken(t *testing.
 	}
 }
 
+func TestTestConversationKeyNameIncludesGroup(t *testing.T) {
+	token := &model.SiteToken{
+		ID:        123,
+		Name:      "met",
+		GroupKey:  "weekend",
+		GroupName: "周末狂欢",
+	}
+	if got := testConversationKeyName(token); got != "周末狂欢 / met" {
+		t.Fatalf("expected grouped key name, got %q", got)
+	}
+}
+
 func TestBuildTestConversationRequestUsesRouteOverrideVerbatim(t *testing.T) {
 	siteRecord := &model.Site{
 		Platform: model.SitePlatformAPI,

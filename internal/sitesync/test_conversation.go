@@ -209,13 +209,12 @@ func recordTestConversationRelayLog(
 		Success:           requestErr == nil,
 		Attempts: []model.ChannelAttempt{
 			{
-				ChannelKeyID: token.ID,
-				ChannelName:  channelName,
-				ModelName:    modelName,
-				AttemptNum:   1,
-				Status:       status,
-				Duration:     int(duration.Milliseconds()),
-				Msg:          errorText,
+				ChannelName: channelName,
+				ModelName:   modelName,
+				AttemptNum:  1,
+				Status:      status,
+				Duration:    int(duration.Milliseconds()),
+				Msg:         errorText,
 			},
 		},
 		TotalAttempts: 1,
@@ -230,7 +229,12 @@ func testConversationKeyName(token *model.SiteToken) string {
 	if token == nil {
 		return ""
 	}
-	return firstNonEmptyString(token.Name, token.GroupName, fmt.Sprintf("Key %d", token.ID))
+	name := strings.TrimSpace(token.Name)
+	groupName := model.NormalizeSiteGroupName(token.GroupKey, token.GroupName)
+	if name != "" && groupName != "" && name != groupName {
+		return groupName + " / " + name
+	}
+	return firstNonEmptyString(name, groupName, fmt.Sprintf("Key %d", token.ID))
 }
 
 func testConversationChannelName(siteRecord *model.Site, account *model.SiteAccount, token *model.SiteToken) string {
