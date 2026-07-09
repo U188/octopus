@@ -369,6 +369,50 @@ func shouldShowSiteChannelGroupModels(group *model.SiteChannelGroup) bool {
 	}
 }
 
+func siteProjectedBindingAllowsModels(binding model.SiteChannelBinding, ctx context.Context) (bool, error) {
+	baseKey, _ := model.ParseSiteChannelBindingKey(binding.GroupKey)
+	groupKey := model.NormalizeSiteGroupKey(baseKey)
+	if groupKey == "" {
+		return false, nil
+	}
+
+	var tokens []model.SiteToken
+	if err := db.GetDB().WithContext(ctx).
+		Where("site_account_id = ? AND group_key = ?", binding.SiteAccountID, groupKey).
+		Find(&tokens).Error; err != nil {
+		return false, err
+	}
+	enabledKeyCount := 0
+	for _, token := range tokens {
+		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
+			enabledKeyCount++
+		}
+	}
+	if enabledKeyCount == 0 {
+		return false, nil
+	}
+
+	var group model.SiteUserGroup
+	err := db.GetDB().WithContext(ctx).
+		Where("site_account_id = ? AND group_key = ?", binding.SiteAccountID, groupKey).
+		First(&group).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if group.ProjectionSuspended {
+		return false, nil
+	}
+	switch group.ModelSyncStatus {
+	case model.SiteGroupModelSyncStatusEmpty, model.SiteGroupModelSyncStatusMissingKey, model.SiteGroupModelSyncStatusRemoved:
+		return false, nil
+	default:
+		return true, nil
+	}
+}
+
 func siteModelBelongsToGroup(item model.SiteModel, groupKey string) bool {
 	return model.NormalizeSiteGroupKey(item.GroupKey) == model.NormalizeSiteGroupKey(groupKey)
 }

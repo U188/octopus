@@ -10,6 +10,7 @@ import (
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/utils/cache"
+	"github.com/U188/octopus/internal/utils/log"
 	"github.com/dlclark/regexp2"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -23,7 +24,7 @@ func GroupList(ctx context.Context) ([]model.Group, error) {
 	for _, group := range groupCache.GetAll() {
 		groups = append(groups, group)
 	}
-	return groups, nil
+	return filterGroupsProjectedItems(groups, ctx)
 }
 
 func GroupListModel(ctx context.Context) ([]string, error) {
@@ -51,7 +52,7 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 			return model.Group{}, fmt.Errorf("group not found")
 		}
 	}
-	return groupWithEnabledItems(group), nil
+	return groupWithEnabledItems(group, ctx), nil
 }
 
 func groupGetByMatchRegex(name string) (model.Group, bool) {
@@ -88,22 +89,87 @@ func groupGetByMatchRegex(name string) (model.Group, bool) {
 	return model.Group{}, false
 }
 
-func groupWithEnabledItems(group model.Group) model.Group {
+func groupWithEnabledItems(group model.Group, ctx context.Context) model.Group {
 	if len(group.Items) == 0 {
 		group.Items = nil
 		return group
 	}
 
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
+	channelIDs := make([]int, 0, len(group.Items))
 	for _, item := range group.Items {
 		channel, ok := channelCache.Get(item.ChannelID)
 		if !ok || !channel.Enabled {
 			continue
 		}
 		enabledItems = append(enabledItems, item)
+		channelIDs = append(channelIDs, item.ChannelID)
 	}
-	group.Items = enabledItems
+	visibility, err := projectedChannelModelVisibilityByChannelIDs(channelIDs, ctx)
+	if err != nil {
+		log.Warnf("failed to filter projected group items: %v", err)
+		group.Items = enabledItems
+		return group
+	}
+	group.Items = filterGroupItemsByProjectedVisibility(enabledItems, visibility)
 	return group
+}
+
+func filterGroupsProjectedItems(groups []model.Group, ctx context.Context) ([]model.Group, error) {
+	channelIDSet := make(map[int]struct{})
+	for _, group := range groups {
+		for _, item := range group.Items {
+			channelIDSet[item.ChannelID] = struct{}{}
+		}
+	}
+	channelIDs := make([]int, 0, len(channelIDSet))
+	for channelID := range channelIDSet {
+		channelIDs = append(channelIDs, channelID)
+	}
+	visibility, err := projectedChannelModelVisibilityByChannelIDs(channelIDs, ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range groups {
+		groups[i].Items = filterGroupItemsByProjectedVisibility(groups[i].Items, visibility)
+	}
+	return groups, nil
+}
+
+func projectedChannelModelVisibilityByChannelIDs(channelIDs []int, ctx context.Context) (map[int]bool, error) {
+	visibility := make(map[int]bool)
+	if len(channelIDs) == 0 {
+		return visibility, nil
+	}
+	bindings, err := SiteChannelBindingMapByChannelIDs(channelIDs, ctx)
+	if err != nil {
+		return nil, err
+	}
+	for channelID, binding := range bindings {
+		allowed, err := siteProjectedBindingAllowsModels(binding, ctx)
+		if err != nil {
+			return nil, err
+		}
+		visibility[channelID] = allowed
+	}
+	return visibility, nil
+}
+
+func filterGroupItemsByProjectedVisibility(items []model.GroupItem, visibility map[int]bool) []model.GroupItem {
+	if len(items) == 0 {
+		return nil
+	}
+	filtered := make([]model.GroupItem, 0, len(items))
+	for _, item := range items {
+		if allowed, managed := visibility[item.ChannelID]; managed && !allowed {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {

@@ -646,6 +646,15 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 			copy := item
 			binding = &copy
 		}
+		if binding != nil {
+			allowed, err := siteProjectedBindingAllowsModels(*binding, ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+		}
 		siteName := ""
 		siteAccountName := ""
 		siteGroupKey := ""
