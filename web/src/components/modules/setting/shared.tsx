@@ -45,7 +45,7 @@ export function useSettingField(key: string, mirrorKeys?: readonly string[]) {
             initial.current = next;
             setInitialStored(false);
         } catch (error) {
-            toast.error(t('saveFailed'), { description: (error as ApiError)?.message });
+            toast.error(t('saveFailed'), { description: (error as unknown as ApiError)?.message });
             setValue(initial.current);
         }
     }, [key, mirrorKeys, setSetting, t]);

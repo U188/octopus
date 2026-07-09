@@ -28,7 +28,7 @@ export function SettingVersion() {
     const onUpdate = () => {
         updateCore.mutate(undefined, {
             onSuccess: () => toast.success(t('info.updateSuccess')),
-            onError: (error) => toast.error(t('info.updateFailed'), { description: (error as ApiError)?.message }),
+            onError: (error) => toast.error(t('info.updateFailed'), { description: (error as unknown as ApiError)?.message }),
         });
     };
 

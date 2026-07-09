@@ -72,7 +72,7 @@ function useResponsesWSMode() {
             initial.current = v;
         } catch (error) {
             setMode(initial.current);
-            toast.error(t('saveFailed'), { description: (error as ApiError)?.message });
+            toast.error(t('saveFailed'), { description: (error as unknown as ApiError)?.message });
         }
     }, [setSetting, t]);
 
