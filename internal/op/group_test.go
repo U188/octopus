@@ -92,6 +92,80 @@ func TestGroupGetEnabledMapPrefersExactNameOverRegex(t *testing.T) {
 	}
 }
 
+func TestExactAutoGroupCreatesMissingModelGroup(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	groupCache.Clear()
+	groupMap.Clear()
+	channelCache.Clear()
+
+	channel := &model.Channel{
+		Name:      "exact-auto-group-channel",
+		Type:      outbound.OutboundTypeAnthropic,
+		Enabled:   true,
+		BaseUrls:  []model.BaseUrl{{URL: "https://example.com/v1"}},
+		Model:     "claude-fable-5",
+		Keys:      []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+		AutoGroup: model.AutoGroupTypeExact,
+	}
+	if err := ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	ChannelAutoGroupWithMode(channel, model.AutoGroupTypeExact, ctx)
+
+	group, err := GroupGetEnabledMap("claude-fable-5", ctx)
+	if err != nil {
+		t.Fatalf("GroupGetEnabledMap failed: %v", err)
+	}
+	if group.Name != "claude-fable-5" {
+		t.Fatalf("expected exact group, got %+v", group)
+	}
+	if len(group.Items) != 1 || group.Items[0].ChannelID != channel.ID || group.Items[0].ModelName != "claude-fable-5" {
+		t.Fatalf("expected exact auto group item, got %+v", group.Items)
+	}
+}
+
+func TestExactAutoGroupReusesCaseInsensitiveExistingGroup(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	groupCache.Clear()
+	groupMap.Clear()
+	channelCache.Clear()
+
+	existingGroup := &model.Group{Name: "Claude-Fable-5", Mode: model.GroupModeFailover}
+	if err := GroupCreate(existingGroup, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	channel := &model.Channel{
+		Name:      "exact-auto-group-case-channel",
+		Type:      outbound.OutboundTypeAnthropic,
+		Enabled:   true,
+		BaseUrls:  []model.BaseUrl{{URL: "https://example.com/v1"}},
+		Model:     "claude-fable-5",
+		Keys:      []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+		AutoGroup: model.AutoGroupTypeExact,
+	}
+	if err := ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	ChannelAutoGroupWithMode(channel, model.AutoGroupTypeExact, ctx)
+
+	var groupCount int64
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.Group{}).Count(&groupCount).Error; err != nil {
+		t.Fatalf("count groups failed: %v", err)
+	}
+	if groupCount != 1 {
+		t.Fatalf("expected existing case-insensitive group to be reused, got %d groups", groupCount)
+	}
+	group, err := GroupGetEnabledMap("Claude-Fable-5", ctx)
+	if err != nil {
+		t.Fatalf("GroupGetEnabledMap failed: %v", err)
+	}
+	if len(group.Items) != 1 || group.Items[0].ChannelID != channel.ID || group.Items[0].ModelName != "claude-fable-5" {
+		t.Fatalf("expected item on existing group, got %+v", group.Items)
+	}
+}
+
 func TestGroupListHidesProjectedModelsWithoutUsableSiteKey(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 	groupCache.Clear()

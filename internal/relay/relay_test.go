@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/U188/octopus/internal/claudemode"
 	"github.com/U188/octopus/internal/codexmode"
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
@@ -1838,10 +1839,10 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if got := headers.Get("X-API-Key"); got != "anthropic-key" {
 		t.Fatalf("expected upstream api key, got %q", got)
 	}
-	if got := headers.Get("anthropic-beta"); !strings.Contains(got, claudeCodeAnthropicBeta) || !strings.Contains(got, "context-1m-2025-08-07") {
+	if got := headers.Get("anthropic-beta"); !strings.Contains(got, claudeCodeAnthropicBeta) || !strings.Contains(got, "context-1m-2025-08-07") || !strings.Contains(got, "client-beta") {
 		t.Fatalf("expected claude beta header, got %q", got)
 	}
-	if headers.Get("X-Claude-Code-Session-Id") == "" || headers.Get("X-Stainless-Package-Version") != "0.74.0" {
+	if headers.Get("X-Claude-Code-Session-Id") == "" || headers.Get("X-Stainless-Package-Version") != claudemode.StainlessPackageVersion {
 		t.Fatalf("expected claude code headers, got %#v", headers)
 	}
 
@@ -1852,11 +1853,14 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if _, ok := payload["temperature"]; ok {
 		t.Fatalf("expected claude mode to drop temperature when thinking is active, got %#v", payload["temperature"])
 	}
-	if thinking, ok := payload["thinking"].(map[string]any); !ok || thinking["type"] != "enabled" || thinking["budget_tokens"] != float64(1023) {
+	if thinking, ok := payload["thinking"].(map[string]any); !ok || thinking["type"] != "adaptive" || thinking["display"] != "omitted" {
 		t.Fatalf("expected claude thinking defaults, got %#v", payload["thinking"])
 	}
 	if _, ok := payload["context_management"].(map[string]any); !ok {
 		t.Fatalf("expected claude context management, got %#v", payload["context_management"])
+	}
+	if outputConfig, ok := payload["output_config"].(map[string]any); !ok || outputConfig["effort"] != "high" {
+		t.Fatalf("expected claude output config, got %#v", payload["output_config"])
 	}
 	if metadata, ok := payload["metadata"].(map[string]any); !ok || metadata["user_id"] == "" {
 		t.Fatalf("expected claude metadata user_id, got %#v", payload["metadata"])

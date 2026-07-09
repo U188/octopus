@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/U188/octopus/internal/claudemode"
 	"github.com/U188/octopus/internal/codexmode"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -301,14 +302,17 @@ func TestBuildTestConversationRequestClaudeMatchesClientShape(t *testing.T) {
 	if !strings.Contains(headers["anthropic-beta"], claudeTestConversationBeta) || strings.Contains(headers["anthropic-beta"], "context-1m-2025-08-07") {
 		t.Fatalf("expected claude beta header, got %q", headers["anthropic-beta"])
 	}
-	if body["stream"] != true || body["max_tokens"] != 32000 {
+	if body["stream"] != true || body["max_tokens"] != claudemode.DefaultMaxTokens {
 		t.Fatalf("unexpected claude body flags: %#v", body)
 	}
-	if thinking, ok := body["thinking"].(map[string]any); !ok || thinking["type"] != "enabled" || thinking["budget_tokens"] != 31999 {
+	if thinking, ok := body["thinking"].(map[string]any); !ok || thinking["type"] != "adaptive" || thinking["display"] != "omitted" {
 		t.Fatalf("unexpected claude thinking: %#v", body["thinking"])
 	}
 	if _, ok := body["context_management"].(map[string]any); !ok {
 		t.Fatalf("expected claude context management, got %#v", body["context_management"])
+	}
+	if outputConfig, ok := body["output_config"].(map[string]any); !ok || outputConfig["effort"] != "high" {
+		t.Fatalf("unexpected claude output config: %#v", body["output_config"])
 	}
 	if metadata, ok := body["metadata"].(map[string]string); !ok || !strings.Contains(metadata["user_id"], "session_id") {
 		t.Fatalf("unexpected claude metadata: %#v", body["metadata"])

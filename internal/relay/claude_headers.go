@@ -28,6 +28,7 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 		return
 	}
 
+	clientAnthropicBeta := req.Header.Get("anthropic-beta")
 	sessionID := uuid.NewString()
 	modelName := ra.normalizeClaudeAnthropicBody(req, sessionID)
 	if strings.TrimSpace(modelName) == "" {
@@ -44,7 +45,7 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Anthropic-Version", "2023-06-01")
-	req.Header.Set("anthropic-beta", claudemode.AnthropicBeta(context1M))
+	req.Header.Set("anthropic-beta", claudemode.MergeAnthropicBeta(context1M, clientAnthropicBeta))
 	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
 	req.Header.Set("User-Agent", claudeCodeUserAgent)
 	req.Header.Set("X-App", "cli")
@@ -52,11 +53,11 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 	req.Header.Set("X-Stainless-Retry-Count", "0")
 	req.Header.Set("X-Stainless-Timeout", "600")
 	req.Header.Set("X-Stainless-Lang", "js")
-	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
-	req.Header.Set("X-Stainless-OS", "MacOS")
-	req.Header.Set("X-Stainless-Arch", "x64")
-	req.Header.Set("X-Stainless-Runtime", "node")
-	req.Header.Set("X-Stainless-Runtime-Version", "v22.21.0")
+	req.Header.Set("X-Stainless-Package-Version", claudemode.StainlessPackageVersion)
+	req.Header.Set("X-Stainless-OS", claudemode.StainlessOS())
+	req.Header.Set("X-Stainless-Arch", claudemode.StainlessArch())
+	req.Header.Set("X-Stainless-Runtime", claudemode.StainlessRuntime)
+	req.Header.Set("X-Stainless-Runtime-Version", claudemode.StainlessRuntimeVersion)
 	req.Header.Set("X-API-Key", ra.usedKey.ChannelKey)
 }
 
@@ -77,14 +78,13 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	}
 	modelName := claudeJSONString(payload["model"])
 
-	maxTokens := claudeMaxTokens(payload)
 	if _, ok := payload["max_tokens"]; !ok {
-		payload["max_tokens"] = float64(maxTokens)
+		payload["max_tokens"] = float64(claudemode.DefaultMaxTokens)
 	}
-	if _, ok := payload["thinking"]; !ok && maxTokens > 1 {
+	if _, ok := payload["thinking"]; !ok {
 		payload["thinking"] = map[string]any{
-			"type":          "enabled",
-			"budget_tokens": float64(maxTokens - 1),
+			"type":    "adaptive",
+			"display": "omitted",
 		}
 	}
 	if _, ok := payload["context_management"]; !ok {
@@ -97,9 +97,12 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	normalizeClaudeMetadata(payload, sessionID)
 	if _, ok := payload["system"]; !ok {
 		payload["system"] = []map[string]any{
-			{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.89.4fa; cc_entrypoint=sdk-cli; cch=00000;"},
+			{"type": "text", "text": claudemode.BillingHeaderText},
 			{"type": "text", "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "cache_control": map[string]string{"type": "ephemeral"}},
 		}
+	}
+	if _, ok := payload["output_config"]; !ok {
+		payload["output_config"] = map[string]any{"effort": "high"}
 	}
 
 	if _, ok := payload["thinking"]; ok {
@@ -115,20 +118,6 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	}
 	resetRequestBody(req, normalized)
 	return modelName
-}
-
-func claudeMaxTokens(payload map[string]any) int {
-	switch value := payload["max_tokens"].(type) {
-	case float64:
-		if value > 1 {
-			return int(value)
-		}
-	case int:
-		if value > 1 {
-			return value
-		}
-	}
-	return 32000
 }
 
 func normalizeClaudeMetadata(payload map[string]any, sessionID string) {

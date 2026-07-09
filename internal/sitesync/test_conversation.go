@@ -383,11 +383,11 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 				"X-Stainless-Retry-Count":     "0",
 				"X-Stainless-Timeout":         "600",
 				"X-Stainless-Lang":            "js",
-				"X-Stainless-Package-Version": "0.74.0",
-				"X-Stainless-OS":              "MacOS",
-				"X-Stainless-Arch":            "x64",
-				"X-Stainless-Runtime":         "node",
-				"X-Stainless-Runtime-Version": "v22.21.0",
+				"X-Stainless-Package-Version": claudemode.StainlessPackageVersion,
+				"X-Stainless-OS":              claudemode.StainlessOS(),
+				"X-Stainless-Arch":            claudemode.StainlessArch(),
+				"X-Stainless-Runtime":         claudemode.StainlessRuntime,
+				"X-Stainless-Runtime-Version": claudemode.StainlessRuntimeVersion,
 			}
 	}
 	switch mode {
@@ -494,7 +494,7 @@ func requestTestConversation(ctx context.Context, siteRecord *model.Site, reques
 func buildClaudeTestConversationBody(modelName string, greeting string, sessionID string) map[string]any {
 	return map[string]any{
 		"model":      modelName,
-		"max_tokens": 32000,
+		"max_tokens": claudemode.DefaultMaxTokens,
 		"stream":     true,
 		"messages": []map[string]any{
 			{
@@ -511,17 +511,20 @@ func buildClaudeTestConversationBody(modelName string, greeting string, sessionI
 			},
 		},
 		"system": []map[string]any{
-			{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.89.4fa; cc_entrypoint=sdk-cli; cch=00000;"},
+			{"type": "text", "text": claudemode.BillingHeaderText},
 			{"type": "text", "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "cache_control": map[string]string{"type": "ephemeral"}},
 		},
 		"thinking": map[string]any{
-			"type":          "enabled",
-			"budget_tokens": 31999,
+			"type":    "adaptive",
+			"display": "omitted",
 		},
 		"context_management": map[string]any{
 			"edits": []map[string]string{
 				{"type": "clear_thinking_20251015", "keep": "all"},
 			},
+		},
+		"output_config": map[string]any{
+			"effort": "high",
 		},
 		"metadata": map[string]string{
 			"user_id": fmt.Sprintf(`{"device_id":"%s","account_uuid":"","session_id":"%s"}`, strings.ReplaceAll(sessionID, "-", ""), sessionID),

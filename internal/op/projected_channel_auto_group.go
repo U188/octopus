@@ -52,14 +52,16 @@ func ChannelAutoGroupWithMode(channel *model.Channel, autoGroup model.AutoGroupT
 			return
 		}
 	}
+	channelModelNames := splitChannelModelNames(channel.Model, channel.CustomModel)
+	if len(channelModelNames) == 0 {
+		return
+	}
+	if autoGroup == model.AutoGroupTypeExact {
+		ensureExactAutoGroups(channelModelNames, ctx)
+	}
 	groups, err := GroupList(ctx)
 	if err != nil {
 		log.Warnf("get group list failed: %v", err)
-		return
-	}
-
-	channelModelNames := splitChannelModelNames(channel.Model, channel.CustomModel)
-	if len(channelModelNames) == 0 {
 		return
 	}
 
@@ -122,6 +124,37 @@ func ChannelAutoGroupWithMode(channel *model.Channel, autoGroup model.AutoGroupT
 			log.Warnf("group item batch add failed (channel=%d group=%d): %v", channel.ID, group.ID, err)
 		}
 	}
+}
+
+func ensureExactAutoGroups(modelNames []string, ctx context.Context) {
+	existingGroups := groupCache.GetAll()
+	for _, modelName := range modelNames {
+		name := strings.TrimSpace(modelName)
+		if name == "" {
+			continue
+		}
+		if _, ok := groupMap.Get(name); ok {
+			continue
+		}
+		if exactAutoGroupExistsFold(existingGroups, name) {
+			continue
+		}
+		group := &model.Group{Name: name, Mode: model.GroupModeFailover}
+		if err := GroupCreate(group, ctx); err != nil {
+			log.Warnf("create exact auto group failed (model=%q): %v", name, err)
+			continue
+		}
+		existingGroups[group.ID] = *group
+	}
+}
+
+func exactAutoGroupExistsFold(groups map[int]model.Group, name string) bool {
+	for _, group := range groups {
+		if strings.EqualFold(strings.TrimSpace(group.Name), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
