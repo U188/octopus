@@ -40,6 +40,15 @@ func doRequestWithFallback(url string) ([]byte, error) {
 	if err == nil {
 		return data, nil
 	}
+
+	proxyURL, proxyCfgErr := op.SettingGetString(model.SettingKeyProxyURL)
+	if proxyCfgErr != nil {
+		return nil, fmt.Errorf("direct request failed: %w; read proxy setting failed: %v", err, proxyCfgErr)
+	}
+	if strings.TrimSpace(proxyURL) == "" {
+		return nil, err
+	}
+
 	log.Warnf("direct request failed, trying with proxy: %v", err)
 	proxyData, proxyErr := doRequest(url, true)
 	if proxyErr != nil {
