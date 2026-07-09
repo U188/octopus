@@ -178,8 +178,9 @@
             "en": "English"
         },
         "proxyUrl": {
-            "label": "Proxy URL",
-            "placeholder": "Enter proxy URL"
+            "label": "Forward Proxy URL",
+            "placeholder": "http://127.0.0.1:7890",
+            "description": "Forward proxy used after direct system requests fail. Supports http, https, and socks5. Download accelerators such as https://proxyd.picpi.top/ belong in Update Download URL"
         },
         "apiBaseUrl": {
             "label": "API Base URL",
@@ -188,8 +189,8 @@
         },
         "updateDownloadUrl": {
             "label": "Update Download URL",
-            "placeholder": "https://gh.llkk.cc/",
-            "description": "Download URL or acceleration prefix for system updates. Leave empty to use official GitHub; {url} and {filename} templates are supported"
+            "placeholder": "https://proxyd.picpi.top/",
+            "description": "Download URL or acceleration prefix for system updates. Leave empty to use official GitHub. Download proxy prefixes such as https://proxyd.picpi.top/ belong here; {url} and {filename} templates are supported"
         },
         "telegramBot": {
             "title": "Telegram Bot",

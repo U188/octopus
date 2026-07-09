@@ -178,8 +178,9 @@
             "en": "English"
         },
         "proxyUrl": {
-            "label": "代理位址",
-            "placeholder": "請輸入代理位址"
+            "label": "正向代理位址",
+            "placeholder": "http://127.0.0.1:7890",
+            "description": "系統請求失敗後使用的正向代理，僅支援 http、https、socks5。下載加速站點如 https://proxyd.picpi.top/ 請填到「更新加速位址」"
         },
         "apiBaseUrl": {
             "label": "API 位址",
@@ -188,8 +189,8 @@
         },
         "updateDownloadUrl": {
             "label": "更新加速位址",
-            "placeholder": "https://gh.llkk.cc/",
-            "description": "系統更新下載位址或加速前綴；留空使用 GitHub 官方位址，支援 {url} 或 {filename} 範本"
+            "placeholder": "https://proxyd.picpi.top/",
+            "description": "系統更新下載位址或加速前綴；留空使用 GitHub 官方位址。下載代理前綴如 https://proxyd.picpi.top/ 填這裡，支援 {url} 或 {filename} 範本"
         },
         "telegramBot": {
             "title": "Telegram Bot",

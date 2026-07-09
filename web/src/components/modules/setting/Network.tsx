@@ -137,7 +137,7 @@ export function SettingNetwork() {
     return (
         <SettingCard icon={Network} title={t('network.title')}>
             {/* 代理地址 */}
-            <SettingRow icon={Globe} label={t('proxyUrl.label')}>
+            <SettingRow icon={Globe} label={t('proxyUrl.label')} tooltip={t('proxyUrl.description')}>
                 <Input
                     value={proxyUrl.value}
                     onChange={(e) => proxyUrl.setValue(e.target.value)}

@@ -41,7 +41,11 @@ func doRequestWithFallback(url string) ([]byte, error) {
 		return data, nil
 	}
 	log.Warnf("direct request failed, trying with proxy: %v", err)
-	return doRequest(url, true)
+	proxyData, proxyErr := doRequest(url, true)
+	if proxyErr != nil {
+		return nil, fmt.Errorf("direct request failed: %v; proxy request failed: %w", err, proxyErr)
+	}
+	return proxyData, nil
 }
 
 func doRequest(url string, useProxy bool) ([]byte, error) {
@@ -75,7 +79,23 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 		log.Debugf("read body failed: %v", err)
 		return nil, err
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("request %s failed with HTTP %d: %s", url, resp.StatusCode, compactResponseSnippet(data))
+	}
 	return data, nil
+}
+
+func compactResponseSnippet(data []byte) string {
+	const limit = 240
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return http.StatusText(http.StatusBadGateway)
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > limit {
+		return text[:limit] + "..."
+	}
+	return text
 }
 
 func GetLatestInfo() (*LatestInfo, error) {

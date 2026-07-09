@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
 import { SettingCard } from './shared';
 import { ConfirmActionButton } from './ConfirmActionButton';
+import type { ApiError } from '@/api/types';
 
 const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || '';
 
@@ -27,7 +28,7 @@ export function SettingVersion() {
     const onUpdate = () => {
         updateCore.mutate(undefined, {
             onSuccess: () => toast.success(t('info.updateSuccess')),
-            onError: () => toast.error(t('info.updateFailed')),
+            onError: (error) => toast.error(t('info.updateFailed'), { description: (error as ApiError)?.message }),
         });
     };
 
