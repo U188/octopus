@@ -144,21 +144,34 @@ function formatInfo(value: string | undefined, fallback: string) {
 }
 
 function compareVersions(left: string, right: string) {
-    const a = normalizeVersion(left);
-    const b = normalizeVersion(right);
-    const length = Math.max(a.length, b.length);
+    const a = parseVersion(left);
+    const b = parseVersion(right);
+    if (a.valid !== b.valid) {
+        return a.valid ? 1 : -1;
+    }
+    if (!a.valid && !b.valid) {
+        return left.localeCompare(right);
+    }
+    const leftParts = a.parts;
+    const rightParts = b.parts;
+    const length = Math.max(leftParts.length, rightParts.length);
     for (let i = 0; i < length; i++) {
-        const diff = (a[i] ?? 0) - (b[i] ?? 0);
+        const diff = (leftParts[i] ?? 0) - (rightParts[i] ?? 0);
         if (diff !== 0) return diff;
     }
     return 0;
 }
 
-function normalizeVersion(value: string) {
-    return value
-        .trim()
-        .replace(/^v/i, '')
-        .split(/[.-]/)
-        .map((part) => Number.parseInt(part, 10))
-        .filter((part) => Number.isFinite(part));
+function parseVersion(value: string) {
+    const trimmed = value.trim();
+    const normalized = trimmed.replace(/^v/i, '');
+    const valid = /^\d+(?:[.-]\d+)*$/.test(normalized);
+    return {
+        valid,
+        parts: normalized
+            .trim()
+            .split(/[.-]/)
+            .map((part) => Number.parseInt(part, 10))
+            .filter((part) => Number.isFinite(part)),
+    };
 }
