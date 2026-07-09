@@ -303,6 +303,18 @@ func TestSiteChannelAccountGetIncludesParsedRouteMetadata(t *testing.T) {
 	if err := dbpkg.GetDB().WithContext(ctx).Create(&row).Error; err != nil {
 		t.Fatalf("create site model failed: %v", err)
 	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
+		SiteAccountID: account.ID,
+		Name:          "default-key",
+		Token:         "sk-default-key",
+		GroupKey:      model.SiteDefaultGroupKey,
+		GroupName:     model.SiteDefaultGroupName,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "sync",
+	}).Error; err != nil {
+		t.Fatalf("create site token failed: %v", err)
+	}
 
 	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
 	if err != nil {
@@ -491,11 +503,8 @@ func TestSiteChannelAccountGetHidesProjectedArtifactsForSystemPausedGroup(t *tes
 	if len(paused.ProjectedChannelIDs) != 0 || len(paused.ProjectedChannels) != 0 || len(paused.ProjectedKeys) != 0 {
 		t.Fatalf("expected paused group projected artifacts to be hidden, got %+v", paused)
 	}
-	if len(paused.Models) != 1 {
-		t.Fatalf("expected one retained model, got %+v", paused.Models)
-	}
-	if paused.Models[0].ProjectedChannelID != nil {
-		t.Fatalf("expected paused group model projected channel to be hidden, got %+v", paused.Models[0].ProjectedChannelID)
+	if len(paused.Models) != 0 {
+		t.Fatalf("expected paused group without usable keys to hide models, got %+v", paused.Models)
 	}
 }
 
@@ -562,7 +571,7 @@ func TestSiteChannelAccountGetDoesNotResurrectGroupFromStaleBinding(t *testing.T
 	}
 }
 
-func TestSiteChannelAccountGetShowsExplicitGroupModelsWithoutKeys(t *testing.T) {
+func TestSiteChannelAccountGetHidesExplicitGroupModelsWithoutKeys(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
 	site := &model.Site{
@@ -652,17 +661,11 @@ func TestSiteChannelAccountGetShowsExplicitGroupModelsWithoutKeys(t *testing.T) 
 		t.Fatalf("expected default group model with key to remain enabled")
 	}
 	vipGroup := groupByKey["vip"]
-	if len(vipGroup.Models) != 1 {
-		t.Fatalf("expected vip group to include explicit model without keys, got %+v", vipGroup.Models)
-	}
 	if vipGroup.HasKeys {
 		t.Fatalf("expected vip group to remain without keys")
 	}
-	if !vipGroup.Models[0].Disabled {
-		t.Fatalf("expected vip model without keys to be effectively disabled")
-	}
-	if vipGroup.Models[0].ProjectedChannelID != nil {
-		t.Fatalf("expected vip explicit model without keys not to have projected channel, got %+v", vipGroup.Models[0])
+	if len(vipGroup.Models) != 0 {
+		t.Fatalf("expected vip group without usable keys to hide models, got %+v", vipGroup.Models)
 	}
 }
 
@@ -696,6 +699,18 @@ func TestSiteChannelAccountGetUsesPersistedModelGroupKeyOverRouteMetadata(t *tes
 		Name:          "default",
 	}).Error; err != nil {
 		t.Fatalf("create site group failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
+		SiteAccountID: account.ID,
+		Name:          "default-key",
+		Token:         "sk-default-key",
+		GroupKey:      "default",
+		GroupName:     "default",
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "sync",
+	}).Error; err != nil {
+		t.Fatalf("create site token failed: %v", err)
 	}
 
 	payload := model.SiteModelRouteMetadata{
@@ -774,6 +789,15 @@ func TestSiteChannelAccountGetCountsMaskedPendingKeysAsPendingOnly(t *testing.T)
 	}).Error; err != nil {
 		t.Fatalf("create site token failed: %v", err)
 	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteModel{
+		SiteAccountID: account.ID,
+		GroupKey:      model.SiteDefaultGroupKey,
+		ModelName:     "gpt-4o-mini",
+		Source:        "sync",
+		RouteType:     model.SiteModelRouteTypeOpenAIChat,
+	}).Error; err != nil {
+		t.Fatalf("create site model failed: %v", err)
+	}
 
 	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
 	if err != nil {
@@ -794,6 +818,9 @@ func TestSiteChannelAccountGetCountsMaskedPendingKeysAsPendingOnly(t *testing.T)
 	}
 	if group.HasKeys {
 		t.Fatalf("expected masked_pending token not to count as usable keys")
+	}
+	if len(group.Models) != 0 {
+		t.Fatalf("expected group with only masked_pending keys to hide models, got %+v", group.Models)
 	}
 }
 

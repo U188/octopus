@@ -715,8 +715,13 @@ func syncSiteModelsByGroup(
 		}
 		if len(result.names) == 0 {
 			if err != nil {
-				groupResult.Status = siteGroupSyncStatusFailed
-				groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), err.Error())
+				if isSiteTokenInvalidError(err) {
+					groupResult.Status = siteGroupSyncStatusMissingKey
+					groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), "Key 已失效或被上游拒绝，已暂停投影")
+				} else {
+					groupResult.Status = siteGroupSyncStatusFailed
+					groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), err.Error())
+				}
 			} else {
 				groupResult.Status = siteGroupSyncStatusUnresolved
 				groupResult.Message = firstNonEmptyString(strings.TrimSpace(result.message), "本次未能确认该分组模型，已沿用历史投影")
@@ -759,6 +764,22 @@ func syncSiteModelsByGroup(
 		return leftGroup < rightGroup
 	})
 	return models, results
+}
+
+func isSiteTokenInvalidError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if message == "" {
+		return false
+	}
+	return strings.Contains(message, "http 401") ||
+		strings.Contains(message, "unauthorized") ||
+		strings.Contains(message, "无效的令牌") ||
+		strings.Contains(message, "invalid token") ||
+		strings.Contains(message, "invalid api key") ||
+		strings.Contains(message, "incorrect api key")
 }
 
 func expandExplicitGroupModelsToGroups(

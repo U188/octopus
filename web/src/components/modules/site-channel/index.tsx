@@ -698,18 +698,25 @@ const SITE_GROUP_FILTER_ALL_VALUE = '__site-group-all__';
 
 const STALE_MODEL_SYNC_STATUSES = ['stale', 'failed', 'unresolved'];
 
+function formatSiteModelSyncTime(value?: number | null) {
+    if (!value) return '从未成功同步';
+    const date = new Date(value * 1000);
+    if (Number.isNaN(date.getTime())) return '从未成功同步';
+    return date.toLocaleString();
+}
+
 function getGroupStatusBadge(group: SiteChannelGroup): { label: string; className: string } | null {
     if (group.projection_suspended) {
         return { label: '暂停', className: 'rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive' };
+    }
+    if (group.masked_pending_key_count > 0 && group.enabled_key_count === 0) {
+        return { label: '待补全', className: 'rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300' };
     }
     if (!group.has_keys) {
         return { label: '待建', className: 'rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300' };
     }
     if (STALE_MODEL_SYNC_STATUSES.includes(group.model_sync_status)) {
         return { label: '沿用', className: 'rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300' };
-    }
-    if (group.masked_pending_key_count > 0 && group.enabled_key_count === 0) {
-        return { label: '待补全', className: 'rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300' };
     }
     return null;
 }
@@ -1992,6 +1999,7 @@ function SiteAccountPanel({
     const activeGroupProjectionStale = activeGroup && !activeGroupProjectionSuspended && STALE_MODEL_SYNC_STATUSES.includes(activeGroup.model_sync_status);
     const activeGroupSuspensionReason = activeGroup?.projection_suspend_reason || activeGroup?.model_sync_message || '';
     const activeGroupStaleReason = activeGroup?.model_sync_message || '';
+    const activeGroupLastSyncSuccessText = formatSiteModelSyncTime(activeGroup?.last_model_sync_success_at);
     const activeQuickFilterCount = panelPreferences.quickFilters.length;
     const pendingKeyGroups = useMemo(
         () => visibleGroups.filter((group) => !group.has_keys),
@@ -2154,11 +2162,12 @@ function SiteAccountPanel({
                         </div>
                     ) : activeGroupProjectionStale ? (
                         <div className="flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                            <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                            <History className="mt-0.5 size-4 shrink-0" />
                             <div className="min-w-0">
-                                <div className="font-medium">该分组正在沿用上次成功投影</div>
+                                <div className="font-medium">同步失败，正在沿用历史模型</div>
                                 <div className="mt-0.5 break-words text-amber-800/80 dark:text-amber-100/80">
                                     {activeGroupStaleReason || '最近一次同步未能确认最新模型，当前 managed channel 保持启用。'}
+                                    <span className="ml-2 whitespace-nowrap">上次成功同步：{activeGroupLastSyncSuccessText}</span>
                                 </div>
                             </div>
                         </div>

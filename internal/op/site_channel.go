@@ -281,6 +281,9 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 			continue
 		}
 		group := ensureSiteChannelGroup(groups, key, key)
+		if !shouldShowSiteChannelGroupModels(group) {
+			continue
+		}
 		routeMetadata, _ := model.ParseSiteModelRouteMetadata(item.RouteRawPayload)
 		channelID, hasChannel := findProjectedChannelID(account.ChannelBindings, key, item.RouteType, split)
 		modelView := model.SiteChannelModel{
@@ -348,6 +351,21 @@ func shouldHideSiteProjectedArtifactsInChannelView(group *model.SiteChannelGroup
 		return true
 	default:
 		return false
+	}
+}
+
+func shouldShowSiteChannelGroupModels(group *model.SiteChannelGroup) bool {
+	if group == nil || group.EnabledKeyCount == 0 {
+		return false
+	}
+	if group.ProjectionSuspended {
+		return false
+	}
+	switch group.ModelSyncStatus {
+	case model.SiteGroupModelSyncStatusEmpty, model.SiteGroupModelSyncStatusMissingKey, model.SiteGroupModelSyncStatusRemoved:
+		return false
+	default:
+		return true
 	}
 }
 
