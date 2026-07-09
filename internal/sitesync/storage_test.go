@@ -153,7 +153,7 @@ func TestMergePersistedSiteTokensTreatsOptionalSKPrefixAsSameReadyToken(t *testi
 	}
 }
 
-func TestMergePersistedSiteTokensSkipsIncomingDuplicateOfAccountToken(t *testing.T) {
+func TestMergePersistedSiteTokensKeepsSyncedDuplicateOfAccountToken(t *testing.T) {
 	now := time.Unix(1711929600, 0)
 	existing := []model.SiteToken{{
 		ID:            7,
@@ -179,8 +179,14 @@ func TestMergePersistedSiteTokensSkipsIncomingDuplicateOfAccountToken(t *testing
 	}}
 
 	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
-	if len(merged) != 0 {
-		t.Fatalf("expected duplicate incoming account token to be skipped, got %+v", merged)
+	if len(merged) != 1 {
+		t.Fatalf("expected synced duplicate account token to be kept separately, got %+v", merged)
+	}
+	if merged[0].ID != 0 {
+		t.Fatalf("expected synced duplicate to be inserted as a separate token, got id=%d", merged[0].ID)
+	}
+	if merged[0].Source != "sync" || merged[0].GroupKey != model.SiteDefaultGroupKey || merged[0].Token != "sk-same-account-key" {
+		t.Fatalf("unexpected synced duplicate token: %+v", merged[0])
 	}
 }
 

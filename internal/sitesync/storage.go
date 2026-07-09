@@ -426,6 +426,9 @@ func conflictsWithIncomingSiteToken(existing model.SiteToken, incoming []model.S
 func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []model.SiteToken, usedExistingIDs map[int]struct{}) model.SiteToken {
 	incoming.ValueStatus = model.SiteTokenValueStatusReady
 	for _, existing := range existingTokens {
+		if shouldKeepIncomingSeparateFromExistingAccountToken(incoming, existing) {
+			continue
+		}
 		if existing.ID != 0 {
 			if _, used := usedExistingIDs[existing.ID]; used {
 				continue
@@ -450,6 +453,9 @@ func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []mode
 		return incoming
 	}
 	for _, existing := range existingTokens {
+		if shouldKeepIncomingSeparateFromExistingAccountToken(incoming, existing) {
+			continue
+		}
 		if existing.ID != 0 {
 			if _, used := usedExistingIDs[existing.ID]; used {
 				continue
@@ -471,6 +477,9 @@ func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []mode
 		return incoming
 	}
 	for _, existing := range existingTokens {
+		if shouldKeepIncomingSeparateFromExistingAccountToken(incoming, existing) {
+			continue
+		}
 		if existing.ID != 0 {
 			if _, used := usedExistingIDs[existing.ID]; used {
 				continue
@@ -493,6 +502,10 @@ func mergeReadyIncomingSiteToken(incoming model.SiteToken, existingTokens []mode
 		return incoming
 	}
 	return incoming
+}
+
+func shouldKeepIncomingSeparateFromExistingAccountToken(incoming model.SiteToken, existing model.SiteToken) bool {
+	return strings.TrimSpace(existing.Source) == "account" && strings.TrimSpace(incoming.Source) != "account"
 }
 
 func mergeMaskedIncomingSiteToken(incoming model.SiteToken, existingTokens []model.SiteToken, readyCandidates []model.SiteToken, usedExistingIDs map[int]struct{}) model.SiteToken {
