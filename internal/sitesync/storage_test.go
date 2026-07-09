@@ -190,6 +190,46 @@ func TestMergePersistedSiteTokensKeepsSyncedDuplicateOfAccountToken(t *testing.T
 	}
 }
 
+func TestMergePersistedSiteTokensKeepsMaskedSyncedDuplicateOfAccountToken(t *testing.T) {
+	now := time.Unix(1711929600, 0)
+	existing := []model.SiteToken{{
+		ID:            7,
+		SiteAccountID: 9,
+		Name:          "account",
+		Token:         "sk-SHPk123456789030T0",
+		GroupKey:      model.SiteDefaultGroupKey,
+		GroupName:     model.SiteDefaultGroupName,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "account",
+		IsDefault:     true,
+	}}
+	incoming := []model.SiteToken{{
+		Name:        "me",
+		Token:       "SHPk**********30T0",
+		GroupKey:    "vip",
+		GroupName:   "VIP",
+		Enabled:     true,
+		ValueStatus: model.SiteTokenValueStatusMaskedPending,
+		Source:      "sync",
+		IsDefault:   true,
+	}}
+
+	merged := mergePersistedSiteTokens(9, existing, incoming, now, nil)
+	if len(merged) != 1 {
+		t.Fatalf("expected masked synced duplicate account token to be kept separately, got %+v", merged)
+	}
+	if merged[0].ID != 0 {
+		t.Fatalf("expected synced duplicate to be inserted as a separate token, got id=%d", merged[0].ID)
+	}
+	if merged[0].Token != "sk-SHPk123456789030T0" || merged[0].ValueStatus != model.SiteTokenValueStatusReady {
+		t.Fatalf("expected synced duplicate to keep restored full account value, got %+v", merged[0])
+	}
+	if merged[0].Source != "sync" || merged[0].GroupKey != "vip" || !merged[0].Enabled {
+		t.Fatalf("unexpected synced duplicate token: %+v", merged[0])
+	}
+}
+
 func TestMergePersistedSiteTokensMovesReadyTokenAcrossGroups(t *testing.T) {
 	now := time.Unix(1711929600, 0)
 	existing := []model.SiteToken{{

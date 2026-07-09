@@ -524,6 +524,12 @@ func mergeMaskedIncomingSiteToken(incoming model.SiteToken, existingTokens []mod
 			continue
 		}
 		if model.IsReadySiteToken(existing) && !model.IsMaskedSiteTokenValue(existing.Token) && siteMaskedTokenMatches(existing.Token, incoming.Token) {
+			if shouldKeepIncomingSeparateFromExistingAccountToken(incoming, existing) {
+				incoming.Token = existing.Token
+				incoming.ValueStatus = model.SiteTokenValueStatusReady
+				incoming.Enabled = existing.Enabled
+				return incoming
+			}
 			incoming.ID = existing.ID
 			incoming.Token = existing.Token
 			incoming.ValueStatus = model.SiteTokenValueStatusReady
@@ -552,15 +558,32 @@ func mergeMaskedIncomingSiteToken(incoming model.SiteToken, existingTokens []mod
 		}
 	}
 	if len(matches) == 1 {
-		incoming.ID = matches[0].ID
-		incoming.Token = matches[0].Token
+		match := matches[0]
+		if !shouldKeepIncomingSeparateFromExistingAccountToken(incoming, match) {
+			incoming.ID = match.ID
+		}
+		incoming.Token = match.Token
 		incoming.ValueStatus = model.SiteTokenValueStatusReady
-		incoming.Enabled = matches[0].Enabled
-		usedExistingIDs[matches[0].ID] = struct{}{}
+		incoming.Enabled = match.Enabled
+		if incoming.ID != 0 {
+			usedExistingIDs[incoming.ID] = struct{}{}
+		}
+		return incoming
+	}
+
+	accountMatches := readyAccountTokenMaskedMatches(incoming, existingTokens, usedExistingIDs)
+	if len(accountMatches) == 1 {
+		match := accountMatches[0]
+		incoming.Token = match.Token
+		incoming.ValueStatus = model.SiteTokenValueStatusReady
+		incoming.Enabled = match.Enabled
 		return incoming
 	}
 
 	for _, existing := range existingTokens {
+		if shouldKeepIncomingSeparateFromExistingAccountToken(incoming, existing) {
+			continue
+		}
 		if existing.ID != 0 {
 			if _, used := usedExistingIDs[existing.ID]; used {
 				continue
@@ -599,6 +622,31 @@ func mergeMaskedIncomingSiteToken(incoming model.SiteToken, existingTokens []mod
 	incoming.Enabled = false
 	incoming.IsDefault = false
 	return incoming
+}
+
+func readyAccountTokenMaskedMatches(incoming model.SiteToken, existingTokens []model.SiteToken, usedExistingIDs map[int]struct{}) []model.SiteToken {
+	matches := make([]model.SiteToken, 0, 2)
+	for _, existing := range existingTokens {
+		if strings.TrimSpace(existing.Source) != "account" {
+			continue
+		}
+		if existing.ID != 0 {
+			if _, used := usedExistingIDs[existing.ID]; used {
+				continue
+			}
+		}
+		if !model.IsReadySiteToken(existing) || model.IsMaskedSiteTokenValue(existing.Token) {
+			continue
+		}
+		if !siteMaskedTokenMatches(existing.Token, incoming.Token) {
+			continue
+		}
+		matches = append(matches, existing)
+		if len(matches) > 1 {
+			return matches
+		}
+	}
+	return matches
 }
 
 func normalizeSiteTokenName(name string) string {
