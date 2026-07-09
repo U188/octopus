@@ -39,6 +39,19 @@ func ChannelAutoGroupWithMode(channel *model.Channel, autoGroup model.AutoGroupT
 	if channel == nil || autoGroup == model.AutoGroupTypeNone {
 		return
 	}
+	if binding, managed, err := ChannelManagedBinding(channel.ID, ctx); err != nil {
+		log.Warnf("get managed channel binding failed (channel=%d): %v", channel.ID, err)
+		return
+	} else if managed {
+		allowed, err := siteProjectedBindingAllowsModels(*binding, ctx)
+		if err != nil {
+			log.Warnf("check projected channel visibility failed (channel=%d): %v", channel.ID, err)
+			return
+		}
+		if !allowed {
+			return
+		}
+	}
 	groups, err := GroupList(ctx)
 	if err != nil {
 		log.Warnf("get group list failed: %v", err)

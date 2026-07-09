@@ -702,7 +702,10 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 				endpointType = "openai"
 			}
 		}
-		modelNames := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)
+		modelNames, err := ChannelVisibleModelNames(channel.ID, ctx)
+		if err != nil {
+			return nil, err
+		}
 		for _, modelName := range modelNames {
 			if modelName == "" {
 				continue
@@ -723,6 +726,27 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 		}
 	}
 	return models, nil
+}
+
+func ChannelVisibleModelNames(channelID int, ctx context.Context) ([]string, error) {
+	channel, ok := channelCache.Get(channelID)
+	if !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+	binding, managed, err := ChannelManagedBinding(channelID, ctx)
+	if err != nil {
+		return nil, err
+	}
+	if managed {
+		allowed, err := siteProjectedBindingAllowsModels(*binding, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, nil
+		}
+	}
+	return xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel), nil
 }
 
 func ChannelGet(id int, ctx context.Context) (*model.Channel, error) {

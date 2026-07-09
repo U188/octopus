@@ -30,8 +30,17 @@ func GroupAutoGroupConfigGet(ctx context.Context) (*model.GroupAutoGroupConfig, 
 	globalMode := ProjectedChannelGlobalAutoGroupMode()
 	sources := make([]model.GroupAutoGroupSource, 0, len(channels))
 	for _, channel := range channels {
-		models := splitChannelModelNames(channel.Model, channel.CustomModel)
 		binding, managed := bindingMap[channel.ID]
+		models := splitChannelModelNames(channel.Model, channel.CustomModel)
+		if managed {
+			allowed, err := siteProjectedBindingAllowsModels(binding, ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				models = nil
+			}
+		}
 		effective := channel.AutoGroup
 		globalOverride := managed && globalMode != model.AutoGroupTypeNone
 		if globalOverride {
@@ -182,13 +191,22 @@ func RunGroupAutoGroup(channelIDs []int, ctx context.Context) error {
 	globalMode := ProjectedChannelGlobalAutoGroupMode()
 
 	for id, channel := range targets {
-		_, managed := bindingMap[id]
+		binding, managed := bindingMap[id]
 		mode := channel.AutoGroup
 		if managed && globalMode != model.AutoGroupTypeNone {
 			mode = globalMode
 		}
 		if mode == model.AutoGroupTypeNone {
 			continue
+		}
+		if managed {
+			allowed, err := siteProjectedBindingAllowsModels(binding, ctx)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				continue
+			}
 		}
 		ChannelAutoGroupWithMode(&channel, mode, ctx)
 	}

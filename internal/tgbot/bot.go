@@ -1171,7 +1171,10 @@ func (r *Runner) modelGroupAddModelMenu(ctx context.Context, groupID int, channe
 	if err != nil {
 		return response{Text: "读取渠道失败：" + err.Error(), Buttons: mainMenuButtons()}
 	}
-	models := splitModelCSV(channel.Model, channel.CustomModel)
+	models, err := op.ChannelVisibleModelNames(channel.ID, ctx)
+	if err != nil {
+		return response{Text: "读取渠道模型失败：" + err.Error(), Buttons: mainMenuButtons()}
+	}
 	visibleModels, window := paginateItems(models, pageFromArgs(pages))
 	var b strings.Builder
 	fmt.Fprintf(&b, "➕ 添加分组模型\n分组 %s\n渠道 %s\n选择已有模型，或手动输入模型名。", group.Name, channel.Name)

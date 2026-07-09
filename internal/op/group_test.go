@@ -187,4 +187,113 @@ func TestGroupListHidesProjectedModelsWithoutUsableSiteKey(t *testing.T) {
 			t.Fatalf("expected model picker to hide projected channel without usable key, got %+v", item)
 		}
 	}
+
+	visibleNames, err := ChannelVisibleModelNames(channel.ID, ctx)
+	if err != nil {
+		t.Fatalf("ChannelVisibleModelNames failed: %v", err)
+	}
+	if len(visibleNames) != 0 {
+		t.Fatalf("expected visible model helper to hide projected channel without usable key, got %+v", visibleNames)
+	}
+
+	config, err := GroupAutoGroupConfigGet(ctx)
+	if err != nil {
+		t.Fatalf("GroupAutoGroupConfigGet failed: %v", err)
+	}
+	for _, source := range config.Sources {
+		if source.ChannelID == channel.ID && (source.ModelCount != 0 || len(source.Models) != 0) {
+			t.Fatalf("expected auto-group config to hide projected channel models, got %+v", source)
+		}
+	}
+
+	autoGroup := &model.Group{Name: "gpt-hidden-auto", Mode: model.GroupModeFailover}
+	if err := GroupCreate(autoGroup, ctx); err != nil {
+		t.Fatalf("GroupCreate auto failed: %v", err)
+	}
+	channel.Model = "gpt-hidden-auto"
+	channel.AutoGroup = model.AutoGroupTypeExact
+	if _, err := ChannelUpdate(&model.ChannelUpdateRequest{
+		ID:                 channel.ID,
+		Model:              &channel.Model,
+		AutoGroup:          &channel.AutoGroup,
+		BypassManagedCheck: true,
+	}, ctx); err != nil {
+		t.Fatalf("ChannelUpdate auto group failed: %v", err)
+	}
+	if err := RunGroupAutoGroup([]int{channel.ID}, ctx); err != nil {
+		t.Fatalf("RunGroupAutoGroup failed: %v", err)
+	}
+	groups, err = GroupList(ctx)
+	if err != nil {
+		t.Fatalf("GroupList after auto group failed: %v", err)
+	}
+	for _, item := range groups {
+		if item.ID == autoGroup.ID && len(item.Items) != 0 {
+			t.Fatalf("expected auto-group run not to add invalid projected item, got %+v", item.Items)
+		}
+	}
+}
+
+func TestProjectedChannelVisibleModelsAllowsDefaultBlankGroupKeyToken(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	groupCache.Clear()
+	groupMap.Clear()
+	channelCache.Clear()
+
+	site := &model.Site{Name: "default-token-site", Platform: model.SitePlatformNewAPI, BaseURL: "https://example.com", Enabled: true}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{SiteID: site.ID, Name: "default-token-account", CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "token", Enabled: true}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteUserGroup{
+		SiteAccountID:   account.ID,
+		GroupKey:        model.SiteDefaultGroupKey,
+		Name:            model.SiteDefaultGroupName,
+		ModelSyncStatus: model.SiteGroupModelSyncStatusSynced,
+	}).Error; err != nil {
+		t.Fatalf("create site group failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
+		SiteAccountID: account.ID,
+		Name:          "legacy-default",
+		Token:         "sk-default",
+		GroupKey:      "",
+		GroupName:     model.SiteDefaultGroupName,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "sync",
+	}).Error; err != nil {
+		t.Fatalf("create site token failed: %v", err)
+	}
+
+	channel := &model.Channel{
+		Name:     "managed-default-channel",
+		Type:     outbound.OutboundTypeOpenAIChat,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: "https://example.com/v1"}},
+		Model:    "gpt-visible",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "projected-key"}},
+	}
+	if err := ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteChannelBinding{
+		SiteID:        site.ID,
+		SiteAccountID: account.ID,
+		GroupKey:      model.SiteDefaultGroupKey,
+		ChannelID:     channel.ID,
+	}).Error; err != nil {
+		t.Fatalf("create binding failed: %v", err)
+	}
+
+	models, err := ChannelVisibleModelNames(channel.ID, ctx)
+	if err != nil {
+		t.Fatalf("ChannelVisibleModelNames failed: %v", err)
+	}
+	if len(models) != 1 || models[0] != "gpt-visible" {
+		t.Fatalf("expected default blank group_key token to allow models, got %+v", models)
+	}
 }

@@ -377,9 +377,13 @@ func siteProjectedBindingAllowsModels(binding model.SiteChannelBinding, ctx cont
 	}
 
 	var tokens []model.SiteToken
-	if err := db.GetDB().WithContext(ctx).
-		Where("site_account_id = ? AND group_key = ?", binding.SiteAccountID, groupKey).
-		Find(&tokens).Error; err != nil {
+	tokenQuery := db.GetDB().WithContext(ctx).Where("site_account_id = ?", binding.SiteAccountID)
+	if groupKey == model.SiteDefaultGroupKey {
+		tokenQuery = tokenQuery.Where("(group_key = ? OR group_key = '')", groupKey)
+	} else {
+		tokenQuery = tokenQuery.Where("group_key = ?", groupKey)
+	}
+	if err := tokenQuery.Find(&tokens).Error; err != nil {
 		return false, err
 	}
 	enabledKeyCount := 0
