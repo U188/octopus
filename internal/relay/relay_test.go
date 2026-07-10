@@ -1938,6 +1938,9 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(rawBody))
 	c.Request.Header.Set("User-Agent", "external-client/1.0")
 	c.Request.Header.Set("anthropic-beta", "client-beta")
+	c.Request.Header.Set("X-Claude-Code-Session-Id", "session-from-client")
+	c.Request.Header.Set("X-App", "cli")
+	c.Request.Header.Set("X-Stainless-Package-Version", claudemode.StainlessPackageVersion)
 	internalReq := &transformerModel.InternalLLMRequest{Model: "claude-sonnet-4-5-20250929", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatAnthropicMessage}
 	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeAnthropic), internalRequest: internalReq, metrics: NewRelayMetrics(1, "claude-sonnet-4-5-20250929", rawBody, internalReq), apiKeyID: 1, requestModel: "claude-sonnet-4-5-20250929", rawBody: rawBody}
 	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
@@ -1954,8 +1957,8 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if query := <-seenRawQuery; query != "beta=true" {
 		t.Fatalf("expected beta query, got %q", query)
 	}
-	if got := headers.Get("User-Agent"); got != claudeCodeUserAgent {
-		t.Fatalf("expected claude user-agent, got %q", got)
+	if got := headers.Get("User-Agent"); got != "external-client/1.0" {
+		t.Fatalf("expected client user-agent to be preserved, got %q", got)
 	}
 	if got := headers.Get("X-App"); got != "cli" {
 		t.Fatalf("expected claude x-app header, got %q", got)
@@ -1966,7 +1969,7 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if got := headers.Get("anthropic-beta"); !strings.Contains(got, claudeCodeAnthropicBeta) || !strings.Contains(got, "context-1m-2025-08-07") || !strings.Contains(got, "client-beta") {
 		t.Fatalf("expected claude beta header, got %q", got)
 	}
-	if headers.Get("X-Claude-Code-Session-Id") == "" || headers.Get("X-Stainless-Package-Version") != claudemode.StainlessPackageVersion {
+	if headers.Get("X-Claude-Code-Session-Id") != "session-from-client" || headers.Get("X-Stainless-Package-Version") != claudemode.StainlessPackageVersion {
 		t.Fatalf("expected claude code headers, got %#v", headers)
 	}
 
@@ -1988,6 +1991,64 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	}
 	if metadata, ok := payload["metadata"].(map[string]any); !ok || metadata["user_id"] == "" {
 		t.Fatalf("expected claude metadata user_id, got %#v", payload["metadata"])
+	}
+}
+
+func TestApplyClaudeAnthropicModePreservesStreamingClientIdentity(t *testing.T) {
+	channel := &model.Channel{
+		Name:       "claude-mode-preserve",
+		Type:       outbound.OutboundTypeAnthropic,
+		ClaudeMode: true,
+		Model:      "claude-fable-5",
+	}
+	internalReq := &transformerModel.InternalLLMRequest{
+		Model:        "claude-fable-5",
+		Stream:       boolPtr(true),
+		RawAPIFormat: transformerModel.APIFormatAnthropicMessage,
+	}
+	body := []byte(`{"model":"claude-fable-5","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"adaptive","display":"omitted"},"system":[{"type":"text","text":"keep"}],"metadata":{"user_id":"already"},"output_config":{"effort":"high"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}}`)
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("User-Agent", "claude-cli/2.1.206 (external, sdk-cli)")
+	req.Header.Set("X-App", "cli")
+	req.Header.Set("X-Claude-Code-Session-Id", "session-keep")
+	req.Header.Set("anthropic-beta", "claude-code-20250219,context-1m-2025-08-07")
+	req.Header.Set("X-Stainless-Package-Version", "0.94.0")
+	req.Header.Set("X-API-Key", "client-key-should-be-replaced")
+
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{internalRequest: internalReq, requestModel: "claude-fable-5"},
+		channel:      channel,
+		usedKey:      model.ChannelKey{ChannelKey: "upstream-key"},
+	}
+	ra.applyClaudeAnthropicMode(req)
+
+	if got := req.Header.Get("Accept"); got != "text/event-stream" {
+		t.Fatalf("expected streaming Accept preserved, got %q", got)
+	}
+	if got := req.Header.Get("User-Agent"); got != "claude-cli/2.1.206 (external, sdk-cli)" {
+		t.Fatalf("expected client UA preserved, got %q", got)
+	}
+	if got := req.Header.Get("X-Claude-Code-Session-Id"); got != "session-keep" {
+		t.Fatalf("expected client session preserved, got %q", got)
+	}
+	if got := req.Header.Get("X-API-Key"); got != "upstream-key" {
+		t.Fatalf("expected upstream key, got %q", got)
+	}
+	if got := req.URL.RawQuery; got != "beta=true" {
+		t.Fatalf("expected beta query, got %q", got)
+	}
+
+	outBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(outBody) != string(body) {
+		t.Fatalf("expected complete Claude body to stay byte-identical\nwant=%s\ngot=%s", body, outBody)
 	}
 }
 

@@ -28,8 +28,18 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 		return
 	}
 
-	clientAnthropicBeta := req.Header.Get("anthropic-beta")
-	sessionID := uuid.NewString()
+	// Preserve the client's Claude Code identity when present. Rewriting the
+	// session id / Accept / User-Agent is a major source of drift vs direct
+	// Claude Code -> upstream requests and can break multi-turn continuity.
+	existingSessionID := firstNonEmptyHeader(req.Header, "X-Claude-Code-Session-Id", "x-claude-code-session-id")
+	sessionID := existingSessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	clientAnthropicBeta := firstNonEmptyHeader(req.Header, "anthropic-beta", "Anthropic-Beta")
+	clientAccept := firstNonEmptyHeader(req.Header, "Accept", "accept")
+	clientUserAgent := firstNonEmptyHeader(req.Header, "User-Agent", "user-agent")
+	clientApp := firstNonEmptyHeader(req.Header, "X-App", "x-app")
 	modelName := ra.normalizeClaudeAnthropicBody(req, sessionID)
 	if strings.TrimSpace(modelName) == "" {
 		modelName = firstClaudeModelName(ra.requestModel, ra.channel.Model)
@@ -41,23 +51,59 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 		req.URL.RawQuery = query.Encode()
 	}
 
-	req.Header = http.Header{}
-	req.Header.Set("Accept", "application/json")
+	// Keep Content-Type / Anthropic-Version defaults, but do not force
+	// application/json Accept on streaming Claude Code clients.
+	if clientAccept == "" {
+		if ra.internalRequest != nil && ra.internalRequest.Stream != nil && *ra.internalRequest.Stream {
+			clientAccept = "text/event-stream"
+		} else {
+			clientAccept = "application/json"
+		}
+	}
+	if clientUserAgent == "" {
+		clientUserAgent = claudeCodeUserAgent
+	}
+	if clientApp == "" {
+		clientApp = "cli"
+	}
+
+	// Drop hop-by-hop / auth headers that must come from the channel key, then
+	// set Claude Code defaults only for missing values so direct-client
+	// requests stay byte-compatible where possible.
+	req.Header.Del("Authorization")
+	req.Header.Del("authorization")
+	req.Header.Del("X-Api-Key")
+	req.Header.Del("x-api-key")
+	req.Header.Del("Api-Key")
+	req.Header.Del("api-key")
+
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Anthropic-Version", "2023-06-01")
-	req.Header.Set("anthropic-beta", claudemode.MergeAnthropicBeta(context1M, clientAnthropicBeta))
-	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
-	req.Header.Set("User-Agent", claudeCodeUserAgent)
-	req.Header.Set("X-App", "cli")
+	req.Header.Set("Accept", clientAccept)
+	if firstNonEmptyHeader(req.Header, "Anthropic-Version", "anthropic-version") == "" {
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+	}
+	// Prefer the client's beta list when present. Only synthesize the Claude
+	// Code baseline (+ optional 1M) for non-Claude clients that hit a Claude
+	// mode channel without sending anthropic-beta themselves.
+	if strings.TrimSpace(clientAnthropicBeta) != "" {
+		req.Header.Set("anthropic-beta", claudemode.MergeAnthropicBeta(context1M, clientAnthropicBeta))
+	} else {
+		req.Header.Set("anthropic-beta", claudemode.AnthropicBeta(context1M))
+	}
+	if firstNonEmptyHeader(req.Header, "Anthropic-Dangerous-Direct-Browser-Access") == "" {
+		req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
+	}
+	req.Header.Set("User-Agent", clientUserAgent)
+	req.Header.Set("X-App", clientApp)
 	req.Header.Set("X-Claude-Code-Session-Id", sessionID)
-	req.Header.Set("X-Stainless-Retry-Count", "0")
-	req.Header.Set("X-Stainless-Timeout", "600")
-	req.Header.Set("X-Stainless-Lang", "js")
-	req.Header.Set("X-Stainless-Package-Version", claudemode.StainlessPackageVersion)
-	req.Header.Set("X-Stainless-OS", claudemode.StainlessOS())
-	req.Header.Set("X-Stainless-Arch", claudemode.StainlessArch())
-	req.Header.Set("X-Stainless-Runtime", claudemode.StainlessRuntime)
-	req.Header.Set("X-Stainless-Runtime-Version", claudemode.StainlessRuntimeVersion)
+	setHeaderIfMissing(req.Header, "X-Stainless-Retry-Count", "0")
+	setHeaderIfMissing(req.Header, "X-Stainless-Timeout", "600")
+	setHeaderIfMissing(req.Header, "X-Stainless-Lang", "js")
+	setHeaderIfMissing(req.Header, "X-Stainless-Package-Version", claudemode.StainlessPackageVersion)
+	setHeaderIfMissing(req.Header, "X-Stainless-OS", claudemode.StainlessOS())
+	setHeaderIfMissing(req.Header, "X-Stainless-Arch", claudemode.StainlessArch())
+	setHeaderIfMissing(req.Header, "X-Stainless-Runtime", claudemode.StainlessRuntime)
+	setHeaderIfMissing(req.Header, "X-Stainless-Runtime-Version", claudemode.StainlessRuntimeVersion)
 	req.Header.Set("X-API-Key", ra.usedKey.ChannelKey)
 }
 
@@ -78,14 +124,17 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	}
 	modelName := claudeJSONString(payload["model"])
 
+	changed := false
 	if _, ok := payload["max_tokens"]; !ok {
 		payload["max_tokens"] = float64(claudemode.DefaultMaxTokens)
+		changed = true
 	}
 	if _, ok := payload["thinking"]; !ok {
 		payload["thinking"] = map[string]any{
 			"type":    "adaptive",
 			"display": "omitted",
 		}
+		changed = true
 	}
 	if _, ok := payload["context_management"]; !ok {
 		payload["context_management"] = map[string]any{
@@ -93,22 +142,43 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 				{"type": "clear_thinking_20251015", "keep": "all"},
 			},
 		}
+		changed = true
 	}
-	normalizeClaudeMetadata(payload, sessionID)
+	if normalizeClaudeMetadata(payload, sessionID) {
+		changed = true
+	}
 	if _, ok := payload["system"]; !ok {
 		payload["system"] = []map[string]any{
 			{"type": "text", "text": claudemode.BillingHeaderText},
 			{"type": "text", "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK.", "cache_control": map[string]string{"type": "ephemeral"}},
 		}
+		changed = true
 	}
 	if _, ok := payload["output_config"]; !ok {
 		payload["output_config"] = map[string]any{"effort": "high"}
+		changed = true
 	}
 
 	if _, ok := payload["thinking"]; ok {
-		delete(payload, "temperature")
-		delete(payload, "top_p")
-		delete(payload, "top_k")
+		if _, has := payload["temperature"]; has {
+			delete(payload, "temperature")
+			changed = true
+		}
+		if _, has := payload["top_p"]; has {
+			delete(payload, "top_p")
+			changed = true
+		}
+		if _, has := payload["top_k"]; has {
+			delete(payload, "top_k")
+			changed = true
+		}
+	}
+
+	// Avoid re-encoding a complete Claude Code body. Re-marshal reorders keys
+	// and can change prompt-cache fingerprints relative to a direct client.
+	if !changed {
+		resetRequestBody(req, body)
+		return modelName
 	}
 
 	normalized, err := json.Marshal(payload)
@@ -120,16 +190,19 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	return modelName
 }
 
-func normalizeClaudeMetadata(payload map[string]any, sessionID string) {
+func normalizeClaudeMetadata(payload map[string]any, sessionID string) bool {
 	metadata, _ := payload["metadata"].(map[string]any)
 	if metadata == nil {
 		metadata = map[string]any{}
 		payload["metadata"] = metadata
+		metadata["user_id"] = claudeUserID(sessionID)
+		return true
 	}
 	if _, ok := metadata["user_id"]; ok {
-		return
+		return false
 	}
 	metadata["user_id"] = claudeUserID(sessionID)
+	return true
 }
 
 func claudeUserID(sessionID string) string {
@@ -157,4 +230,25 @@ func claudeJSONString(value any) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+func firstNonEmptyHeader(header http.Header, keys ...string) string {
+	if header == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(header.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func setHeaderIfMissing(header http.Header, key string, value string) {
+	if header == nil {
+		return
+	}
+	if strings.TrimSpace(header.Get(key)) == "" {
+		header.Set(key, value)
+	}
 }
