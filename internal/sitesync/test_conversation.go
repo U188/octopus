@@ -417,7 +417,10 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 				"X-API-Key":         key,
 				"Accept":            "application/json",
 				"Anthropic-Version": "2023-06-01",
-				"anthropic-beta":    claudemode.AnthropicBeta(context1M),
+				// Always advertise the 1M-context beta: reseller upstreams that front
+				// Claude Code reject requests without it (HTTP 400 "请启用 1m 上下文").
+				// It is additive and harmless for models/upstreams that ignore it.
+				"anthropic-beta": claudemode.AnthropicBeta(true),
 				"Anthropic-Dangerous-Direct-Browser-Access": "true",
 				"User-Agent":                  claudeTestConversationUserAgent,
 				"X-App":                       "cli",
@@ -538,6 +541,10 @@ func buildClaudeTestConversationBody(modelName string, greeting string, sessionI
 		"model":      modelName,
 		"max_tokens": claudemode.DefaultMaxTokens,
 		"stream":     true,
+		// A genuine Claude Code request always carries a tools array. Reseller
+		// upstreams reject tool-less agentic requests (thinking but no tools) with
+		// HTTP 503 "Service Unavailable", so advertise the canonical tool set.
+		"tools": claudemode.Tools(),
 		"messages": []map[string]any{
 			{
 				"role": "user",

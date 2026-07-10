@@ -299,8 +299,11 @@ func TestBuildTestConversationRequestClaudeMatchesClientShape(t *testing.T) {
 	if headers["X-App"] != "cli" || headers["X-Claude-Code-Session-Id"] == "" {
 		t.Fatalf("expected claude client headers, got %#v", headers)
 	}
-	if !strings.Contains(headers["anthropic-beta"], claudeTestConversationBeta) || strings.Contains(headers["anthropic-beta"], "context-1m-2025-08-07") {
-		t.Fatalf("expected claude beta header, got %q", headers["anthropic-beta"])
+	if !strings.Contains(headers["anthropic-beta"], claudeTestConversationBeta) || !strings.Contains(headers["anthropic-beta"], "context-1m-2025-08-07") {
+		t.Fatalf("expected claude beta header with 1m context, got %q", headers["anthropic-beta"])
+	}
+	if tools, ok := body["tools"].([]map[string]any); !ok || len(tools) < 10 {
+		t.Fatalf("expected claude tools array (upstreams reject tool-less agentic requests), got %#v", body["tools"])
 	}
 	if body["stream"] != true || body["max_tokens"] != claudemode.DefaultMaxTokens {
 		t.Fatalf("unexpected claude body flags: %#v", body)
