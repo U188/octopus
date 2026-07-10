@@ -580,6 +580,7 @@
             "updating": "更新中...",
             "updateSuccess": "更新成功，服务即将重启",
             "updateFailed": "更新失败",
+            "updatePending": "更新仍在进行中，请稍后刷新确认版本。",
             "restartNow": "重启服务",
             "restarting": "重启中...",
             "restartSuccess": "服务正在重启",

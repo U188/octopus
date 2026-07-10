@@ -1,9 +1,9 @@
 'use client';
 
 import { ExternalLink, Info, Power, RefreshCw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { useLatestVersion, useRestartCore, useUpdateCore, useVersionInfo } from '@/api/endpoints/update';
+import { pollUpdateOutcome, useLatestVersion, useRestartCore, useUpdateCore, useVersionInfo } from '@/api/endpoints/update';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
@@ -15,19 +15,45 @@ const frontendVersion = process.env.NEXT_PUBLIC_APP_VERSION || '';
 
 export function SettingVersion() {
     const t = useTranslations('setting');
-    const { data: versionInfo } = useVersionInfo();
+    const { data: versionInfo, refetch: refetchVersion } = useVersionInfo();
     const { data: latestInfo, isLoading: latestLoading, refetch } = useLatestVersion();
     const updateCore = useUpdateCore();
     const restartCore = useRestartCore();
+    const [updatePolling, setUpdatePolling] = useState(false);
 
     const backendVersion = versionInfo?.version ?? t('info.unknown');
     const latestVersion = latestInfo?.tag_name ?? (latestLoading ? '...' : t('info.unknown'));
     const versionMismatch = Boolean(frontendVersion && versionInfo?.version && versionInfo.version !== frontendVersion);
     const updateAvailable = Boolean(versionInfo?.version && latestInfo?.tag_name && compareVersions(latestInfo.tag_name, versionInfo.version) > 0);
+    const updateInProgress = updateCore.isPending || updatePolling;
 
     const onUpdate = () => {
+        const fromVersion = versionInfo?.version ?? '';
         updateCore.mutate(undefined, {
-            onSuccess: () => toast.success(t('info.updateSuccess')),
+            onSuccess: async (status) => {
+                // The update runs asynchronously on the server now; a returned
+                // "failed" here would be an immediate rejection. Otherwise poll
+                // for the real outcome (version change / status) so a slow
+                // download + restart no longer looks like a failure.
+                if (status?.state === 'failed') {
+                    toast.error(t('info.updateFailed'), { description: status.message });
+                    return;
+                }
+                setUpdatePolling(true);
+                try {
+                    const result = await pollUpdateOutcome(fromVersion);
+                    if (result.outcome === 'success') {
+                        toast.success(t('info.updateSuccess'));
+                        refetchVersion();
+                    } else if (result.outcome === 'failed') {
+                        toast.error(t('info.updateFailed'), { description: result.message });
+                    } else {
+                        toast.info(t('info.updatePending'));
+                    }
+                } finally {
+                    setUpdatePolling(false);
+                }
+            },
             onError: (error) => toast.error(t('info.updateFailed'), { description: (error as unknown as ApiError)?.message }),
         });
     };
@@ -101,13 +127,13 @@ export function SettingVersion() {
                         type="button"
                         className="w-full rounded-xl"
                         onConfirm={onUpdate}
-                        disabled={updateCore.isPending}
+                        disabled={updateInProgress}
                         title={t('danger.update.title')}
                         description={t('danger.update.description')}
                         confirmLabel={t('danger.confirm')}
                         cancelLabel={t('danger.cancel')}
                     >
-                        {updateCore.isPending ? t('info.updating') : t('info.updateNow')}
+                        {updateInProgress ? t('info.updating') : t('info.updateNow')}
                     </ConfirmActionButton>
                 </div>
             )}
@@ -116,7 +142,7 @@ export function SettingVersion() {
                 type="button"
                 className="w-full rounded-xl"
                 onConfirm={onRestart}
-                disabled={restartCore.isPending || updateCore.isPending}
+                disabled={restartCore.isPending || updateInProgress}
                 title={t('danger.restart.title')}
                 description={t('danger.restart.description')}
                 confirmLabel={t('danger.confirm')}

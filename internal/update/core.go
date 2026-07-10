@@ -14,15 +14,34 @@ import (
 	"github.com/U188/octopus/internal/utils/shutdown"
 )
 
-const updateRestartDelay = time.Second
+var updateRestartDelay = time.Second
 
+// UpdateCore performs a synchronous self-update: download, verify, install, then
+// restart shortly after. Retained for blocking callers and tests. Interactive
+// callers should prefer StartUpdate (see status.go), which runs the same work
+// asynchronously so the HTTP request does not stay open for the whole download.
 func UpdateCore() error {
+	execPath, err := runUpdateCore()
+	if err != nil {
+		return err
+	}
+	log.Infof("update core success")
+	go func() {
+		time.Sleep(updateRestartDelay)
+		restartExecutable(execPath)
+	}()
+	return nil
+}
+
+// runUpdateCore downloads, verifies, and installs the new binary, returning the
+// executable path to restart on success. It does NOT restart the process.
+func runUpdateCore() (string, error) {
 	log.Infof("start update core")
 
 	filename, err := getDownloadFilename()
 	if err != nil {
 		log.Warnf("update core failed: %v", err)
-		return err
+		return "", err
 	}
 
 	downloadUrl := BuildDownloadURL(filename)
@@ -30,7 +49,7 @@ func UpdateCore() error {
 	data, err := downloadUpdateAsset(filename, maxUpdateArchiveBytes)
 	if err != nil {
 		log.Warnf("download failed: %v", err)
-		return err
+		return "", err
 	}
 	// Prefer the official manifest as the trust root. The configured accelerator
 	// is only a last-resort fallback for hosts that cannot reach GitHub directly.
@@ -39,47 +58,42 @@ func UpdateCore() error {
 	if officialChecksumErr != nil {
 		acceleratedChecksumURL := BuildDownloadURL(updateChecksumFilename)
 		if acceleratedChecksumURL == checksumURL {
-			return fmt.Errorf("download official checksum manifest: %w", officialChecksumErr)
+			return "", fmt.Errorf("download official checksum manifest: %w", officialChecksumErr)
 		}
 		log.Warnf("official checksum manifest unavailable; falling back to configured update accelerator: %v", officialChecksumErr)
 		checksumData, err = doRequestWithFallback(acceleratedChecksumURL, maxUpdateChecksumBytes)
 		if err != nil {
-			return fmt.Errorf("download checksum manifest: official request failed: %v; accelerated request failed: %w", officialChecksumErr, err)
+			return "", fmt.Errorf("download checksum manifest: official request failed: %v; accelerated request failed: %w", officialChecksumErr, err)
 		}
 	}
 	if err := verifyUpdateArchive(data, checksumData, filename); err != nil {
-		return err
+		return "", err
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
 		log.Warnf("get executable path failed: %v", err)
-		return err
+		return "", err
 	}
 
 	stageDir, err := os.MkdirTemp(filepath.Dir(execPath), ".octopus-update-*")
 	if err != nil {
-		return fmt.Errorf("create update staging directory: %w", err)
+		return "", fmt.Errorf("create update staging directory: %w", err)
 	}
 	defer os.RemoveAll(stageDir)
 	if err := unzip(data, stageDir); err != nil {
 		log.Warnf("unzip failed: %v", err)
-		return err
+		return "", err
 	}
 	stagedBinary, err := findStagedBinary(stageDir, execPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := installStagedBinary(stagedBinary, execPath); err != nil {
-		return err
+		return "", err
 	}
 
-	log.Infof("update core success")
-	go func() {
-		time.Sleep(updateRestartDelay)
-		restartExecutable(execPath)
-	}()
-	return nil
+	return execPath, nil
 }
 
 func downloadUpdateAsset(filename string, maxBytes int64) ([]byte, error) {

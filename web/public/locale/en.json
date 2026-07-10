@@ -580,6 +580,7 @@
             "updating": "Updating...",
             "updateSuccess": "Update successful, service will restart shortly",
             "updateFailed": "Update failed",
+            "updatePending": "Update is still in progress. Please refresh shortly to confirm the version.",
             "restartNow": "Restart Service",
             "restarting": "Restarting...",
             "restartSuccess": "Service is restarting",

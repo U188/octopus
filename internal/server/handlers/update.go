@@ -29,6 +29,10 @@ func init() {
 				Handle(getVersionInfo),
 		).
 		AddRoute(
+			router.NewRoute("/status", http.MethodGet).
+				Handle(getUpdateStatus),
+		).
+		AddRoute(
 			router.NewRoute("", http.MethodPost).
 				Handle(updateFunc),
 		).
@@ -61,21 +65,29 @@ func getVersionInfo(c *gin.Context) {
 	})
 }
 
+func getUpdateStatus(c *gin.Context) {
+	resp.Success(c, update.CurrentStatus())
+}
+
 func updateFunc(c *gin.Context) {
-	err := update.UpdateCore()
-	if err != nil {
-		recordAudit(c, "system.update", op.AuditStatusFailed, map[string]any{
-			"version": conf.Version,
-			"commit":  conf.Commit,
-		}, err)
-		resp.Error(c, http.StatusInternalServerError, err.Error())
-		return
+	actor := "admin"
+	if user := op.UserGet(); user.Username != "" {
+		actor = user.Username
 	}
-	recordAudit(c, "system.update", op.AuditStatusSuccess, map[string]any{
-		"version": conf.Version,
-		"commit":  conf.Commit,
-	}, nil)
-	resp.Success(c, "update success")
+	// Kick off the update asynchronously and return immediately. The download +
+	// install can take ~30s+, and blocking the request for that long made the
+	// browser/reverse-proxy time out and report "update failed" even when the
+	// server updated successfully. The UI now polls /status and /info instead.
+	status := update.StartUpdate(update.AuditMeta{
+		Actor:       actor,
+		IP:          c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		Method:      c.Request.Method,
+		Path:        c.FullPath(),
+		FromVersion: conf.Version,
+		Commit:      conf.Commit,
+	})
+	resp.Success(c, status)
 }
 
 func restartFunc(c *gin.Context) {
