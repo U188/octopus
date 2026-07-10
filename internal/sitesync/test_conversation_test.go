@@ -402,6 +402,49 @@ func TestRequestClaudeTestConversationStreamParsesSSE(t *testing.T) {
 	}
 }
 
+func TestRequestClaudeTestConversationRejectsUnavailableJSONMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"msg_probe",
+			"type":"message",
+			"role":"assistant",
+			"model":"claude-fable-5",
+			"content":[{"type":"text","text":"Service temporarily unavailable. Please retry later."}],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":1,"output_tokens":1}
+		}`))
+	}))
+	defer server.Close()
+
+	siteRecord := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL}
+	_, body, headers := buildTestConversationRequest(siteRecord, model.SiteToken{Token: "sk-test"}, "claude-fable-5", TestConversationModeAnthropic, "hi", TestConversationClientClaude, true)
+
+	payload, err := requestClaudeTestConversationStream(context.Background(), siteRecord, server.URL, body, headers, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "upstream service temporarily unavailable") {
+		t.Fatalf("expected semantic unavailable response to fail, payload=%#v err=%v", payload, err)
+	}
+	if reply := extractTestConversationReply(TestConversationModeAnthropic, payload); reply != "Service temporarily unavailable. Please retry later." {
+		t.Fatalf("expected original upstream response to remain available for logging, got %q", reply)
+	}
+}
+
+func TestParseClaudeTestConversationSSERejectsUnavailableMessage(t *testing.T) {
+	raw := strings.Join([]string{
+		`data: {"type":"message_start","message":{"id":"msg_probe","type":"message","role":"assistant","model":"claude-fable-5","content":[]}}`,
+		"",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Service temporarily unavailable. Please retry later."}}`,
+		"",
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
+		"",
+	}, "\n")
+
+	payload, err := parseClaudeTestConversationSSE(strings.NewReader(raw))
+	if err == nil || !strings.Contains(err.Error(), "upstream service temporarily unavailable") {
+		t.Fatalf("expected semantic unavailable stream to fail, payload=%#v err=%v", payload, err)
+	}
+}
+
 func TestParseCodexTestConversationSSEUsesContentPartDoneText(t *testing.T) {
 	raw := strings.Join([]string{
 		`data: {"type":"response.created","response":{"id":"resp_1","model":"gpt-5.5"}}`,

@@ -946,6 +946,9 @@ func requestClaudeTestConversationStream(ctx context.Context, siteRecord *model.
 		if err := json.Unmarshal(bodyBytes, &responsePayload); err != nil {
 			return nil, formatSiteDecodeError(resp.Header.Get("Content-Type"), bodyBytes, err)
 		}
+		if err := validateClaudeTestConversationResponse(responsePayload); err != nil {
+			return responsePayload, err
+		}
 		if err := emitTestConversationReply(TestConversationModeAnthropic, responsePayload, emit); err != nil {
 			return nil, err
 		}
@@ -1039,7 +1042,26 @@ func parseClaudeTestConversationSSEWithEmit(reader io.Reader, emit TestConversat
 	if text := output.String(); text != "" {
 		message["content"] = []any{map[string]any{"type": "text", "text": text}}
 	}
+	if err := validateClaudeTestConversationResponse(message); err != nil {
+		return message, err
+	}
 	return message, nil
+}
+
+func validateClaudeTestConversationResponse(payload map[string]any) error {
+	if payload == nil {
+		return nil
+	}
+	reply := strings.TrimSpace(extractTestConversationReply(TestConversationModeAnthropic, payload))
+	normalized := strings.ToLower(strings.Trim(reply, " \t\r\n.!"))
+	switch normalized {
+	case "service temporarily unavailable. please retry later",
+		"service temporarily unavailable",
+		"service unavailable",
+		"temporarily unavailable. please retry later":
+		return fmt.Errorf("upstream service temporarily unavailable: %s", reply)
+	}
+	return nil
 }
 
 func extractResponsesResponseText(response map[string]any) string {
