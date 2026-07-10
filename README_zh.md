@@ -259,14 +259,13 @@ corepack pnpm dev
 
 访问 `http://localhost:3000`。
 
-### 🔐 默认账户
+### 🔐 初始账户
 
-首次启动后，访问 http://localhost:8080 使用以下默认账户登录管理面板：
+首次启动后，访问 http://localhost:8080，使用用户名 `admin` 登录。系统生成的一次性密码保存在
+`data/initial-admin-password.txt`，文件权限仅允许所属用户读取，并会在首次成功登录后删除。
 
-- **用户名**：`admin`
-- **密码**：`admin`
-
-> ⚠️ **安全提示**：请在首次登录后立即修改默认密码。
+无人值守部署可在首次启动前设置 `OCTOPUS_INITIAL_ADMIN_USERNAME` 和
+`OCTOPUS_INITIAL_ADMIN_PASSWORD`。
 
 ### 📝 配置文件
 

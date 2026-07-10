@@ -26,6 +26,7 @@ const (
 	relayLogCleanupBatchSize = 1000
 	relayLogCleanupBatchWait = 30 * time.Millisecond
 	relayLogWriterMaxBatches = 25
+	relayLogStreamTokenTTL   = 5 * time.Minute
 )
 
 var relayLogPending = make([]model.RelayLog, 0, relayLogBatchSize)
@@ -43,7 +44,7 @@ var relayLogLastDropWarn atomic.Int64
 var relayLogSubscribers = make(map[chan model.RelayLog]struct{})
 var relayLogSubscribersLock sync.RWMutex
 
-var relayLogStreamTokens = make(map[string]struct{})
+var relayLogStreamTokens = make(map[string]time.Time)
 var relayLogStreamTokensLock sync.RWMutex
 
 var ErrRelayLogQueueFull = errors.New("relay log queue full")
@@ -56,16 +57,21 @@ func RelayLogStreamTokenCreate() (string, error) {
 	token := hex.EncodeToString(bytes)
 
 	relayLogStreamTokensLock.Lock()
-	relayLogStreamTokens[token] = struct{}{}
+	relayLogStreamTokens[token] = time.Now().Add(relayLogStreamTokenTTL)
 	relayLogStreamTokensLock.Unlock()
 
 	return token, nil
 }
 
 func RelayLogStreamTokenVerify(token string) bool {
-	relayLogStreamTokensLock.RLock()
-	_, ok := relayLogStreamTokens[token]
-	relayLogStreamTokensLock.RUnlock()
+	now := time.Now()
+	relayLogStreamTokensLock.Lock()
+	expiresAt, ok := relayLogStreamTokens[token]
+	if ok && !now.Before(expiresAt) {
+		delete(relayLogStreamTokens, token)
+		ok = false
+	}
+	relayLogStreamTokensLock.Unlock()
 	return ok
 }
 
@@ -120,11 +126,22 @@ func RelayLogWriterRun(ctx context.Context) {
 				log.Warnw("relay_log.flush_failed", "batch_size", relayLogBatchSize, "queue_length", RelayLogPendingLen(), "error", err.Error())
 			}
 		case <-ticker.C:
+			relayLogStreamTokenCleanup(time.Now())
 			if err := relayLogDrainPending(ctx, relayLogWriterMaxBatches); err != nil {
 				log.Warnw("relay_log.flush_failed", "batch_size", relayLogBatchSize, "queue_length", RelayLogPendingLen(), "error", err.Error())
 			}
 		}
 	}
+}
+
+func relayLogStreamTokenCleanup(now time.Time) {
+	relayLogStreamTokensLock.Lock()
+	for token, expiresAt := range relayLogStreamTokens {
+		if !now.Before(expiresAt) {
+			delete(relayLogStreamTokens, token)
+		}
+	}
+	relayLogStreamTokensLock.Unlock()
 }
 
 func signalRelayLogFlush() {

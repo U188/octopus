@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,8 +23,13 @@ import (
 )
 
 const (
-	updateUrl    = "https://github.com/u188/octopus/releases/latest/download"
-	updateApiUrl = "https://api.github.com/repos/u188/octopus/releases/latest"
+	updateURL                     = "https://github.com/u188/octopus/releases/latest/download"
+	updateAPIURL                  = "https://api.github.com/repos/u188/octopus/releases/latest"
+	updateChecksumFilename        = "sha256sums.txt"
+	maxUpdateMetadataBytes  int64 = 4 << 20
+	maxUpdateArchiveBytes   int64 = 512 << 20
+	maxUpdateChecksumBytes  int64 = 1 << 20
+	maxUpdateExtractedBytes int64 = 1024 << 20
 )
 
 type LatestInfo struct {
@@ -35,8 +42,8 @@ type LatestInfo struct {
 var github_pat = os.Getenv(strings.ToUpper(conf.APP_NAME) + "_GITHUB_PAT")
 
 // doRequestWithFallback performs an HTTP GET request, first without proxy, then with proxy if failed.
-func doRequestWithFallback(url string) ([]byte, error) {
-	data, err := doRequest(url, false)
+func doRequestWithFallback(url string, maxBytes int64) ([]byte, error) {
+	data, err := doRequest(url, false, maxBytes)
 	if err == nil {
 		return data, nil
 	}
@@ -50,14 +57,14 @@ func doRequestWithFallback(url string) ([]byte, error) {
 	}
 
 	log.Warnf("direct request failed, trying with proxy: %v", err)
-	proxyData, proxyErr := doRequest(url, true)
+	proxyData, proxyErr := doRequest(url, true, maxBytes)
 	if proxyErr != nil {
 		return nil, fmt.Errorf("direct request failed: %v; proxy request failed: %w", err, proxyErr)
 	}
 	return proxyData, nil
 }
 
-func doRequest(url string, useProxy bool) ([]byte, error) {
+func doRequest(url string, useProxy bool, maxBytes int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -83,10 +90,20 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	if maxBytes > 0 && resp.ContentLength > maxBytes {
+		return nil, fmt.Errorf("response from %s exceeds maximum size of %d bytes", url, maxBytes)
+	}
+	reader := io.Reader(resp.Body)
+	if maxBytes > 0 {
+		reader = io.LimitReader(resp.Body, maxBytes+1)
+	}
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		log.Debugf("read body failed: %v", err)
 		return nil, err
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("response from %s exceeds maximum size of %d bytes", url, maxBytes)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("request %s failed with HTTP %d: %s", url, resp.StatusCode, compactResponseSnippet(data))
@@ -108,7 +125,7 @@ func compactResponseSnippet(data []byte) string {
 }
 
 func GetLatestInfo() (*LatestInfo, error) {
-	body, err := doRequestWithFallback(updateApiUrl)
+	body, err := doRequestWithFallback(updateAPIURL, maxUpdateMetadataBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +151,7 @@ func BuildDownloadURL(filename string) string {
 
 func buildDownloadURL(filename, custom string) string {
 	cleanFilename := strings.TrimLeft(filename, "/")
-	official := updateUrl + "/" + cleanFilename
+	official := updateURL + "/" + cleanFilename
 	custom = strings.TrimSpace(custom)
 	if custom == "" {
 		return official
@@ -162,7 +179,12 @@ func unzip(data []byte, dest string) error {
 		return err
 	}
 
+	var totalExtracted int64
 	for _, f := range r.File {
+		if f.UncompressedSize64 > uint64(maxUpdateExtractedBytes) ||
+			totalExtracted > maxUpdateExtractedBytes-int64(f.UncompressedSize64) {
+			return fmt.Errorf("update archive exceeds maximum extracted size of %d bytes", maxUpdateExtractedBytes)
+		}
 		fpath := filepath.Join(dest, f.Name)
 
 		if !isPathInDest(fpath, dest) {
@@ -172,36 +194,44 @@ func unzip(data []byte, dest string) error {
 
 		info := f.FileInfo()
 		if info.IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+			if err := os.MkdirAll(fpath, 0755); err != nil {
+				return err
+			}
 			continue
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
 
-		if err := extractFile(f, fpath); err != nil {
+		extracted, err := extractFile(f, fpath, maxUpdateExtractedBytes-totalExtracted)
+		if err != nil {
 			return err
 		}
+		totalExtracted += extracted
 	}
 	return nil
 }
 
-func extractFile(f *zip.File, fpath string) error {
-	if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+func extractFile(f *zip.File, fpath string, maxBytes int64) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(fpath), 0755); err != nil {
 		log.Debugf("mkdir all failed: %v", err)
-		return err
+		return 0, err
 	}
 
-	outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode().Perm())
+	mode := f.Mode().Perm() & 0777
+	if mode == 0 {
+		mode = 0644
+	}
+	outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		if err = os.Remove(fpath); err != nil {
 			log.Debugf("remove file failed: %v", err)
-			return err
+			return 0, err
 		}
-		outFile, err = os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		outFile, err = os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 		if err != nil {
 			log.Debugf("open file failed: %v", err)
-			return err
+			return 0, err
 		}
 	}
 	defer outFile.Close()
@@ -209,15 +239,30 @@ func extractFile(f *zip.File, fpath string) error {
 	rc, err := f.Open()
 	if err != nil {
 		log.Debugf("open file failed: %v", err)
-		return err
+		return 0, err
 	}
 	defer rc.Close()
 
-	if _, err = io.Copy(outFile, rc); err != nil {
+	n, err := copyUpdateFileWithLimit(outFile, rc, maxBytes)
+	if err != nil {
 		log.Debugf("copy failed: %v", err)
-		return err
+		return n, err
 	}
-	return nil
+	return n, nil
+}
+
+func copyUpdateFileWithLimit(dst io.Writer, src io.Reader, maxBytes int64) (int64, error) {
+	if maxBytes < 0 {
+		return 0, fmt.Errorf("invalid update extraction limit")
+	}
+	n, err := io.Copy(dst, io.LimitReader(src, maxBytes+1))
+	if err != nil {
+		return n, err
+	}
+	if n > maxBytes {
+		return n, fmt.Errorf("update archive exceeds maximum extracted size of %d bytes", maxUpdateExtractedBytes)
+	}
+	return n, nil
 }
 
 func isPathInDest(fpath, dest string) bool {
@@ -226,4 +271,38 @@ func isPathInDest(fpath, dest string) bool {
 		return false
 	}
 	return filepath.IsLocal(rel)
+}
+
+func expectedSHA256(checksumData []byte, filename string) (string, error) {
+	for _, line := range strings.Split(string(checksumData), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if name != filename {
+			continue
+		}
+		sum := strings.ToLower(strings.TrimSpace(fields[0]))
+		if len(sum) != sha256.Size*2 {
+			return "", fmt.Errorf("invalid SHA-256 checksum for %s", filename)
+		}
+		if _, err := hex.DecodeString(sum); err != nil {
+			return "", fmt.Errorf("invalid SHA-256 checksum for %s: %w", filename, err)
+		}
+		return sum, nil
+	}
+	return "", fmt.Errorf("SHA-256 checksum for %s is missing", filename)
+}
+
+func verifyUpdateArchive(data, checksumData []byte, filename string) error {
+	expected, err := expectedSHA256(checksumData, filename)
+	if err != nil {
+		return err
+	}
+	actual := sha256.Sum256(data)
+	if hex.EncodeToString(actual[:]) != expected {
+		return fmt.Errorf("SHA-256 checksum mismatch for %s", filename)
+	}
+	return nil
 }

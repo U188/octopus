@@ -202,6 +202,97 @@ func TestDBImportSkipsOrphanedStats(t *testing.T) {
 	}
 }
 
+func TestDBImportSkipsChildrenWhenParentMappingIsMissing(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+
+	existing := model.Channel{Name: "existing-channel", Enabled: true}
+	if err := ChannelCreate(&existing, ctx); err != nil {
+		t.Fatalf("create existing channel failed: %v", err)
+	}
+
+	dump := &model.DBDump{
+		Version: dbDumpVersion,
+		ChannelKeys: []model.ChannelKey{
+			{ID: 10, ChannelID: existing.ID, ChannelKey: "must-not-attach", Enabled: true},
+		},
+		SiteAccounts: []model.SiteAccount{
+			{ID: 10, SiteID: 999, Name: "orphan-account", CredentialType: model.SiteCredentialTypeAPIKey},
+		},
+		SiteCredentials: []model.SiteCredential{
+			{ID: 10, SiteAccountID: 999, Purpose: model.SiteCredentialPurposeChat, Token: "orphan-token"},
+		},
+		GroupItems: []model.GroupItem{
+			{ID: 10, GroupID: 999, ChannelID: existing.ID, ModelName: "orphan-model"},
+		},
+	}
+	if _, err := DBImportIncremental(ctx, dump); err != nil {
+		t.Fatalf("DBImportIncremental failed: %v", err)
+	}
+
+	var keyCount, accountCount, credentialCount, itemCount int64
+	dbpkg.GetDB().Model(&model.ChannelKey{}).Where("channel_key = ?", "must-not-attach").Count(&keyCount)
+	dbpkg.GetDB().Model(&model.SiteAccount{}).Where("name = ?", "orphan-account").Count(&accountCount)
+	dbpkg.GetDB().Model(&model.SiteCredential{}).Where("value = ?", "orphan-token").Count(&credentialCount)
+	dbpkg.GetDB().Model(&model.GroupItem{}).Where("model_name = ?", "orphan-model").Count(&itemCount)
+	if keyCount != 0 || accountCount != 0 || credentialCount != 0 || itemCount != 0 {
+		t.Fatalf("orphan rows were imported: keys=%d accounts=%d credentials=%d items=%d", keyCount, accountCount, credentialCount, itemCount)
+	}
+}
+
+func TestDBImportRemapsRelayLogChannelAndKeyIDs(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+
+	existing := model.Channel{Name: "existing-channel", Enabled: true}
+	if err := ChannelCreate(&existing, ctx); err != nil {
+		t.Fatalf("create existing channel failed: %v", err)
+	}
+
+	dump := &model.DBDump{
+		Version:     dbDumpVersion,
+		IncludeLogs: true,
+		Channels: []model.Channel{
+			{ID: 1, Name: "imported-channel", Enabled: true},
+		},
+		ChannelKeys: []model.ChannelKey{
+			{ID: 7, ChannelID: 1, ChannelKey: "imported-key", Enabled: true},
+		},
+		RelayLogs: []model.RelayLog{{
+			ID:        9001,
+			Time:      1,
+			ChannelId: 1,
+			Attempts: []model.ChannelAttempt{{
+				ChannelID:    1,
+				ChannelKeyID: 7,
+				Status:       model.AttemptSuccess,
+			}},
+		}},
+	}
+	if _, err := DBImportIncremental(ctx, dump); err != nil {
+		t.Fatalf("DBImportIncremental failed: %v", err)
+	}
+
+	var importedChannel model.Channel
+	if err := dbpkg.GetDB().Where("name = ?", "imported-channel").First(&importedChannel).Error; err != nil {
+		t.Fatalf("query imported channel failed: %v", err)
+	}
+	var importedKey model.ChannelKey
+	if err := dbpkg.GetDB().Where("channel_id = ? AND channel_key = ?", importedChannel.ID, "imported-key").First(&importedKey).Error; err != nil {
+		t.Fatalf("query imported key failed: %v", err)
+	}
+	var relayLog model.RelayLog
+	if err := dbpkg.GetDB().First(&relayLog, "id = ?", 9001).Error; err != nil {
+		t.Fatalf("query relay log failed: %v", err)
+	}
+	if relayLog.ChannelId != importedChannel.ID {
+		t.Fatalf("relay channel id = %d, want %d", relayLog.ChannelId, importedChannel.ID)
+	}
+	if len(relayLog.Attempts) != 1 ||
+		relayLog.Attempts[0].ChannelID != importedChannel.ID ||
+		relayLog.Attempts[0].ChannelKeyID != importedKey.ID {
+		t.Fatalf("relay attempts not remapped: %+v", relayLog.Attempts)
+	}
+}
+
 func TestDBImportRejectsInvalidSettings(t *testing.T) {
 	ctx := setupBackupTestDB(t)
 

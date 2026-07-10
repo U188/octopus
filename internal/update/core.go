@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,9 +25,27 @@ func UpdateCore() error {
 
 	downloadUrl := BuildDownloadURL(filename)
 	log.Infof("download url: %s", downloadUrl)
-	data, err := doRequestWithFallback(downloadUrl)
+	data, err := downloadUpdateAsset(filename, maxUpdateArchiveBytes)
 	if err != nil {
 		log.Warnf("download failed: %v", err)
+		return err
+	}
+	// Prefer the official manifest as the trust root. The configured accelerator
+	// is only a last-resort fallback for hosts that cannot reach GitHub directly.
+	checksumURL := updateURL + "/" + updateChecksumFilename
+	checksumData, officialChecksumErr := doRequestWithFallback(checksumURL, maxUpdateChecksumBytes)
+	if officialChecksumErr != nil {
+		acceleratedChecksumURL := BuildDownloadURL(updateChecksumFilename)
+		if acceleratedChecksumURL == checksumURL {
+			return fmt.Errorf("download official checksum manifest: %w", officialChecksumErr)
+		}
+		log.Warnf("official checksum manifest unavailable; falling back to configured update accelerator: %v", officialChecksumErr)
+		checksumData, err = doRequestWithFallback(acceleratedChecksumURL, maxUpdateChecksumBytes)
+		if err != nil {
+			return fmt.Errorf("download checksum manifest: official request failed: %v; accelerated request failed: %w", officialChecksumErr, err)
+		}
+	}
+	if err := verifyUpdateArchive(data, checksumData, filename); err != nil {
 		return err
 	}
 
@@ -36,13 +55,72 @@ func UpdateCore() error {
 		return err
 	}
 
-	if err := unzip(data, filepath.Dir(execPath)); err != nil {
+	stageDir, err := os.MkdirTemp(filepath.Dir(execPath), ".octopus-update-*")
+	if err != nil {
+		return fmt.Errorf("create update staging directory: %w", err)
+	}
+	defer os.RemoveAll(stageDir)
+	if err := unzip(data, stageDir); err != nil {
 		log.Warnf("unzip failed: %v", err)
+		return err
+	}
+	stagedBinary, err := findStagedBinary(stageDir, execPath)
+	if err != nil {
+		return err
+	}
+	if err := installStagedBinary(stagedBinary, execPath); err != nil {
 		return err
 	}
 
 	log.Infof("update core success")
 	go restartExecutable(execPath)
+	return nil
+}
+
+func downloadUpdateAsset(filename string, maxBytes int64) ([]byte, error) {
+	officialURL := updateURL + "/" + strings.TrimLeft(filename, "/")
+	downloadURL := BuildDownloadURL(filename)
+	data, err := doRequestWithFallback(downloadURL, maxBytes)
+	if err == nil || downloadURL == officialURL {
+		return data, err
+	}
+	log.Warnf("configured update accelerator failed; falling back to official download: %v", err)
+	officialData, officialErr := doRequestWithFallback(officialURL, maxBytes)
+	if officialErr != nil {
+		return nil, fmt.Errorf("accelerated download failed: %v; official download failed: %w", err, officialErr)
+	}
+	return officialData, nil
+}
+
+func findStagedBinary(stageDir, execPath string) (string, error) {
+	expectedName := filepath.Base(execPath)
+	fallbackName := "octopus"
+	if runtime.GOOS == "windows" {
+		fallbackName += ".exe"
+	}
+	candidates := []string{
+		filepath.Join(stageDir, expectedName),
+		filepath.Join(stageDir, fallbackName),
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("update archive does not contain executable %q", expectedName)
+}
+
+func installStagedBinary(stagedBinary, execPath string) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("automatic self-update on Windows is not supported; use the release installer")
+	}
+	if err := os.Chmod(stagedBinary, 0755); err != nil {
+		return fmt.Errorf("set staged executable mode: %w", err)
+	}
+	if err := os.Rename(stagedBinary, execPath); err != nil {
+		return fmt.Errorf("atomically replace executable: %w", err)
+	}
 	return nil
 }
 

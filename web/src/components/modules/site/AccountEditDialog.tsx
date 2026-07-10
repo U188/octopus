@@ -172,16 +172,15 @@ function createEmptyAccountForm(site: SiteRecord): SiteAccountFormState {
 function createAccountForm(account: SiteAccount, platform?: SitePlatform): SiteAccountFormState {
     const directAPIKey = platform ? isDirectAPIKeyPlatform(platform) : false;
     const credentialType = directAPIKey ? SiteCredentialType.APIKey : account.credential_type;
-    const fallbackAPIKey = directAPIKey && !account.api_key ? account.access_token : account.api_key;
     return {
         site_id: account.site_id,
         name: account.name,
         credential_type: credentialType,
         username: account.username,
-        password: account.password,
-        access_token: directAPIKey ? '' : account.access_token,
-        api_key: fallbackAPIKey,
-        refresh_token: account.refresh_token ?? '',
+        password: '',
+        access_token: '',
+        api_key: '',
+        refresh_token: '',
         token_expires_at:
             account.token_expires_at > 0 ? String(account.token_expires_at) : '',
         platform_user_id: account.platform_user_id
@@ -265,21 +264,31 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                 return;
             }
 
-            const inferredCredentialType = inferCredentialType(currentPlatform, accountForm);
+            const detectedCredentialType = inferCredentialType(currentPlatform, accountForm);
+            const inferredCredentialType = directAPIKeyPlatform
+                ? SiteCredentialType.APIKey
+                : (detectedCredentialType ?? account?.credential_type ?? null);
             if (!inferredCredentialType) {
                 toast.error(directAPIKeyPlatform ? '请输入 API Key' : '请输入管理 Token/Cookie 或 API Key');
                 return;
             }
             if (
                 inferredCredentialType === SiteCredentialType.UsernamePassword &&
-                (!accountForm.username.trim() || !accountForm.password.trim())
+                (
+                    !accountForm.username.trim() ||
+                    (!accountForm.password.trim() && !(account?.password_stored ?? false))
+                )
             ) {
                 toast.error('用户名和密码不能为空');
                 return;
             }
             if (
                 inferredCredentialType === SiteCredentialType.APIKey &&
-                !accountForm.api_key.trim()
+                !accountForm.api_key.trim() &&
+                !(
+                    (account?.api_key_stored ?? false) ||
+                    (directAPIKeyPlatform && (account?.access_token_stored ?? false))
+                )
             ) {
                 toast.error('请输入 API Key');
                 return;
@@ -347,16 +356,11 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                 return;
             }
 
-            const payload = {
+            const basePayload = {
                 site_id: accountForm.site_id,
                 name: accountForm.name.trim(),
                 credential_type: inferredCredentialType,
                 username: isUsernamePassword ? accountForm.username.trim() : '',
-                password: isUsernamePassword ? accountForm.password.trim() : '',
-                access_token: submittedAccessToken,
-                api_key: trimmedAPIKey,
-                refresh_token: isAccessToken ? accountForm.refresh_token.trim() : '',
-                token_expires_at: isAccessToken ? parsedTokenExpiresAt : 0,
                 platform_user_id: shouldIncludePlatformUserID ? parsedPlatformUserID : null,
                 proxy_mode: accountForm.proxy_mode,
                 proxy_config_id:
@@ -377,10 +381,31 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
 
             try {
                 if (account) {
-                    await updateSiteAccount.mutateAsync({ id: account.id, ...payload });
+                    await updateSiteAccount.mutateAsync({
+                        id: account.id,
+                        ...basePayload,
+                        ...(isUsernamePassword && accountForm.password.trim()
+                            ? { password: accountForm.password.trim() }
+                            : {}),
+                        ...(submittedAccessToken ? { access_token: submittedAccessToken } : {}),
+                        ...(trimmedAPIKey ? { api_key: trimmedAPIKey } : {}),
+                        ...(isAccessToken && accountForm.refresh_token.trim()
+                            ? { refresh_token: accountForm.refresh_token.trim() }
+                            : {}),
+                        ...(isAccessToken && parsedTokenExpiresAt > 0
+                            ? { token_expires_at: parsedTokenExpiresAt }
+                            : {}),
+                    });
                     toast.success('站点账号已更新');
                 } else {
-                    await createSiteAccount.mutateAsync(payload);
+                    await createSiteAccount.mutateAsync({
+                        ...basePayload,
+                        password: isUsernamePassword ? accountForm.password.trim() : '',
+                        access_token: submittedAccessToken,
+                        api_key: trimmedAPIKey,
+                        refresh_token: isAccessToken ? accountForm.refresh_token.trim() : '',
+                        token_expires_at: isAccessToken ? parsedTokenExpiresAt : 0,
+                    });
                     toast.success('站点账号已创建');
                 }
                 onOpenChange(false);
@@ -416,11 +441,16 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
     }
 
     const detectedCredentialType = inferCredentialType(currentPlatform, accountForm);
+    const effectiveCredentialType =
+        detectedCredentialType ??
+        (account
+            ? (directAPIKeyPlatform ? SiteCredentialType.APIKey : account.credential_type)
+            : null);
     const showManagedFields = !directAPIKeyPlatform;
     const showPlatformUserID =
         showManagedFields &&
         currentPlatform === SitePlatform.NewAPI &&
-        accountForm.access_token.trim() !== '';
+        effectiveCredentialType === SiteCredentialType.AccessToken;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -468,7 +498,7 @@ export function AccountEditDialog({ open, onOpenChange, site, account }: Account
                                 <div className="flex h-10 items-center gap-2 rounded-xl border border-input bg-muted/30 px-3 text-sm">
                                     <ShieldCheck className="size-4 text-muted-foreground" />
                                     <span className="truncate">
-                                        {credentialDetectionText(detectedCredentialType, currentPlatform)}
+                                        {credentialDetectionText(effectiveCredentialType, currentPlatform)}
                                     </span>
                                 </div>
                             </div>

@@ -35,6 +35,7 @@ func Start() error {
 	}
 
 	r := gin.New()
+	r.Use(middleware.SecurityHeaders())
 	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
 		log.Errorf("http panic recovered: %v", recovered)
 		resp.Error(c, http.StatusInternalServerError, resp.ErrInternalServer)
@@ -63,6 +64,9 @@ func Start() error {
 
 	httpSrv.Addr = fmt.Sprintf("%s:%d", conf.AppConfig.Server.Host, conf.AppConfig.Server.Port)
 	httpSrv.Handler = r
+	httpSrv.ReadHeaderTimeout = 10 * time.Second
+	httpSrv.IdleTimeout = 2 * time.Minute
+	httpSrv.MaxHeaderBytes = 1 << 20
 	safe.Go("http-listen", func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("http server listen and serve error: %v", err)

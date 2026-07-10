@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/U188/octopus/internal/outboundurl"
 )
 
 type SettingKey string
@@ -255,15 +257,10 @@ func (s *Setting) Validate() error {
 		if s.Value == "" {
 			return nil
 		}
-		parsedURL, err := url.Parse(s.Value)
-		if err != nil {
+		value := strings.ReplaceAll(s.Value, "{url}", "https://github.com/u188/octopus/releases/latest/download/octopus.zip")
+		value = strings.ReplaceAll(value, "{filename}", "octopus.zip")
+		if err := outboundurl.ValidateHTTPURL(value); err != nil {
 			return fmt.Errorf("api base URL is invalid: %w", err)
-		}
-		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-			return fmt.Errorf("api base URL scheme must be http or https")
-		}
-		if parsedURL.Host == "" {
-			return fmt.Errorf("api base URL must have a host")
 		}
 		return nil
 	case SettingKeyTelegramBotAdminIDs:
@@ -288,7 +285,7 @@ func (s *Setting) Validate() error {
 
 func IsSensitiveSettingKey(key SettingKey) bool {
 	switch key {
-	case SettingKeyTelegramBotToken, SettingKeyWebDAVAutoBackupPassword:
+	case SettingKeyJWTSecret, SettingKeyTelegramBotToken, SettingKeyWebDAVAutoBackupPassword:
 		return true
 	default:
 		return false

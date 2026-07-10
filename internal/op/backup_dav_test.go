@@ -1,6 +1,7 @@
 package op
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -82,5 +83,45 @@ func TestStripRelayLogsFromSQLiteBackupNoopsWithoutRelayLogsTable(t *testing.T) 
 
 	if err := stripRelayLogsFromSQLiteBackup(dbPath); err != nil {
 		t.Fatalf("stripRelayLogsFromSQLiteBackup returned error: %v", err)
+	}
+}
+
+func TestValidateWebDAVManifestRejectsInvalidSizes(t *testing.T) {
+	valid := &webDAVBackupManifest{
+		Version:        1,
+		Kind:           "sqlite-gzip-split",
+		Compression:    "gzip",
+		Size:           100,
+		CompressedSize: 10,
+		Parts:          []webDAVBackupPart{{Index: 1, Name: "backup.db.gz.part0001", Size: 10}},
+	}
+	if err := validateWebDAVManifest(valid); err != nil {
+		t.Fatalf("valid manifest rejected: %v", err)
+	}
+
+	invalid := *valid
+	invalid.CompressedSize = 11
+	if err := validateWebDAVManifest(&invalid); err == nil {
+		t.Fatal("expected compressed size mismatch to fail")
+	}
+
+	invalid = *valid
+	invalid.Size = webDAVMaxUncompressedRestore + 1
+	if err := validateWebDAVManifest(&invalid); err == nil {
+		t.Fatal("expected oversized uncompressed backup to fail")
+	}
+
+	invalid = *valid
+	invalid.Parts = make([]webDAVBackupPart, webDAVMaxSplitParts+1)
+	for i := range invalid.Parts {
+		invalid.Parts[i] = webDAVBackupPart{
+			Index: i + 1,
+			Name:  fmt.Sprintf("backup.db.gz.part%04d", i+1),
+			Size:  1,
+		}
+	}
+	invalid.CompressedSize = int64(len(invalid.Parts))
+	if err := validateWebDAVManifest(&invalid); err == nil {
+		t.Fatal("expected excessive split part count to fail")
 	}
 }

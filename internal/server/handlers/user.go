@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
+	"github.com/U188/octopus/internal/apperror"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/server/auth"
@@ -42,15 +44,27 @@ func login(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	if allowed, retryAfter := auth.LoginAllowed(c.Request.RemoteAddr); !allowed {
+		seconds := int(retryAfter.Seconds())
+		if seconds < 1 {
+			seconds = 1
+		}
+		c.Header("Retry-After", strconv.Itoa(seconds))
+		resp.ErrorWithAppError(c, http.StatusTooManyRequests,
+			apperror.New(apperror.CodeAuthLoginRateLimited, "too many login attempts").WithStatus(http.StatusTooManyRequests))
+		return
+	}
 	if err := op.UserVerify(user.Username, user.Password); err != nil {
+		auth.RecordLoginFailure(c.Request.RemoteAddr)
 		resp.InvalidCredentials(c)
 		return
 	}
 	token, expire, err := auth.GenerateJWTToken(user.Expire)
 	if err != nil {
-		resp.InternalError(c)
+		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	auth.ClearLoginFailures(c.Request.RemoteAddr)
 	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
 }
 
@@ -60,7 +74,7 @@ func changePassword(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
-	if err := op.UserChangePassword(user.OldPassword, user.NewPassword); err != nil {
+	if err := auth.ChangePassword(user.OldPassword, user.NewPassword); err != nil {
 		recordAuditFailure(c, "user.change_password", nil, err)
 		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
@@ -75,11 +89,11 @@ func changeUsername(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
-	if err := op.UserChangeUsername(user.NewUsername); err != nil {
+	if err := auth.ChangeUsername(user.NewUsername); err != nil {
 		recordAuditFailure(c, "user.change_username", map[string]any{
 			"new_username": user.NewUsername,
 		}, err)
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.ErrorWithAppError(c, http.StatusInternalServerError, err)
 		return
 	}
 	recordAuditSuccess(c, "user.change_username", map[string]any{

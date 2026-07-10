@@ -359,6 +359,65 @@ data: {"type":"message_stop"}
 	}
 }
 
+func TestStreamProcessorBoundsRawMetricsAndKeepsTerminalTail(t *testing.T) {
+	processor := NewStreamProcessor(StreamConfig{
+		BufferRawStream: true,
+		RawBufferLimit:  32,
+		TerminalEvents:  map[string]struct{}{"response.completed": {}},
+	})
+	processor.bufferRawData(bytes.Repeat([]byte("x"), 128))
+	processor.bufferRawData([]byte("\nevent: response.completed\ndata: {}\n\n"))
+
+	if processor.rawBuffer.Len() != 32 {
+		t.Fatalf("raw metrics buffer length = %d, want 32", processor.rawBuffer.Len())
+	}
+	if !processor.streamReachedTerminal() {
+		t.Fatal("expected terminal event in rolling scan buffer")
+	}
+	metricsData := processor.metricsBuffer()
+	if !bytes.Contains(metricsData, []byte("response.completed")) {
+		t.Fatal("expected terminal tail to be passed to metrics")
+	}
+	if bytes.Count(metricsData, []byte("response.completed")) != 1 {
+		t.Fatalf("terminal event was duplicated in metrics buffer: %q", metricsData)
+	}
+}
+
+func TestStreamProcessorMetricsBufferJoinsNonOverlappingSSETail(t *testing.T) {
+	processor := NewStreamProcessor(StreamConfig{
+		BufferRawStream: true,
+		RawBufferLimit:  32,
+	})
+	processor.bufferRawData([]byte("event: start\ndata: {}\n\n"))
+	processor.bufferRawData(bytes.Repeat([]byte("x"), rawStreamTailBufferLimit+64))
+	processor.bufferRawData([]byte("\n\njunk\nevent: response.completed\ndata: {\"usage\":1}\n\n"))
+
+	metricsData := processor.metricsBuffer()
+	if len(metricsData) > 32+2+rawStreamTailBufferLimit {
+		t.Fatalf("metrics buffer exceeded bounded head+tail size: %d", len(metricsData))
+	}
+	if !bytes.Contains(metricsData, []byte("event: start")) {
+		t.Fatal("expected metrics buffer to retain stream head")
+	}
+	if !bytes.Contains(metricsData, []byte("response.completed")) {
+		t.Fatal("expected metrics buffer to retain complete terminal event")
+	}
+}
+
+func TestStreamProcessorMetricsBufferPreservesTailAtSSEBoundary(t *testing.T) {
+	processor := NewStreamProcessor(StreamConfig{BufferRawStream: true})
+	head := []byte("event: start\ndata: {}\n\n")
+	tail := []byte("event: response.completed\ndata: {\"usage\":1}\n\n")
+	processor.rawBuffer.Write(head)
+	processor.terminalBuffer.Write(tail)
+	processor.rawBytesSeen = int64(len(head) + 64 + len(tail))
+
+	metricsData := processor.metricsBuffer()
+	if !bytes.Contains(metricsData, tail) {
+		t.Fatalf("complete SSE tail was discarded: %q", metricsData)
+	}
+}
+
 func TestRawSource(t *testing.T) {
 	data := []byte("raw chunk data")
 	reader := io.NopCloser(bytes.NewReader(data))

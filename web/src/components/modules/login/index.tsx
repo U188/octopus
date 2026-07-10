@@ -43,7 +43,7 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
         await loginMutation.mutateAsync({
           username,
           password,
-          expire: 86400,
+          expire: 1440,
         })
       } else {
         await apiKeyLoginMutation.mutateAsync(apiKey)

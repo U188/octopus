@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { apiClient, setAuthStoreGetter } from '../client';
 import { logger } from '@/lib/logger';
 
@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger';
 export interface UserLoginRequest {
     username: string;
     password: string;
-    expire: number; // token 过期时间（秒）
+    expire: number; // token 过期时间（分钟）
 }
 
 /**
@@ -125,6 +125,7 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'auth-storage',
+            storage: createJSONStorage(() => sessionStorage),
             partialize: (state) => ({
                 token: state.token,
                 expireAt: state.expireAt,
@@ -136,6 +137,7 @@ export const useAuthStore = create<AuthState>()(
 
 // 注册 auth store getter 到 apiClient
 if (typeof window !== 'undefined') {
+    localStorage.removeItem('auth-storage');
     setAuthStoreGetter(() => {
         const state = useAuthStore.getState();
         return {
@@ -150,7 +152,7 @@ if (typeof window !== 'undefined') {
  * 
  * @example
  * const login = useLogin();
- * login.mutate({ username: 'admin', password: '123456', expire: 86400 });
+ * login.mutate({ username: 'admin', password: '123456', expire: 1440 });
  * 
  * if (login.isPending) return <Loading />;
  * if (login.isError) return <Error message={login.error.message} />;
@@ -252,4 +254,3 @@ export function useAuth() {
         logout: store.logout,
     };
 }
-

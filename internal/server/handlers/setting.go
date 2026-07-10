@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,6 +73,10 @@ func setSetting(c *gin.Context) {
 	var setting model.Setting
 	if err := c.ShouldBindJSON(&setting); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if setting.Key == model.SettingKeyJWTSecret {
+		resp.Error(c, http.StatusForbidden, "jwt secret is managed internally")
 		return
 	}
 	if err := setting.Validate(); err != nil {
@@ -246,10 +250,21 @@ func importDB(c *gin.Context) {
 	var dump model.DBDump
 
 	contentType := c.GetHeader("Content-Type")
-	if strings.Contains(contentType, "multipart/form-data") {
+	multipart := strings.Contains(contentType, "multipart/form-data")
+	limitRequestBody(c, maxDatabaseImportBytes, multipart)
+	if multipart {
 		fh, err := c.FormFile("file")
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				resp.Error(c, http.StatusRequestEntityTooLarge, "database import file too large")
+				return
+			}
 			resp.Error(c, http.StatusBadRequest, "missing upload file field 'file'")
+			return
+		}
+		if fh.Size > maxDatabaseImportBytes {
+			resp.Error(c, http.StatusRequestEntityTooLarge, "database import file too large")
 			return
 		}
 		f, err := fh.Open()
@@ -258,8 +273,12 @@ func importDB(c *gin.Context) {
 			return
 		}
 		defer f.Close()
-		body, err := io.ReadAll(f)
+		body, err := readUploadPayload(f, maxDatabaseImportBytes)
 		if err != nil {
+			if errors.Is(err, errUploadTooLarge) {
+				resp.Error(c, http.StatusRequestEntityTooLarge, "database import file too large")
+				return
+			}
 			resp.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -268,8 +287,12 @@ func importDB(c *gin.Context) {
 			return
 		}
 	} else {
-		body, err := io.ReadAll(c.Request.Body)
+		body, err := readUploadPayload(c.Request.Body, maxDatabaseImportBytes)
 		if err != nil {
+			if errors.Is(err, errUploadTooLarge) {
+				resp.Error(c, http.StatusRequestEntityTooLarge, "database import payload too large")
+				return
+			}
 			resp.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}

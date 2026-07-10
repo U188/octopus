@@ -1,4 +1,19 @@
+packages:
+  - "."
+
 allowBuilds:
-  '@swc/core': true
-  sharp: true
-  unrs-resolver: true
+  "@parcel/watcher": true
+  "@swc/core": true
+  "sharp": true
+
+overrides:
+  "dompurify@<3.4.11": "3.4.11"
+  "flatted@<3.4.2": "3.4.2"
+  "js-cookie@<3.0.6": "3.0.8"
+  "lodash@<4.17.24": "4.18.1"
+  "lodash-es@<4.17.24": "4.18.1"
+  "mermaid@<11.14.1": "11.16.0"
+  "postcss@<8.5.10": "8.5.16"
+  "uuid@>=11 <11.1.1": "11.1.1"
+  "uuid@>=13 <13.0.1": "13.0.1"
+  "yaml@<1.10.3": "1.10.3"

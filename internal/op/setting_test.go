@@ -26,23 +26,31 @@ func TestSettingListRedactsSensitiveValuesButReportsStoredStatus(t *testing.T) {
 	if err := SettingSetString(model.SettingKeyWebDAVAutoBackupPassword, "dav-secret"); err != nil {
 		t.Fatalf("SettingSetString failed: %v", err)
 	}
+	if err := SettingSetString(model.SettingKeyJWTSecret, "jwt-secret"); err != nil {
+		t.Fatalf("SettingSetString JWT secret failed: %v", err)
+	}
 
 	settings, err := SettingList(context.Background())
 	if err != nil {
 		t.Fatalf("SettingList failed: %v", err)
 	}
 
-	for _, setting := range settings {
-		if setting.Key != model.SettingKeyWebDAVAutoBackupPassword {
-			continue
+	for _, key := range []model.SettingKey{model.SettingKeyWebDAVAutoBackupPassword, model.SettingKeyJWTSecret} {
+		found := false
+		for _, setting := range settings {
+			if setting.Key != key {
+				continue
+			}
+			found = true
+			if setting.Value != "" {
+				t.Fatalf("expected sensitive value for %s to be redacted, got %q", key, setting.Value)
+			}
+			if setting.ValueStatus != "stored" {
+				t.Fatalf("expected stored value status for %s, got %q", key, setting.ValueStatus)
+			}
 		}
-		if setting.Value != "" {
-			t.Fatalf("expected sensitive value to be redacted, got %q", setting.Value)
+		if !found {
+			t.Fatalf("expected %s setting in list", key)
 		}
-		if setting.ValueStatus != "stored" {
-			t.Fatalf("expected stored value status, got %q", setting.ValueStatus)
-		}
-		return
 	}
-	t.Fatalf("expected webdav password setting in list")
 }

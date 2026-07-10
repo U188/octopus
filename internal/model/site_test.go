@@ -96,6 +96,30 @@ func TestResolveRouteBaseURL(t *testing.T) {
 	}
 }
 
+func TestSiteAccountRedactSecrets(t *testing.T) {
+	account := SiteAccount{
+		Password:     "password",
+		AccessToken:  "access",
+		APIKey:       "api-key",
+		RefreshToken: "refresh",
+		Tokens: []SiteToken{{
+			Token:       "chat-key",
+			ValueStatus: SiteTokenValueStatusReady,
+		}},
+	}
+	account.RedactSecrets()
+
+	if account.Password != "" || account.AccessToken != "" || account.APIKey != "" || account.RefreshToken != "" || account.Tokens[0].Token != "" {
+		t.Fatalf("credentials were not redacted: %+v", account)
+	}
+	if !account.PasswordStored || !account.AccessTokenStored || !account.APIKeyStored || !account.RefreshTokenStored {
+		t.Fatalf("credential status was not preserved: %+v", account)
+	}
+	if account.Tokens[0].ValueStatus != SiteTokenValueStatusReady {
+		t.Fatalf("token readiness changed during redaction: %s", account.Tokens[0].ValueStatus)
+	}
+}
+
 func TestNormalizeSiteRouteBaseURLs(t *testing.T) {
 	items := []SiteRouteBaseURL{
 		{RouteType: SiteModelRouteTypeAnthropic, BaseURL: "  https://example.com/anthropic/v1/  "},

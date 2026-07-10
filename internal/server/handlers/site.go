@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,6 +72,7 @@ func listSite(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	redactSiteListResponse(sites)
 	resp.Success(c, sites)
 }
 
@@ -131,19 +132,36 @@ func importMetAPI(c *gin.Context) {
 
 func readImportPayload(c *gin.Context) ([]byte, error) {
 	contentType := c.GetHeader("Content-Type")
-	if strings.Contains(contentType, "multipart/form-data") {
+	multipart := strings.Contains(contentType, "multipart/form-data")
+	limitRequestBody(c, maxSiteImportBytes, multipart)
+	if multipart {
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				return nil, apperror.New(op.CodeSiteImportPayloadTooLarge, "site import payload too large").WithStatus(http.StatusRequestEntityTooLarge)
+			}
 			return nil, apperror.Wrap(op.CodeSiteImportEmptyPayload, "site import empty payload", err).WithStatus(http.StatusBadRequest)
+		}
+		if fileHeader.Size > maxSiteImportBytes {
+			return nil, apperror.New(op.CodeSiteImportPayloadTooLarge, "site import payload too large").WithStatus(http.StatusRequestEntityTooLarge)
 		}
 		file, err := fileHeader.Open()
 		if err != nil {
 			return nil, apperror.Wrap(op.CodeSiteImportEmptyPayload, "site import empty payload", err).WithStatus(http.StatusBadRequest)
 		}
 		defer file.Close()
-		return io.ReadAll(file)
+		body, err := readUploadPayload(file, maxSiteImportBytes)
+		if errors.Is(err, errUploadTooLarge) {
+			return nil, apperror.New(op.CodeSiteImportPayloadTooLarge, "site import payload too large").WithStatus(http.StatusRequestEntityTooLarge)
+		}
+		return body, err
 	}
-	return io.ReadAll(c.Request.Body)
+	body, err := readUploadPayload(c.Request.Body, maxSiteImportBytes)
+	if errors.Is(err, errUploadTooLarge) {
+		return nil, apperror.New(op.CodeSiteImportPayloadTooLarge, "site import payload too large").WithStatus(http.StatusRequestEntityTooLarge)
+	}
+	return body, err
 }
 
 func createSite(c *gin.Context) {
@@ -170,6 +188,7 @@ func createSite(c *gin.Context) {
 		"platform": site.Platform,
 		"enabled":  site.Enabled,
 	})
+	redactSiteResponse(&site)
 	resp.Success(c, site)
 }
 
@@ -201,6 +220,7 @@ func updateSite(c *gin.Context) {
 		"platform": site.Platform,
 		"enabled":  site.Enabled,
 	})
+	redactSiteResponse(site)
 	resp.Success(c, site)
 }
 
@@ -299,6 +319,7 @@ func listArchivedSites(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	redactSiteListResponse(sites)
 	resp.Success(c, sites)
 }
 
@@ -345,6 +366,7 @@ func createSiteAccount(c *gin.Context) {
 		"enabled":         createdAccount.Enabled,
 		"auto_sync":       createdAccount.AutoSync,
 	})
+	redactSiteAccountResponse(createdAccount)
 	resp.Success(c, createdAccount)
 }
 
@@ -390,6 +412,7 @@ func updateSiteAccount(c *gin.Context) {
 		"enabled":         account.Enabled,
 		"auto_sync":       account.AutoSync,
 	})
+	redactSiteAccountResponse(account)
 	resp.Success(c, account)
 }
 

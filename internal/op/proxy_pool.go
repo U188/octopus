@@ -12,6 +12,7 @@ import (
 
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/outboundurl"
 	"github.com/U188/octopus/internal/utils/cache"
 	"golang.org/x/net/proxy"
 )
@@ -383,7 +384,10 @@ func newProxyTestHTTPClient(proxyURLStr string) (*http.Client, error) {
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}
-	return &http.Client{Transport: cloned}, nil
+	return &http.Client{
+		Transport:     outboundurl.WrapTransport(cloned),
+		CheckRedirect: outboundurl.CheckRedirect,
+	}, nil
 }
 
 func ProxyConfigurationTest(req model.ProxyTestRequest, ctx context.Context) (model.ProxyTestResult, error) {

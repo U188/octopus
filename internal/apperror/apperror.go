@@ -25,6 +25,7 @@ const (
 	CodeAuthAPIKeyMissing      = "auth.api_key_missing"
 	CodeAuthAPIKeyInvalid      = "auth.api_key_invalid"
 	CodeAuthPasswordIncorrect  = "auth.password_incorrect"
+	CodeAuthLoginRateLimited   = "auth.login_rate_limited"
 	CodeAuthAPIKeyDisabled     = "auth.api_key_disabled"
 	CodeAuthAPIKeyCostExceeded = "auth.api_key_cost_exceeded"
 	CodeAuthAPIKeyRateLimited  = "auth.api_key_rate_limited"

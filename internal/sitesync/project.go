@@ -157,7 +157,7 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 
 			binding, exists := bindingMap[bindingKey]
 			if !exists {
-				reusedBinding, reused, err := reuseManagedChannelByName(ctx, siteRecord, account, group, bindingKey, channelPayload)
+				reusedBinding, reused, err := reuseManagedChannelByName(ctx, siteRecord, account, bindingKey, channelPayload)
 				if err != nil {
 					return nil, err
 				}
@@ -168,6 +168,10 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 				}
 			}
 			if !exists {
+				channelPayload.Name, err = availableManagedChannelName(ctx, channelPayload.Name, 0)
+				if err != nil {
+					return nil, err
+				}
 				if err := op.ChannelCreate(&channelPayload, ctx); err != nil {
 					return nil, fmt.Errorf("failed to create managed channel: %w", err)
 				}
@@ -189,6 +193,13 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 
 			existingChannel, err := op.ChannelGet(binding.ChannelID, ctx)
 			if err != nil {
+				if !errors.Is(err, op.ErrChannelNotFound) {
+					return nil, fmt.Errorf("failed to load managed channel: %w", err)
+				}
+				channelPayload.Name, err = availableManagedChannelName(ctx, channelPayload.Name, 0)
+				if err != nil {
+					return nil, err
+				}
 				if err := db.GetDB().WithContext(ctx).Delete(&binding).Error; err != nil {
 					return nil, fmt.Errorf("failed to delete broken site channel binding: %w", err)
 				}
@@ -212,6 +223,10 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 				continue
 			}
 
+			channelPayload.Name, err = availableManagedChannelName(ctx, channelPayload.Name, existingChannel.ID)
+			if err != nil {
+				return nil, err
+			}
 			updateReq := &model.ChannelUpdateRequest{ID: existingChannel.ID, Name: &channelPayload.Name, Type: &channelPayload.Type, Enabled: &channelPayload.Enabled, BaseUrls: &channelPayload.BaseUrls, Model: &channelPayload.Model, CustomModel: &channelPayload.CustomModel, ProxyMode: &channelPayload.ProxyMode, ProxyConfigID: channelPayload.ProxyConfigID, AutoSync: &channelPayload.AutoSync, CustomHeader: &channelPayload.CustomHeader, CodexMode: &channelPayload.CodexMode, ClaudeMode: &channelPayload.ClaudeMode, BypassManagedCheck: true}
 			updateReq.KeysToAdd, updateReq.KeysToUpdate, updateReq.KeysToDelete = diffManagedChannelKeys(existingChannel.Keys, channelPayload.Keys)
 			if _, err := op.ChannelUpdate(updateReq, ctx); err != nil {
@@ -364,7 +379,7 @@ func buildManagedChannelName(siteRecord *model.Site, account *model.SiteAccount,
 	return fmt.Sprintf("%s/%s/%s-%s", siteRecord.Name, account.Name, groupName, formatName)
 }
 
-func reuseManagedChannelByName(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, group model.SiteUserGroup, bindingKey string, channelPayload model.Channel) (*model.SiteChannelBinding, bool, error) {
+func reuseManagedChannelByName(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, bindingKey string, channelPayload model.Channel) (*model.SiteChannelBinding, bool, error) {
 	existingChannel, err := op.ChannelGetByName(channelPayload.Name, ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -378,25 +393,39 @@ func reuseManagedChannelByName(ctx context.Context, siteRecord *model.Site, acco
 		return nil, false, fmt.Errorf("failed to inspect existing managed channel binding: %w", err)
 	}
 	if managed {
-		if binding.SiteID != siteRecord.ID || binding.SiteAccountID != account.ID {
-			return nil, false, fmt.Errorf("managed channel name %q is already bound to another site account", channelPayload.Name)
+		if binding.SiteID != siteRecord.ID ||
+			binding.SiteAccountID != account.ID ||
+			model.NormalizeSiteGroupKey(binding.GroupKey) != model.NormalizeSiteGroupKey(bindingKey) {
+			return nil, false, nil
 		}
 		return binding, true, nil
 	}
 
-	reusedBinding := model.SiteChannelBinding{
-		SiteID:        siteRecord.ID,
-		SiteAccountID: account.ID,
-		GroupKey:      bindingKey,
-		ChannelID:     existingChannel.ID,
+	return nil, false, nil
+}
+
+func availableManagedChannelName(ctx context.Context, baseName string, ownChannelID int) (string, error) {
+	for suffix := 0; suffix < 1000; suffix++ {
+		candidate := baseName
+		switch suffix {
+		case 0:
+		case 1:
+			candidate += " [managed]"
+		default:
+			candidate += fmt.Sprintf(" [managed %d]", suffix)
+		}
+		existing, err := op.ChannelGetByName(candidate, ctx)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve managed channel name: %w", err)
+		}
+		if ownChannelID != 0 && existing.ID == ownChannelID {
+			return candidate, nil
+		}
 	}
-	if group.ID != 0 {
-		reusedBinding.SiteUserGroupID = &group.ID
-	}
-	if err := db.GetDB().WithContext(ctx).Create(&reusedBinding).Error; err != nil {
-		return nil, false, fmt.Errorf("failed to bind existing channel %q as managed channel: %w", channelPayload.Name, err)
-	}
-	return &reusedBinding, true, nil
+	return "", fmt.Errorf("unable to allocate managed channel name for %q", baseName)
 }
 
 func buildProjectedChannelBaseURL(siteRecord *model.Site) string {

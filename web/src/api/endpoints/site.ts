@@ -95,6 +95,10 @@ export type SiteAccount = {
   api_key: string;
   refresh_token: string;
   token_expires_at: number;
+  password_stored: boolean;
+  access_token_stored: boolean;
+  api_key_stored: boolean;
+  refresh_token_stored: boolean;
   platform_user_id?: number | null;
   proxy_mode: ProxyMode;
   proxy_config_id?: number | null;
@@ -455,6 +459,10 @@ export function useCreateSiteAccount() {
         | "balance"
         | "balance_used"
         | "today_income"
+        | "password_stored"
+        | "access_token_stored"
+        | "api_key_stored"
+        | "refresh_token_stored"
       >,
     ) => apiClient.post<SiteAccount>("/api/v1/site/account/create", data),
     onSuccess: () => invalidateSiteQueries(queryClient),
@@ -469,7 +477,14 @@ export function useUpdateSiteAccount() {
       data: Partial<
         Omit<
           SiteAccount,
-          "tokens" | "user_groups" | "models" | "channel_bindings"
+          | "tokens"
+          | "user_groups"
+          | "models"
+          | "channel_bindings"
+          | "password_stored"
+          | "access_token_stored"
+          | "api_key_stored"
+          | "refresh_token_stored"
         >
       > & { id: number },
     ) => apiClient.post<SiteAccount>("/api/v1/site/account/update", data),

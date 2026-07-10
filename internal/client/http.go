@@ -10,6 +10,7 @@ import (
 
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
+	"github.com/U188/octopus/internal/outboundurl"
 	"golang.org/x/net/proxy"
 )
 
@@ -102,7 +103,8 @@ func newHTTPClientNoProxy() (*http.Client, error) {
 		return nil, err
 	}
 	cloned.Proxy = nil
-	return &http.Client{Transport: cloned}, nil
+	outboundurl.ConfigureTransport(cloned)
+	return &http.Client{Transport: cloned, CheckRedirect: outboundurl.CheckRedirect}, nil
 }
 
 func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
@@ -128,9 +130,16 @@ func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
 		cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return socksDialer.Dial(network, addr)
 		}
+		// Resolve and validate the destination locally before handing an IP to
+		// the SOCKS proxy, so proxy-side DNS cannot redirect a public hostname
+		// to a private address.
+		outboundurl.ConfigureTransport(cloned)
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}
 
-	return &http.Client{Transport: cloned}, nil
+	return &http.Client{
+		Transport:     outboundurl.WrapTransport(cloned),
+		CheckRedirect: outboundurl.CheckRedirect,
+	}, nil
 }

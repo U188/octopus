@@ -20,6 +20,11 @@ import (
 // Relay should fail over to another channel.
 var ErrEmptyUpstreamStream = errors.New("upstream stream ended without forwarding any payload")
 
+const (
+	defaultRawStreamBufferLimit = 8 << 20
+	rawStreamTailBufferLimit    = 1 << 20
+)
+
 // StreamSource abstracts different event sources (SSE, WebSocket, raw bytes).
 type StreamSource interface {
 	// ReadEvent blocks until the next event is available or returns an error.
@@ -62,6 +67,7 @@ type StreamConfig struct {
 
 	// Passthrough-specific
 	BufferRawStream bool                // Enable raw stream buffering for metrics
+	RawBufferLimit  int                 // 0 uses the default bounded metrics buffer
 	TerminalEvents  map[string]struct{} // Protocol terminal events for early completion
 }
 
@@ -71,6 +77,8 @@ type StreamProcessor struct {
 
 	// State
 	rawBuffer      bytes.Buffer
+	terminalBuffer bytes.Buffer
+	rawBytesSeen   int64
 	payloadWritten bool
 	firstToken     bool
 }
@@ -172,7 +180,7 @@ func (p *StreamProcessor) Run() error {
 
 			// Buffer raw data if enabled
 			if p.config.BufferRawStream {
-				p.rawBuffer.Write(r.data)
+				p.bufferRawData(r.data)
 			}
 
 			// Transform and write
@@ -199,6 +207,35 @@ func (p *StreamProcessor) Run() error {
 			}
 		}
 	}
+}
+
+func (p *StreamProcessor) bufferRawData(data []byte) {
+	p.rawBytesSeen += int64(len(data))
+
+	limit := p.config.RawBufferLimit
+	if limit <= 0 {
+		limit = defaultRawStreamBufferLimit
+	}
+	if remaining := limit - p.rawBuffer.Len(); remaining > 0 {
+		if len(data) > remaining {
+			p.rawBuffer.Write(data[:remaining])
+		} else {
+			p.rawBuffer.Write(data)
+		}
+	}
+
+	if len(data) >= rawStreamTailBufferLimit {
+		p.terminalBuffer.Reset()
+		p.terminalBuffer.Write(data[len(data)-rawStreamTailBufferLimit:])
+		return
+	}
+	overflow := p.terminalBuffer.Len() + len(data) - rawStreamTailBufferLimit
+	if overflow > 0 {
+		kept := append([]byte(nil), p.terminalBuffer.Bytes()[overflow:]...)
+		p.terminalBuffer.Reset()
+		p.terminalBuffer.Write(kept)
+	}
+	p.terminalBuffer.Write(data)
 }
 
 // processEvent transforms and writes a single event.
@@ -253,7 +290,7 @@ func (p *StreamProcessor) handleDisconnect() error {
 	if p.config.BufferRawStream && p.rawBuffer.Len() > 0 {
 		// Still call OnFinish to collect partial metrics
 		if p.config.OnFinish != nil {
-			_ = p.config.OnFinish(context.Background(), p.rawBuffer.Bytes())
+			_ = p.config.OnFinish(context.Background(), p.metricsBuffer())
 		}
 	}
 
@@ -275,13 +312,80 @@ func (p *StreamProcessor) finalize() error {
 	log.Debugf("stream end (payload_written=%t)", p.payloadWritten)
 
 	if p.config.OnFinish != nil {
-		rawStream := p.rawBuffer.Bytes()
+		rawStream := p.metricsBuffer()
 		if err := p.config.OnFinish(p.config.Context, rawStream); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (p *StreamProcessor) metricsBuffer() []byte {
+	head := p.rawBuffer.Bytes()
+	if p.rawBytesSeen <= int64(len(head)) || p.terminalBuffer.Len() == 0 {
+		return head
+	}
+
+	tail := p.terminalBuffer.Bytes()
+	tailStart := p.rawBytesSeen - int64(len(tail))
+	headEnd := int64(len(head))
+	if tailStart < headEnd {
+		overlap := headEnd - tailStart
+		if overlap >= int64(len(tail)) {
+			return head
+		}
+		tail = tail[overlap:]
+		tailStart = headEnd
+	}
+
+	if tailStart == headEnd {
+		result := make([]byte, 0, len(head)+len(tail))
+		result = append(result, head...)
+		result = append(result, tail...)
+		return result
+	}
+
+	tail = trimPartialSSEEvent(tail)
+	if len(tail) == 0 {
+		return head
+	}
+	result := make([]byte, 0, len(head)+2+len(tail))
+	result = append(result, head...)
+	result = append(result, '\n', '\n')
+	result = append(result, tail...)
+	return result
+}
+
+func trimPartialSSEEvent(data []byte) []byte {
+	if startsWithSSEField(data) {
+		return data
+	}
+	if index := bytes.Index(data, []byte("\n\n")); index >= 0 {
+		return data[index+2:]
+	}
+	if index := bytes.Index(data, []byte("\r\n\r\n")); index >= 0 {
+		return data[index+4:]
+	}
+	return nil
+}
+
+func startsWithSSEField(data []byte) bool {
+	for _, field := range [][]byte{
+		[]byte("event"),
+		[]byte("data"),
+		[]byte("id"),
+		[]byte("retry"),
+	} {
+		if !bytes.HasPrefix(data, field) || len(data) == len(field) {
+			continue
+		}
+		switch data[len(field)] {
+		case ':', '\r', '\n':
+			return true
+		}
+	}
+	return len(data) > 0 && data[0] == ':'
 }
 
 // PayloadWritten returns whether any payload has been written to the client.
@@ -291,12 +395,16 @@ func (p *StreamProcessor) PayloadWritten() bool {
 
 // streamReachedTerminal checks if buffered stream contains a terminal event.
 func (p *StreamProcessor) streamReachedTerminal() bool {
-	if p.rawBuffer.Len() == 0 {
+	data := p.terminalBuffer.Bytes()
+	if len(data) == 0 {
+		data = p.rawBuffer.Bytes()
+	}
+	if len(data) == 0 {
 		return false
 	}
 
 	readCfg := &sse.ReadConfig{MaxEventSize: 32 * 1024 * 1024}
-	for ev, err := range sse.Read(bytes.NewReader(p.rawBuffer.Bytes()), readCfg) {
+	for ev, err := range sse.Read(bytes.NewReader(data), readCfg) {
 		if err != nil {
 			break
 		}

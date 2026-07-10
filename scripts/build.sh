@@ -143,9 +143,9 @@ prepare_environment() {
         return 1
     fi
 
-    # Check md5sum (or md5 on macOS)
-    if ! command_exists md5sum && ! command_exists md5; then
-        log_error "md5sum or md5 is not installed."
+    # Check sha256sum (or shasum on macOS)
+    if ! command_exists sha256sum && ! command_exists shasum; then
+        log_error "sha256sum or shasum is not installed."
         return 1
     fi
 
@@ -350,45 +350,41 @@ create_archives() {
     # Cleanup documentation files from archives directory
     rm -f "${archives_dir}/README.md" "${archives_dir}/LICENSE"
 
-    if ! cd .. 2>/dev/null; then
-        log_error "Failed to return to parent directory"
-        return 1
-    fi
-
     log_success "Created archives in ${archives_dir}/"
 }
 
 generate_checksums() {
     log_step "Generating checksums"
 
-    local bin_dir="${OUTPUT_DIR}/bin"
+    local archives_dir="${OUTPUT_DIR}/archives"
 
-    if ! cd "${bin_dir}" 2>/dev/null; then
-        log_error "Failed to change to bin directory: ${bin_dir}"
+    if ! cd "${archives_dir}" 2>/dev/null; then
+        log_error "Failed to change to archives directory: ${archives_dir}"
         return 1
     fi
 
-    if ! find . -maxdepth 1 -name "${APP_NAME}-*" -type f | head -1 | grep -q .; then
-        log_info "No build artifacts found in bin directory, skipping checksums"
+    local archives=("${APP_NAME}"-*.zip)
+    if [ ! -e "${archives[0]}" ]; then
+        log_info "No archive artifacts found, skipping checksums"
         cd ../.. 2>/dev/null || true
         return 0
     fi
 
-    # Use appropriate checksum command based on OS
-    local checksum_cmd
-    if command_exists md5sum; then
-        checksum_cmd="md5sum"
-    elif command_exists md5; then
-        checksum_cmd="md5 -r" # -r for BSD md5 to match md5sum format
+    # Use appropriate checksum command based on OS.
+    local checksum_cmd=()
+    if command_exists sha256sum; then
+        checksum_cmd=(sha256sum)
+    elif command_exists shasum; then
+        checksum_cmd=(shasum -a 256)
     else
-        log_error "No checksum command available (md5sum or md5)"
+        log_error "No checksum command available (sha256sum or shasum)"
         cd ../.. 2>/dev/null || true
         return 1
     fi
 
-    if find . -maxdepth 1 -name "${APP_NAME}-*" -type f -print0 | xargs -0 $checksum_cmd >md5.txt 2>/dev/null; then
-        local checksum_count=$(wc -l <md5.txt 2>/dev/null || echo "0")
-        log_success "Generated checksums for ${checksum_count} files in bin/"
+    if "${checksum_cmd[@]}" "${archives[@]}" >sha256sums.txt 2>/dev/null; then
+        local checksum_count=$(wc -l <sha256sums.txt 2>/dev/null || echo "0")
+        log_success "Generated SHA-256 checksums for ${checksum_count} archives"
     else
         log_error "Failed to generate checksums"
         cd ../.. 2>/dev/null || true
@@ -614,12 +610,12 @@ main() {
             log_warning "Failed to prepare Docker binaries, but continuing..."
         fi
 
-        if ! generate_checksums; then
-            log_warning "Failed to generate checksums, but continuing..."
-        fi
-
         if ! create_archives; then
             log_warning "Failed to create archives, but continuing..."
+        fi
+
+        if ! generate_checksums; then
+            log_warning "Failed to generate checksums, but continuing..."
         fi
 
         log_step "Build completed"

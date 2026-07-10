@@ -24,6 +24,8 @@ var channelKeyCache = cache.New[int, model.ChannelKey](16)
 var channelKeyCacheNeedUpdate = make(map[int]struct{})
 var channelKeyCacheNeedUpdateLock sync.Mutex
 
+var ErrChannelNotFound = errors.New("channel not found")
+
 func ChannelList(ctx context.Context) ([]model.Channel, error) {
 	channels := make([]model.Channel, 0, channelCache.Len())
 	now := time.Now().Unix()
@@ -752,7 +754,7 @@ func ChannelVisibleModelNames(channelID int, ctx context.Context) ([]string, err
 func ChannelGet(id int, ctx context.Context) (*model.Channel, error) {
 	channel, ok := channelCache.Get(id)
 	if !ok {
-		return nil, fmt.Errorf("channel not found")
+		return nil, ErrChannelNotFound
 	}
 	normalizeChannelProxyFields(&channel)
 	channel.ResponsesToolAutoDenylist = normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, time.Now().Unix())

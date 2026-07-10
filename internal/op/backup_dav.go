@@ -21,15 +21,23 @@ import (
 	"github.com/U188/octopus/internal/conf"
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/outboundurl"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-var webDAVHTTPClient = &http.Client{Timeout: 30 * time.Minute}
+var webDAVHTTPClient = outboundurl.NewDirectClient(30 * time.Minute)
 
-const webDAVAutoBackupPrefix = "octopus-auto-db-"
-const webDAVMaxSingleUploadSize int64 = 80 * 1024 * 1024
+const (
+	webDAVAutoBackupPrefix             = "octopus-auto-db-"
+	webDAVMaxSingleUploadSize    int64 = 80 * 1024 * 1024
+	webDAVMaxListResponseSize    int64 = 4 << 20
+	webDAVMaxManifestSize        int64 = 1 << 20
+	webDAVMaxCompressedRestore   int64 = 2 << 30
+	webDAVMaxUncompressedRestore int64 = 4 << 30
+	webDAVMaxSplitParts                = 32
+)
 
 type webDAVBackupManifest struct {
 	Version            int                `json:"version"`
@@ -70,8 +78,12 @@ func WebDAVBackupList(ctx context.Context, cred model.WebDAVCredentials) ([]mode
 		return nil, webDAVStatusError("webdav list", res)
 	}
 
+	body, err := readLimitedWebDAVBody(res.Body, webDAVMaxListResponseSize)
+	if err != nil {
+		return nil, fmt.Errorf("webdav list response: %w", err)
+	}
 	var multi webDAVMultiStatus
-	if err := xml.NewDecoder(res.Body).Decode(&multi); err != nil {
+	if err := xml.Unmarshal(body, &multi); err != nil {
 		return nil, fmt.Errorf("webdav list decode: %w", err)
 	}
 
@@ -410,7 +422,7 @@ func webDAVDownloadBackupToSQLite(ctx context.Context, cred model.WebDAVCredenti
 		if err != nil {
 			return 0, fmt.Errorf("create compressed restore temp file: %w", err)
 		}
-		size, err := webDAVDownloadFile(ctx, cred, filename, gz)
+		size, err := webDAVDownloadFile(ctx, cred, filename, gz, webDAVMaxCompressedRestore)
 		closeErr := gz.Close()
 		if err != nil {
 			return 0, err
@@ -427,7 +439,7 @@ func webDAVDownloadBackupToSQLite(ctx context.Context, cred model.WebDAVCredenti
 		if err != nil {
 			return 0, fmt.Errorf("create database restore temp file: %w", err)
 		}
-		size, err := webDAVDownloadFile(ctx, cred, filename, tmp)
+		size, err := webDAVDownloadFile(ctx, cred, filename, tmp, webDAVMaxUncompressedRestore)
 		closeErr := tmp.Close()
 		if err != nil {
 			return 0, err
@@ -450,6 +462,7 @@ func webDAVDownloadSplitBackupToSQLite(ctx context.Context, cred model.WebDAVCre
 	if err != nil {
 		return 0, fmt.Errorf("create compressed restore temp file: %w", err)
 	}
+	var downloaded int64
 	for _, part := range manifest.Parts {
 		if part.Size <= 0 {
 			_ = gz.Close()
@@ -459,13 +472,22 @@ func webDAVDownloadSplitBackupToSQLite(ctx context.Context, cred model.WebDAVCre
 			_ = gz.Close()
 			return 0, err
 		}
-		if _, err := webDAVDownloadFile(ctx, cred, part.Name, gz); err != nil {
+		n, err := webDAVDownloadFile(ctx, cred, part.Name, gz, part.Size)
+		if err != nil {
 			_ = gz.Close()
 			return 0, err
 		}
+		if n != part.Size {
+			_ = gz.Close()
+			return 0, fmt.Errorf("backup part %s size mismatch: got %d, want %d", part.Name, n, part.Size)
+		}
+		downloaded += n
 	}
 	if err := gz.Close(); err != nil {
 		return 0, fmt.Errorf("close compressed restore temp file: %w", err)
+	}
+	if downloaded != manifest.CompressedSize {
+		return 0, fmt.Errorf("compressed backup size mismatch: got %d, want %d", downloaded, manifest.CompressedSize)
 	}
 	if err := gunzipFile(gzPath, destPath); err != nil {
 		return 0, err
@@ -475,17 +497,49 @@ func webDAVDownloadSplitBackupToSQLite(ctx context.Context, cred model.WebDAVCre
 
 func webDAVDownloadManifest(ctx context.Context, cred model.WebDAVCredentials, filename string) (*webDAVBackupManifest, error) {
 	var buf bytes.Buffer
-	if _, err := webDAVDownloadFile(ctx, cred, filename, &buf); err != nil {
+	if _, err := webDAVDownloadFile(ctx, cred, filename, &buf, webDAVMaxManifestSize); err != nil {
 		return nil, err
 	}
 	var manifest webDAVBackupManifest
 	if err := json.Unmarshal(buf.Bytes(), &manifest); err != nil {
 		return nil, fmt.Errorf("decode backup manifest: %w", err)
 	}
-	if manifest.Version != 1 || manifest.Kind != "sqlite-gzip-split" || len(manifest.Parts) == 0 {
-		return nil, fmt.Errorf("backup manifest is invalid")
+	if err := validateWebDAVManifest(&manifest); err != nil {
+		return nil, err
 	}
 	return &manifest, nil
+}
+
+func validateWebDAVManifest(manifest *webDAVBackupManifest) error {
+	if manifest == nil ||
+		manifest.Version != 1 ||
+		manifest.Kind != "sqlite-gzip-split" ||
+		len(manifest.Parts) == 0 ||
+		len(manifest.Parts) > webDAVMaxSplitParts {
+		return fmt.Errorf("backup manifest is invalid")
+	}
+	if manifest.Compression != "gzip" ||
+		manifest.Size <= 0 || manifest.Size > webDAVMaxUncompressedRestore ||
+		manifest.CompressedSize <= 0 || manifest.CompressedSize > webDAVMaxCompressedRestore {
+		return fmt.Errorf("backup manifest contains invalid size or compression")
+	}
+	var total int64
+	for index, part := range manifest.Parts {
+		if part.Index != index+1 || part.Size <= 0 || part.Size > webDAVMaxSingleUploadSize {
+			return fmt.Errorf("backup manifest contains invalid part metadata")
+		}
+		if err := validateWebDAVFilename(part.Name); err != nil {
+			return err
+		}
+		if total > webDAVMaxCompressedRestore-part.Size {
+			return fmt.Errorf("backup manifest compressed size exceeds limit")
+		}
+		total += part.Size
+	}
+	if total != manifest.CompressedSize {
+		return fmt.Errorf("backup manifest compressed size mismatch")
+	}
+	return nil
 }
 
 func gzipFile(src, dest string) error {
@@ -533,7 +587,7 @@ func gunzipFile(src, dest string) error {
 	if err != nil {
 		return fmt.Errorf("create database restore: %w", err)
 	}
-	_, copyErr := io.Copy(out, gz)
+	_, copyErr := copyWebDAVWithLimit(out, gz, webDAVMaxUncompressedRestore)
 	closeErr := out.Close()
 	if copyErr != nil {
 		return fmt.Errorf("decompress database restore: %w", copyErr)
@@ -545,15 +599,8 @@ func gunzipFile(src, dest string) error {
 }
 
 func validateWebDAVCredentials(cred model.WebDAVCredentials) error {
-	parsed, err := url.Parse(strings.TrimSpace(cred.URL))
-	if err != nil {
+	if err := outboundurl.ValidateHTTPURL(cred.URL); err != nil {
 		return fmt.Errorf("webdav url is invalid: %w", err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("webdav url scheme must be http or https")
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("webdav url must have a host")
 	}
 	if strings.TrimSpace(cred.Username) == "" {
 		return fmt.Errorf("webdav username is required")
@@ -649,7 +696,7 @@ func webDAVPutReader(ctx context.Context, cred model.WebDAVCredentials, filename
 	return nil
 }
 
-func webDAVDownloadFile(ctx context.Context, cred model.WebDAVCredentials, filename string, w io.Writer) (int64, error) {
+func webDAVDownloadFile(ctx context.Context, cred model.WebDAVCredentials, filename string, w io.Writer, maxBytes int64) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, webDAVFileURL(cred.URL, filename), nil)
 	if err != nil {
 		return 0, err
@@ -663,9 +710,31 @@ func webDAVDownloadFile(ctx context.Context, cred model.WebDAVCredentials, filen
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return 0, webDAVStatusError("webdav download", res)
 	}
-	n, err := io.Copy(w, res.Body)
+	if res.ContentLength > maxBytes {
+		return 0, fmt.Errorf("webdav download exceeds maximum size of %d bytes", maxBytes)
+	}
+	n, err := copyWebDAVWithLimit(w, res.Body, maxBytes)
 	if err != nil {
 		return 0, fmt.Errorf("write database restore: %w", err)
+	}
+	return n, nil
+}
+
+func readLimitedWebDAVBody(r io.Reader, maxBytes int64) ([]byte, error) {
+	var buf bytes.Buffer
+	if _, err := copyWebDAVWithLimit(&buf, r, maxBytes); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func copyWebDAVWithLimit(dst io.Writer, src io.Reader, maxBytes int64) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, maxBytes+1))
+	if err != nil {
+		return n, err
+	}
+	if n > maxBytes {
+		return n, fmt.Errorf("data exceeds maximum size of %d bytes", maxBytes)
 	}
 	return n, nil
 }

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,8 +41,16 @@ type responsesCompactResponse struct {
 
 // HandleResponsesCompact proxies OpenAI-compatible /responses/compact requests upstream.
 func HandleResponsesCompact(c *gin.Context) {
-	body, err := io.ReadAll(c.Request.Body)
+	if c.Request.ContentLength > maxRelayRequestBodyBytes {
+		resp.Error(c, http.StatusRequestEntityTooLarge, "request body too large")
+		return
+	}
+	body, err := readRelayBody(c.Request.Body, maxRelayRequestBodyBytes)
 	if err != nil {
+		if errors.Is(err, errRelayBodyTooLarge) {
+			resp.Error(c, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -238,7 +246,11 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	}
 	defer response.Body.Close()
 
-	body, readErr := io.ReadAll(response.Body)
+	limit := maxRelayResponseBodyBytes
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		limit = maxRelayErrorBodyBytes
+	}
+	body, readErr := readRelayBody(response.Body, limit)
 	if readErr != nil {
 		span.End(dbmodel.AttemptFailed, response.StatusCode, readErr.Error())
 		return response.StatusCode, 0, fmt.Errorf("failed to read compact response body: %w", readErr)

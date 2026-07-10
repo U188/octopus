@@ -3,11 +3,11 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/U188/octopus/internal/outboundurl"
 	"github.com/U188/octopus/internal/transformer/outbound"
 	"gorm.io/gorm"
 )
@@ -153,15 +153,8 @@ func ValidateSiteRouteBaseURLs(items []SiteRouteBaseURL) error {
 		if !IsProjectedSiteModelRouteType(item.RouteType) {
 			return fmt.Errorf("route base url has unsupported route type: %s", item.RouteType)
 		}
-		parsed, err := url.Parse(item.BaseURL)
-		if err != nil {
+		if err := outboundurl.ValidateHTTPURL(item.BaseURL); err != nil {
 			return fmt.Errorf("route base url for %s is invalid: %w", item.RouteType, err)
-		}
-		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			return fmt.Errorf("route base url for %s must use http or https", item.RouteType)
-		}
-		if parsed.Host == "" {
-			return fmt.Errorf("route base url for %s must have a host", item.RouteType)
 		}
 	}
 	return nil
@@ -233,6 +226,10 @@ type SiteAccount struct {
 	APIKey                     string               `json:"api_key" gorm:"-"`
 	RefreshToken               string               `json:"refresh_token" gorm:"-"`
 	TokenExpiresAt             int64                `json:"token_expires_at" gorm:"-"`
+	PasswordStored             bool                 `json:"password_stored" gorm:"-"`
+	AccessTokenStored          bool                 `json:"access_token_stored" gorm:"-"`
+	APIKeyStored               bool                 `json:"api_key_stored" gorm:"-"`
+	RefreshTokenStored         bool                 `json:"refresh_token_stored" gorm:"-"`
 	PlatformUserID             *int                 `json:"platform_user_id"`
 	ProxyMode                  ProxyUsageMode       `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
 	ProxyConfigID              *int                 `json:"proxy_config_id"`
@@ -261,6 +258,23 @@ type SiteAccount struct {
 	UserGroups                 []SiteUserGroup      `json:"user_groups,omitempty" gorm:"foreignKey:SiteAccountID"`
 	Models                     []SiteModel          `json:"models,omitempty" gorm:"foreignKey:SiteAccountID"`
 	ChannelBindings            []SiteChannelBinding `json:"channel_bindings,omitempty" gorm:"foreignKey:SiteAccountID"`
+}
+
+func (a *SiteAccount) RedactSecrets() {
+	if a == nil {
+		return
+	}
+	a.PasswordStored = strings.TrimSpace(a.Password) != ""
+	a.AccessTokenStored = strings.TrimSpace(a.AccessToken) != ""
+	a.APIKeyStored = strings.TrimSpace(a.APIKey) != ""
+	a.RefreshTokenStored = strings.TrimSpace(a.RefreshToken) != ""
+	a.Password = ""
+	a.AccessToken = ""
+	a.APIKey = ""
+	a.RefreshToken = ""
+	for i := range a.Tokens {
+		a.Tokens[i].Token = ""
+	}
 }
 
 func (a *SiteAccount) UnmarshalJSON(data []byte) error {
@@ -1053,29 +1067,15 @@ func (s *Site) Validate() error {
 	if err := ValidateSiteTags(s.Tags); err != nil {
 		return err
 	}
-	parsed, err := url.Parse(s.BaseURL)
-	if err != nil {
+	if err := outboundurl.ValidateHTTPURL(s.BaseURL); err != nil {
 		return fmt.Errorf("site base url is invalid: %w", err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("site base url must use http or https")
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("site base url must have a host")
 	}
 	if err := ValidateSiteRouteBaseURLs(s.RouteBaseURLs); err != nil {
 		return err
 	}
 	if s.ExternalCheckinURL != nil {
-		checkinParsed, err := url.Parse(*s.ExternalCheckinURL)
-		if err != nil {
+		if err := outboundurl.ValidateHTTPURL(*s.ExternalCheckinURL); err != nil {
 			return fmt.Errorf("external checkin url is invalid: %w", err)
-		}
-		if checkinParsed.Scheme != "http" && checkinParsed.Scheme != "https" {
-			return fmt.Errorf("external checkin url must use http or https")
-		}
-		if checkinParsed.Host == "" {
-			return fmt.Errorf("external checkin url must have a host")
 		}
 	}
 	return nil

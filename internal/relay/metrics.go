@@ -67,6 +67,14 @@ func (m *RelayMetrics) SetTransportRequestPayload(payload []byte, modelName stri
 	m.TransportInputTokens = intPtr(count)
 }
 
+func (m *RelayMetrics) SetActualModel(modelName string) {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return
+	}
+	m.ActualModel = modelName
+}
+
 func (m *RelayMetrics) SetRequestHeadersFromHTTP(headers http.Header) {
 	m.RequestHeaders = sanitizedRequestHeadersForLog(headers)
 }
@@ -94,7 +102,7 @@ func (m *RelayMetrics) SetWSRecovery(recovery model.RelayLogWSRecovery) {
 
 func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMResponse, actualModel string) {
 	m.InternalResponse = resp
-	m.ActualModel = actualModel
+	m.SetActualModel(actualModel)
 
 	if resp == nil {
 		return

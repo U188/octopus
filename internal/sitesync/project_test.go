@@ -351,7 +351,7 @@ func TestProjectAccountRemovesUnsupportedModelsFromProjectedChannels(t *testing.
 	}
 }
 
-func TestProjectAccountReusesOrphanManagedChannelWithSameName(t *testing.T) {
+func TestProjectAccountPreservesManualChannelWithSameName(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 
 	site := &model.Site{
@@ -420,24 +420,147 @@ func TestProjectAccountReusesOrphanManagedChannelWithSameName(t *testing.T) {
 	if len(channelIDs) != 1 {
 		t.Fatalf("expected one projected channel, got %d", len(channelIDs))
 	}
-	if channelIDs[0] != orphanChannel.ID {
-		t.Fatalf("expected orphan channel %d to be reused, got %v", orphanChannel.ID, channelIDs)
+	if channelIDs[0] == orphanChannel.ID {
+		t.Fatalf("manual channel %d must not be converted into a managed channel", orphanChannel.ID)
 	}
 
 	var binding model.SiteChannelBinding
 	if err := dbpkg.GetDB().WithContext(ctx).Where("site_account_id = ?", account.ID).First(&binding).Error; err != nil {
 		t.Fatalf("expected reused channel to gain binding: %v", err)
 	}
-	if binding.ChannelID != orphanChannel.ID {
-		t.Fatalf("expected binding to point to reused orphan channel %d, got %d", orphanChannel.ID, binding.ChannelID)
+	if binding.ChannelID != channelIDs[0] {
+		t.Fatalf("expected binding to point to new managed channel %d, got %d", channelIDs[0], binding.ChannelID)
 	}
 
 	reloaded, err := op.ChannelGet(orphanChannel.ID, ctx)
 	if err != nil {
 		t.Fatalf("ChannelGet failed: %v", err)
 	}
-	if reloaded.Name != "DoneHub Projection Site/Primary Account/default-Chat" {
-		t.Fatalf("expected reused orphan channel to be renamed, got %q", reloaded.Name)
+	if reloaded.Name != orphanName || reloaded.Model != "stale-model" {
+		t.Fatalf("manual channel was modified: name=%q model=%q", reloaded.Name, reloaded.Model)
+	}
+	managed, err := op.ChannelGet(channelIDs[0], ctx)
+	if err != nil {
+		t.Fatalf("managed ChannelGet failed: %v", err)
+	}
+	if managed.Name != orphanName+" [managed]" {
+		t.Fatalf("expected conflict-safe managed name, got %q", managed.Name)
+	}
+	secondIDs, err := ProjectAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("second ProjectAccount returned error: %v", err)
+	}
+	if len(secondIDs) != 1 || secondIDs[0] != managed.ID {
+		t.Fatalf("expected stable managed channel reuse, got %v", secondIDs)
+	}
+}
+
+func TestProjectAccountKeepsDistinctBindingsForDuplicateGroupNames(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+
+	site := &model.Site{
+		Name:     "Duplicate Group Site",
+		Platform: model.SitePlatformDoneHub,
+		BaseURL:  "https://duplicate-groups.example.com",
+		Enabled:  true,
+	}
+	if err := op.SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "Primary",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-token",
+		Enabled:        true,
+	}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+
+	groups := []model.SiteUserGroup{
+		{SiteAccountID: account.ID, GroupKey: "group-a", Name: "Shared Name"},
+		{SiteAccountID: account.ID, GroupKey: "group-b", Name: "Shared Name"},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&groups).Error; err != nil {
+		t.Fatalf("create site groups failed: %v", err)
+	}
+	tokens := []model.SiteToken{
+		{SiteAccountID: account.ID, Name: "key-a", Token: "key-a", GroupKey: "group-a", GroupName: "Shared Name", Enabled: true},
+		{SiteAccountID: account.ID, Name: "key-b", Token: "key-b", GroupKey: "group-b", GroupName: "Shared Name", Enabled: true},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&tokens).Error; err != nil {
+		t.Fatalf("create site tokens failed: %v", err)
+	}
+	models := []model.SiteModel{
+		{SiteAccountID: account.ID, GroupKey: "group-a", ModelName: "model-a", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIChat},
+		{SiteAccountID: account.ID, GroupKey: "group-b", ModelName: "model-b", Source: "sync", RouteType: model.SiteModelRouteTypeOpenAIChat},
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&models).Error; err != nil {
+		t.Fatalf("create site models failed: %v", err)
+	}
+
+	firstIDs, err := ProjectAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("ProjectAccount returned error: %v", err)
+	}
+	if len(firstIDs) != 2 || firstIDs[0] == firstIDs[1] {
+		t.Fatalf("expected two distinct managed channels, got %v", firstIDs)
+	}
+	channels := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if len(channels) != 2 || channels["group-a"].ID == channels["group-b"].ID {
+		t.Fatalf("duplicate display names collapsed bindings: %+v", channels)
+	}
+	if channels["group-a"].Model != "model-a" || channels["group-b"].Model != "model-b" {
+		t.Fatalf("group models were crossed: a=%q b=%q", channels["group-a"].Model, channels["group-b"].Model)
+	}
+
+	secondIDs, err := ProjectAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("second ProjectAccount returned error: %v", err)
+	}
+	if len(secondIDs) != 2 {
+		t.Fatalf("expected two managed channels on second projection, got %v", secondIDs)
+	}
+	reloaded := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	if reloaded["group-a"].ID != channels["group-a"].ID || reloaded["group-b"].ID != channels["group-b"].ID {
+		t.Fatalf("duplicate-name managed channels were not stable: before=%+v after=%+v", channels, reloaded)
+	}
+}
+
+func TestProjectAccountRecreatesBrokenBindingWithoutTakingOrphanName(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("initial ProjectAccount returned error: %v", err)
+	}
+	channels := loadProjectedChannelsByGroupKey(t, ctx, account.ID)
+	original := channels[model.SiteDefaultGroupKey]
+
+	if err := dbpkg.GetDB().WithContext(ctx).
+		Model(&model.SiteChannelBinding{}).
+		Where("site_account_id = ? AND group_key = ?", account.ID, model.SiteDefaultGroupKey).
+		Update("channel_id", 999999).Error; err != nil {
+		t.Fatalf("break channel binding failed: %v", err)
+	}
+
+	if _, err := ProjectAccount(ctx, account.ID); err != nil {
+		t.Fatalf("ProjectAccount should recover broken binding: %v", err)
+	}
+	reloaded := loadProjectedChannelsByGroupKey(t, ctx, account.ID)[model.SiteDefaultGroupKey]
+	if reloaded.ID == original.ID {
+		t.Fatalf("expected a new managed channel, got original id %d", original.ID)
+	}
+	if reloaded.Name != original.Name+" [managed]" {
+		t.Fatalf("expected conflict-safe recreated name, got %q", reloaded.Name)
+	}
+	orphan, err := op.ChannelGet(original.ID, ctx)
+	if err != nil {
+		t.Fatalf("orphan channel should be preserved: %v", err)
+	}
+	if orphan.Name != original.Name {
+		t.Fatalf("orphan channel was renamed: %q", orphan.Name)
 	}
 }
 

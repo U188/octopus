@@ -1,10 +1,15 @@
 package update
 
-import "testing"
+import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"testing"
+)
 
 func TestBuildDownloadURL(t *testing.T) {
 	const filename = "octopus-linux-x86_64.zip"
-	official := updateUrl + "/" + filename
+	official := updateURL + "/" + filename
 
 	tests := []struct {
 		name     string
@@ -57,6 +62,38 @@ func TestBuildDownloadURL(t *testing.T) {
 				t.Fatalf("buildDownloadURL() = %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestVerifyUpdateArchive(t *testing.T) {
+	data := []byte("trusted archive")
+	sum := sha256.Sum256(data)
+	manifest := []byte(fmt.Sprintf("%x  %s\n", sum, "octopus-linux-x86_64.zip"))
+	if err := verifyUpdateArchive(data, manifest, "octopus-linux-x86_64.zip"); err != nil {
+		t.Fatalf("verifyUpdateArchive failed: %v", err)
+	}
+	if err := verifyUpdateArchive([]byte("tampered"), manifest, "octopus-linux-x86_64.zip"); err == nil {
+		t.Fatal("expected checksum mismatch")
+	}
+	if _, err := expectedSHA256(manifest, "missing.zip"); err == nil {
+		t.Fatal("expected missing checksum to fail")
+	}
+}
+
+func TestCopyUpdateFileWithLimitUsesActualBytes(t *testing.T) {
+	var out bytes.Buffer
+	n, err := copyUpdateFileWithLimit(&out, bytes.NewReader([]byte("12345")), 4)
+	if err == nil {
+		t.Fatal("expected actual extracted bytes above limit to fail")
+	}
+	if n != 5 {
+		t.Fatalf("copied bytes = %d, want 5", n)
+	}
+
+	out.Reset()
+	n, err = copyUpdateFileWithLimit(&out, bytes.NewReader([]byte("1234")), 4)
+	if err != nil || n != 4 {
+		t.Fatalf("expected exact limit to pass, n=%d err=%v", n, err)
 	}
 }
 

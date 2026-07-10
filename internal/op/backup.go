@@ -154,6 +154,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 	err := conn.Transaction(func(tx *gorm.DB) error {
 		channelIDMap := make(map[int]int)
+		channelKeyIDMap := make(map[int]int)
 		proxyConfigIDMap := make(map[int]int)
 		siteIDMap := make(map[int]int)
 		accountIDMap := make(map[int]int)
@@ -232,12 +233,16 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		// 3. ChannelKeys (remap channel_id, dedup by channel_id+channel_key)
 		for i := range dump.ChannelKeys {
 			key := dump.ChannelKeys[i]
+			oldID := key.ID
 			key.ID = 0
-			if newID, ok := channelIDMap[key.ChannelID]; ok {
-				key.ChannelID = newID
+			newChannelID, ok := channelIDMap[key.ChannelID]
+			if !ok {
+				continue
 			}
+			key.ChannelID = newChannelID
 			var existing model.ChannelKey
 			if err := tx.Where("channel_id = ? AND channel_key = ?", key.ChannelID, key.ChannelKey).First(&existing).Error; err == nil {
+				channelKeyIDMap[oldID] = existing.ID
 				continue
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("import channel_keys: %w", err)
@@ -245,6 +250,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			if err := tx.Create(&key).Error; err != nil {
 				return fmt.Errorf("import channel_keys: %w", err)
 			}
+			channelKeyIDMap[oldID] = key.ID
 			res.RowsAffected["channel_keys"]++
 		}
 
@@ -289,9 +295,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			account.ChannelBindings = nil
 			remapProxyConfigID(&account.ProxyMode, &account.ProxyConfigID, proxyConfigIDMap)
 
-			if newSiteID, ok := siteIDMap[account.SiteID]; ok {
-				account.SiteID = newSiteID
+			newSiteID, ok := siteIDMap[account.SiteID]
+			if !ok {
+				continue
 			}
+			account.SiteID = newSiteID
 
 			var existing model.SiteAccount
 			if err := tx.Where("site_id = ? AND name = ?", account.SiteID, strings.TrimSpace(account.Name)).First(&existing).Error; err == nil {
@@ -311,9 +319,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		for i := range dump.SiteCredentials {
 			credential := dump.SiteCredentials[i]
 			credential.ID = 0
-			if newID, ok := accountIDMap[credential.SiteAccountID]; ok {
-				credential.SiteAccountID = newID
+			newID, ok := accountIDMap[credential.SiteAccountID]
+			if !ok {
+				continue
 			}
+			credential.SiteAccountID = newID
 			var existing model.SiteCredential
 			if err := tx.Where("site_account_id = ? AND purpose = ? AND value = ? AND group_key = ?", credential.SiteAccountID, credential.Purpose, credential.Token, credential.GroupKey).First(&existing).Error; err == nil {
 				continue
@@ -331,9 +341,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			group := dump.SiteUserGroups[i]
 			oldID := group.ID
 			group.ID = 0
-			if newID, ok := accountIDMap[group.SiteAccountID]; ok {
-				group.SiteAccountID = newID
+			newID, ok := accountIDMap[group.SiteAccountID]
+			if !ok {
+				continue
 			}
+			group.SiteAccountID = newID
 			var existing model.SiteUserGroup
 			if err := tx.Where("site_account_id = ? AND group_key = ?", group.SiteAccountID, group.GroupKey).First(&existing).Error; err == nil {
 				userGroupIDMap[oldID] = existing.ID
@@ -352,9 +364,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		for i := range dump.SiteModels {
 			m := dump.SiteModels[i]
 			m.ID = 0
-			if newID, ok := accountIDMap[m.SiteAccountID]; ok {
-				m.SiteAccountID = newID
+			newID, ok := accountIDMap[m.SiteAccountID]
+			if !ok {
+				continue
 			}
+			m.SiteAccountID = newID
 			var existing model.SiteModel
 			if err := tx.Where("site_account_id = ? AND group_key = ? AND model_name = ?", m.SiteAccountID, m.GroupKey, m.ModelName).First(&existing).Error; err == nil {
 				continue
@@ -371,19 +385,21 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		for i := range dump.SiteChannelBindings {
 			binding := dump.SiteChannelBindings[i]
 			binding.ID = 0
-			if newID, ok := siteIDMap[binding.SiteID]; ok {
-				binding.SiteID = newID
+			newSiteID, siteOK := siteIDMap[binding.SiteID]
+			newAccountID, accountOK := accountIDMap[binding.SiteAccountID]
+			newChannelID, channelOK := channelIDMap[binding.ChannelID]
+			if !siteOK || !accountOK || !channelOK {
+				continue
 			}
-			if newID, ok := accountIDMap[binding.SiteAccountID]; ok {
-				binding.SiteAccountID = newID
-			}
+			binding.SiteID = newSiteID
+			binding.SiteAccountID = newAccountID
+			binding.ChannelID = newChannelID
 			if binding.SiteUserGroupID != nil {
 				if newID, ok := userGroupIDMap[*binding.SiteUserGroupID]; ok {
 					binding.SiteUserGroupID = &newID
+				} else {
+					continue
 				}
-			}
-			if newID, ok := channelIDMap[binding.ChannelID]; ok {
-				binding.ChannelID = newID
 			}
 
 			var existing model.SiteChannelBinding
@@ -428,12 +444,13 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		for i := range dump.GroupItems {
 			item := dump.GroupItems[i]
 			item.ID = 0
-			if newID, ok := groupIDMap[item.GroupID]; ok {
-				item.GroupID = newID
+			newGroupID, groupOK := groupIDMap[item.GroupID]
+			newChannelID, channelOK := channelIDMap[item.ChannelID]
+			if !groupOK || !channelOK {
+				continue
 			}
-			if newID, ok := channelIDMap[item.ChannelID]; ok {
-				item.ChannelID = newID
-			}
+			item.GroupID = newGroupID
+			item.ChannelID = newChannelID
 			var existing model.GroupItem
 			if err := tx.Where("group_id = ? AND channel_id = ? AND model_name = ?", item.GroupID, item.ChannelID, item.ModelName).First(&existing).Error; err == nil {
 				continue
@@ -571,7 +588,22 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 		// 16. RelayLogs (Snowflake IDs - keep createDoNothing)
 		if dump.IncludeLogs {
-			if n, err := createDoNothing(tx, dump.RelayLogs); err != nil {
+			remappedLogs := make([]model.RelayLog, 0, len(dump.RelayLogs))
+			for _, row := range dump.RelayLogs {
+				if row.ChannelId != 0 {
+					row.ChannelId = channelIDMap[row.ChannelId]
+				}
+				for i := range row.Attempts {
+					if row.Attempts[i].ChannelID != 0 {
+						row.Attempts[i].ChannelID = channelIDMap[row.Attempts[i].ChannelID]
+					}
+					if row.Attempts[i].ChannelKeyID != 0 {
+						row.Attempts[i].ChannelKeyID = channelKeyIDMap[row.Attempts[i].ChannelKeyID]
+					}
+				}
+				remappedLogs = append(remappedLogs, row)
+			}
+			if n, err := createDoNothing(tx, remappedLogs); err != nil {
 				return fmt.Errorf("import relay_logs: %w", err)
 			} else {
 				res.RowsAffected["relay_logs"] = n

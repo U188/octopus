@@ -273,7 +273,7 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesClientCancelMidStream(t *
 	defer cancel()
 	writer := &notifyStreamWriter{header: http.Header{}}
 	writer.onWrite = func([]byte) { cancel() }
-	ra, _ := newOpenAIResponsesPassthroughAttempt(writer)
+	ra, req := newOpenAIResponsesPassthroughAttempt(writer)
 
 	response := &http.Response{
 		StatusCode: http.StatusOK,
@@ -289,6 +289,14 @@ func TestHandleStreamResponsePassthroughOpenAIResponsesClientCancelMidStream(t *
 	}
 	if err != nil && strings.Contains(err.Error(), "failed to read stream event") {
 		t.Fatalf("mid-stream disconnect must not be classified as stream read failure, got: %v", err)
+	}
+	internalResp, collectErr := req.inAdapter.GetInternalResponse(context.Background())
+	if collectErr != nil || internalResp == nil || len(internalResp.Choices) != 1 ||
+		internalResp.Choices[0].Message == nil || internalResp.Choices[0].Message.Content.Content == nil {
+		t.Fatalf("expected one partial response for metrics, got resp=%+v err=%v", internalResp, collectErr)
+	}
+	if content := *internalResp.Choices[0].Message.Content.Content; content != "hello" {
+		t.Fatalf("partial stream metrics were processed more than once: content=%q", content)
 	}
 }
 

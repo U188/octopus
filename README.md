@@ -259,14 +259,14 @@ corepack pnpm dev
 
 Open `http://localhost:3000`.
 
-### 🔐 Default Credentials
+### 🔐 Initial Credentials
 
-After first launch, visit http://localhost:8080 and log in to the management panel with:
+After first launch, visit http://localhost:8080 and log in with username `admin`.
+The generated one-time password is stored in `data/initial-admin-password.txt`
+with owner-only permissions and is deleted after the first successful login.
 
-- **Username**: `admin`
-- **Password**: `admin`
-
-> ⚠️ **Security Notice**: Please change the default password immediately after first login.
+For unattended deployments, set `OCTOPUS_INITIAL_ADMIN_USERNAME` and
+`OCTOPUS_INITIAL_ADMIN_PASSWORD` before the first startup instead.
 
 ### 📝 Configuration File
 
