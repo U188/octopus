@@ -55,6 +55,7 @@ type ResponseInbound struct {
 	toolCalls           map[int]*model.ToolCall
 	toolCallItemStarted map[int]bool
 	toolCallOutputIndex map[int]int
+	customToolNames     map[string]struct{}
 
 	// Usage tracking
 	usage *model.Usage
@@ -81,6 +82,7 @@ func (i *ResponseInbound) TransformRequest(ctx context.Context, body []byte) (*m
 	}
 
 	i.truncation = req.Truncation
+	i.customToolNames = collectCustomToolNames(req.Tools)
 
 	return convertToInternalRequest(&req)
 }
@@ -95,6 +97,7 @@ func (i *ResponseInbound) TransformResponse(ctx context.Context, response *model
 
 	// Convert to Responses API format
 	resp := convertToResponsesAPIResponse(response)
+	i.restoreCustomToolItems(resp.Output)
 	if i.truncation != nil {
 		resp.Truncation = i.truncation
 	}
@@ -285,6 +288,7 @@ func (i *ResponseInbound) processStreamEvents(ctx context.Context, events []mode
 }
 
 func (i *ResponseInbound) enqueueEvent(ev *ResponsesStreamEvent) []byte {
+	i.restoreCustomToolEvent(ev)
 	ev.SequenceNumber = i.sequenceNumber
 	i.sequenceNumber++
 
@@ -294,6 +298,72 @@ func (i *ResponseInbound) enqueueEvent(ev *ResponsesStreamEvent) []byte {
 	}
 
 	return formatSSEData(data)
+}
+
+func collectCustomToolNames(tools []ResponsesTool) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, tool := range tools {
+		if tool.Type == "custom" && strings.TrimSpace(tool.Name) != "" {
+			names[tool.Name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func (i *ResponseInbound) isCustomTool(name string) bool {
+	if i == nil {
+		return false
+	}
+	_, ok := i.customToolNames[name]
+	return ok
+}
+
+func (i *ResponseInbound) restoreCustomToolItems(items []ResponsesItem) {
+	for idx := range items {
+		i.restoreCustomToolItem(&items[idx])
+	}
+}
+
+func (i *ResponseInbound) restoreCustomToolItem(item *ResponsesItem) {
+	if item == nil || item.Type != "function_call" || !i.isCustomTool(item.Name) {
+		return
+	}
+	input := customToolInputFromArguments(item.Arguments)
+	item.Type = "custom_tool_call"
+	item.Input = &input
+	item.Arguments = ""
+}
+
+func (i *ResponseInbound) restoreCustomToolEvent(event *ResponsesStreamEvent) {
+	if event == nil {
+		return
+	}
+	i.restoreCustomToolItem(event.Item)
+	if event.Response != nil {
+		i.restoreCustomToolItems(event.Response.Output)
+	}
+}
+
+func customToolArguments(input *string) string {
+	value := ""
+	if input != nil {
+		value = *input
+	}
+	encoded, err := json.Marshal(map[string]string{"input": value})
+	if err != nil {
+		return `{"input":""}`
+	}
+	return string(encoded)
+}
+
+func customToolInputFromArguments(arguments string) string {
+	var wrapper struct {
+		Input *string `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &wrapper); err == nil && wrapper.Input != nil {
+		return *wrapper.Input
+	}
+	return arguments
 }
 
 func (i *ResponseInbound) handleReasoningContent(content *string) [][]byte {
@@ -546,12 +616,21 @@ func (i *ResponseInbound) handleToolCalls(toolCalls []model.ToolCall) [][]byte {
 			i.outputIndex++
 		}
 
-		// Accumulate arguments
-		i.toolCalls[toolCallIndex].Function.Arguments += tc.Function.Arguments
+		trackedToolCall := i.toolCalls[toolCallIndex]
+		if trackedToolCall.ID == "" && tc.ID != "" {
+			trackedToolCall.ID = tc.ID
+		}
+		if trackedToolCall.Function.Name == "" && tc.Function.Name != "" {
+			trackedToolCall.Function.Name = tc.Function.Name
+		}
 
-		// Emit function_call_arguments.delta
-		if tc.Function.Arguments != "" {
-			itemID := i.toolCalls[toolCallIndex].ID
+		// Accumulate arguments
+		trackedToolCall.Function.Arguments += tc.Function.Arguments
+
+		// Custom-tool arguments are a JSON wrapper around the original raw input.
+		// Wait for the complete value before emitting Responses custom-tool events.
+		if tc.Function.Arguments != "" && !i.isCustomTool(trackedToolCall.Function.Name) {
+			itemID := trackedToolCall.ID
 			if itemID == "" {
 				itemID = i.currentItemID
 			}
@@ -797,14 +876,31 @@ func (i *ResponseInbound) closeCurrentOutputItem() [][]byte {
 				itemID = i.currentItemID
 			}
 
-			// Emit function_call_arguments.done
 			toolCallOutputIdx := i.toolCallOutputIndex[idx]
-			events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
-				Type:        "response.function_call_arguments.done",
-				ItemID:      &itemID,
-				OutputIndex: &toolCallOutputIdx,
-				Arguments:   tc.Function.Arguments,
-			}))
+			if i.isCustomTool(tc.Function.Name) {
+				input := customToolInputFromArguments(tc.Function.Arguments)
+				if input != "" {
+					events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
+						Type:        "response.custom_tool_call_input.delta",
+						ItemID:      &itemID,
+						OutputIndex: &toolCallOutputIdx,
+						Delta:       input,
+					}))
+				}
+				events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
+					Type:        "response.custom_tool_call_input.done",
+					ItemID:      &itemID,
+					OutputIndex: &toolCallOutputIdx,
+					Input:       &input,
+				}))
+			} else {
+				events = append(events, i.enqueueEvent(&ResponsesStreamEvent{
+					Type:        "response.function_call_arguments.done",
+					ItemID:      &itemID,
+					OutputIndex: &toolCallOutputIdx,
+					Arguments:   tc.Function.Arguments,
+				}))
+			}
 
 			// Emit output_item.done
 			item := ResponsesItem{
@@ -947,9 +1043,10 @@ type ResponsesItem struct {
 	Annotations *[]ResponsesAnnotation `json:"annotations,omitempty"`
 
 	// Function call fields
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	CallID    string  `json:"call_id,omitempty"`
+	Name      string  `json:"name,omitempty"`
+	Arguments string  `json:"arguments,omitempty"`
+	Input     *string `json:"input,omitempty"`
 
 	// Function call output
 	Output *ResponsesInput `json:"output,omitempty"`
@@ -1037,16 +1134,17 @@ type ResponsesAnnotation struct {
 }
 
 type ResponsesTool struct {
-	Type              string         `json:"type,omitempty"`
-	Name              string         `json:"name,omitempty"`
-	Description       string         `json:"description,omitempty"`
-	Parameters        map[string]any `json:"parameters,omitempty"`
-	Strict            *bool          `json:"strict,omitempty"`
-	Background        string         `json:"background,omitempty"`
-	OutputFormat      string         `json:"output_format,omitempty"`
-	Quality           string         `json:"quality,omitempty"`
-	Size              string         `json:"size,omitempty"`
-	OutputCompression *int64         `json:"output_compression,omitempty"`
+	Type              string          `json:"type,omitempty"`
+	Name              string          `json:"name,omitempty"`
+	Description       string          `json:"description,omitempty"`
+	Parameters        map[string]any  `json:"parameters,omitempty"`
+	Strict            *bool           `json:"strict,omitempty"`
+	Background        string          `json:"background,omitempty"`
+	OutputFormat      string          `json:"output_format,omitempty"`
+	Quality           string          `json:"quality,omitempty"`
+	Size              string          `json:"size,omitempty"`
+	OutputCompression *int64          `json:"output_compression,omitempty"`
+	Format            json.RawMessage `json:"format,omitempty"`
 }
 
 type ResponsesToolChoice struct {
@@ -1134,6 +1232,7 @@ type ResponsesStreamEvent struct {
 	Name           string                `json:"name,omitempty"`
 	CallID         string                `json:"call_id,omitempty"`
 	Arguments      string                `json:"arguments,omitempty"`
+	Input          *string               `json:"input,omitempty"`
 	SummaryIndex   *int                  `json:"summary_index,omitempty"`
 	Part           *ResponsesContentPart `json:"part,omitempty"`
 }
@@ -1275,7 +1374,7 @@ func markOpenAIResponsesPassthroughIfNeeded(req *ResponsesRequest, chatReq *mode
 func firstUnsupportedResponsesToolType(tools []ResponsesTool) string {
 	for _, tool := range tools {
 		switch tool.Type {
-		case "function", "image_generation":
+		case "function", "custom", "image_generation":
 			continue
 		case "":
 			return "<empty>"
@@ -1303,7 +1402,7 @@ func firstUnsupportedResponsesTopLevelItemType(item *ResponsesItem) string {
 		return ""
 	}
 	switch item.Type {
-	case "", "message", "input_text", "input_image", "input_file", "input_audio", "function_call", "function_call_output", "reasoning":
+	case "", "message", "input_text", "input_image", "input_file", "input_audio", "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "reasoning":
 	default:
 		return item.Type
 	}
@@ -1343,8 +1442,12 @@ func convertToolChoiceToInternal(src *ResponsesToolChoice) *model.ToolChoice {
 		result.ToolChoice = src.Mode
 	} else if src.Type != nil && src.Name != nil {
 		name := *src.Name
+		choiceType := *src.Type
+		if choiceType == "custom" {
+			choiceType = "function"
+		}
 		result.NamedToolChoice = &model.NamedToolChoice{
-			Type: *src.Type,
+			Type: choiceType,
 			Function: &model.ToolFunction{
 				Name: name,
 			},
@@ -1438,7 +1541,22 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 			},
 		}, nil
 
-	case "function_call_output":
+	case "custom_tool_call":
+		return &model.Message{
+			Role: "assistant",
+			ToolCalls: []model.ToolCall{
+				{
+					ID:   item.CallID,
+					Type: "function",
+					Function: model.FunctionCall{
+						Name:      item.Name,
+						Arguments: customToolArguments(item.Input),
+					},
+				},
+			},
+		}, nil
+
+	case "function_call_output", "custom_tool_call_output":
 		return &model.Message{
 			Role:       "tool",
 			ToolCallID: lo.ToPtr(item.CallID),
@@ -1579,6 +1697,24 @@ func convertToolsToInternal(tools []ResponsesTool) ([]model.Tool, error) {
 					Description: tool.Description,
 					Parameters:  params,
 					Strict:      tool.Strict,
+				},
+			})
+
+		case "custom":
+			params := json.RawMessage(`{"type":"object","properties":{"input":{"type":"string","description":"Raw input for the custom tool. Preserve formatting exactly."}},"required":["input"],"additionalProperties":false}`)
+			description := tool.Description
+			if raw, marshalErr := json.Marshal(tool); marshalErr == nil {
+				if description != "" {
+					description += "\n\n"
+				}
+				description += "Original Responses custom tool definition:\n" + string(raw)
+			}
+			result = append(result, model.Tool{
+				Type: "custom",
+				Function: model.Function{
+					Name:        tool.Name,
+					Description: description,
+					Parameters:  params,
 				},
 			})
 

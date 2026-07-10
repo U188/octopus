@@ -30,6 +30,8 @@ const (
 	maxUpdateArchiveBytes   int64 = 512 << 20
 	maxUpdateChecksumBytes  int64 = 1 << 20
 	maxUpdateExtractedBytes int64 = 1024 << 20
+	updateRequestTimeout          = 30 * time.Second
+	updateArchiveTimeout          = 5 * time.Minute
 )
 
 type LatestInfo struct {
@@ -43,7 +45,11 @@ var github_pat = os.Getenv(strings.ToUpper(conf.APP_NAME) + "_GITHUB_PAT")
 
 // doRequestWithFallback performs an HTTP GET request, first without proxy, then with proxy if failed.
 func doRequestWithFallback(url string, maxBytes int64) ([]byte, error) {
-	data, err := doRequest(url, false, maxBytes)
+	return doRequestWithFallbackTimeout(url, maxBytes, updateRequestTimeout)
+}
+
+func doRequestWithFallbackTimeout(url string, maxBytes int64, timeout time.Duration) ([]byte, error) {
+	data, err := doRequest(url, false, maxBytes, timeout)
 	if err == nil {
 		return data, nil
 	}
@@ -57,15 +63,15 @@ func doRequestWithFallback(url string, maxBytes int64) ([]byte, error) {
 	}
 
 	log.Warnf("direct request failed, trying with proxy: %v", err)
-	proxyData, proxyErr := doRequest(url, true, maxBytes)
+	proxyData, proxyErr := doRequest(url, true, maxBytes, timeout)
 	if proxyErr != nil {
 		return nil, fmt.Errorf("direct request failed: %v; proxy request failed: %w", err, proxyErr)
 	}
 	return proxyData, nil
 }
 
-func doRequest(url string, useProxy bool, maxBytes int64) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func doRequest(url string, useProxy bool, maxBytes int64, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	hc, err := client.GetHTTPClientSystemProxy(useProxy)

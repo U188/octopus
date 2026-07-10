@@ -97,6 +97,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 初始化 Metrics
 	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, internalRequest)
 	responsesPassthroughRequired := internalRequest.HasOpenAIResponsesPassthrough()
+	responsesCustomTools := hasOpenAIResponsesCustomTools(internalRequest)
 	responsesPassthroughCapableFound := false
 
 	// 请求级上下文
@@ -156,6 +157,12 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				iter.Skip(channel.ID, 0, channel.Name, "openai responses passthrough required")
 				continue
 			}
+		}
+		if responsesCustomTools &&
+			channel.Type != outbound.OutboundTypeOpenAIChat &&
+			channel.Type != outbound.OutboundTypeOpenAIResponse {
+			iter.Skip(channel.ID, 0, channel.Name, "openai responses custom tools require an openai chat or responses channel")
+			continue
 		}
 
 		// 出站适配器
@@ -303,6 +310,18 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		return
 	}
 	hb.FlushOrError(c, http.StatusBadGateway, "channel failed")
+}
+
+func hasOpenAIResponsesCustomTools(request *model.InternalLLMRequest) bool {
+	if request == nil || request.RawAPIFormat != model.APIFormatOpenAIResponse {
+		return false
+	}
+	for _, tool := range request.Tools {
+		if tool.Type == "custom" {
+			return true
+		}
+	}
+	return false
 }
 
 func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind {

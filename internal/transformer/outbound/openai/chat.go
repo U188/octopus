@@ -244,7 +244,7 @@ func isReasoningChatModel(modelName string) bool {
 func convertToolsToChatCompletions(tools []model.Tool) []ChatCompletionsTool {
 	result := make([]ChatCompletionsTool, 0, len(tools))
 	for _, tool := range tools {
-		if tool.Type != "function" {
+		if tool.Type != "function" && tool.Type != "custom" {
 			continue
 		}
 		result = append(result, ChatCompletionsTool{

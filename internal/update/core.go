@@ -80,12 +80,12 @@ func UpdateCore() error {
 func downloadUpdateAsset(filename string, maxBytes int64) ([]byte, error) {
 	officialURL := updateURL + "/" + strings.TrimLeft(filename, "/")
 	downloadURL := BuildDownloadURL(filename)
-	data, err := doRequestWithFallback(downloadURL, maxBytes)
+	data, err := doRequestWithFallbackTimeout(downloadURL, maxBytes, updateArchiveTimeout)
 	if err == nil || downloadURL == officialURL {
 		return data, err
 	}
 	log.Warnf("configured update accelerator failed; falling back to official download: %v", err)
-	officialData, officialErr := doRequestWithFallback(officialURL, maxBytes)
+	officialData, officialErr := doRequestWithFallbackTimeout(officialURL, maxBytes, updateArchiveTimeout)
 	if officialErr != nil {
 		return nil, fmt.Errorf("accelerated download failed: %v; official download failed: %w", err, officialErr)
 	}

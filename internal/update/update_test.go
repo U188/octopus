@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestBuildDownloadURL(t *testing.T) {
@@ -114,5 +117,25 @@ func TestShouldAttachGitHubToken(t *testing.T) {
 				t.Fatalf("shouldAttachGitHubToken(%q) = %v, want %v", tt.host, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDoRequestUsesProvidedTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	if _, err := doRequest(server.URL, false, 1024, 10*time.Millisecond); err == nil {
+		t.Fatal("expected request to honor the short timeout")
+	}
+
+	data, err := doRequest(server.URL, false, 1024, time.Second)
+	if err != nil {
+		t.Fatalf("request with sufficient timeout failed: %v", err)
+	}
+	if string(data) != "ok" {
+		t.Fatalf("response = %q, want %q", data, "ok")
 	}
 }

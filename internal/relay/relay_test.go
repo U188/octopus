@@ -655,6 +655,112 @@ func TestHandlerRejectsResponsesNativeToolsWithoutResponsesChannel(t *testing.T)
 	}
 }
 
+func TestHandlerConvertsResponsesCustomToolThroughChatChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, `{"error":"unexpected path"}`, http.StatusNotFound)
+			return
+		}
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl_custom_1",
+			"object":"chat.completion",
+			"created":1,
+			"model":"gpt-5",
+			"choices":[{
+				"index":0,
+				"message":{
+					"role":"assistant",
+					"tool_calls":[{
+						"id":"call_patch_1",
+						"type":"function",
+						"function":{"name":"apply_patch","arguments":"{\"input\":\"*** Begin Patch\"}"}
+					}]
+				},
+				"finish_reason":"tool_calls"
+			}],
+			"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}
+		}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name:     "relay-responses-custom-tool-chat",
+		Type:     outbound.OutboundTypeOpenAIChat,
+		Enabled:  true,
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:    "gpt-5",
+		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "test-key"}},
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	group := &model.Group{Name: "relay-responses-custom-tool-group", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: channel.ID, ModelName: "gpt-5", Priority: 1, Weight: 1}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("api_key_id", 9)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{
+		"model":"relay-responses-custom-tool-group",
+		"input":"fix it",
+		"tools":[{
+			"type":"custom",
+			"name":"apply_patch",
+			"format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}
+		}]
+	}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	Handler(inbound.InboundTypeOpenAIResponse, c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected custom tool conversion to succeed, got status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var upstream map[string]any
+	if err := json.Unmarshal(capturedBody, &upstream); err != nil {
+		t.Fatalf("unmarshal upstream request failed: %v", err)
+	}
+	tools, ok := upstream["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected one Chat function tool, got %#v", upstream["tools"])
+	}
+	tool := tools[0].(map[string]any)
+	function := tool["function"].(map[string]any)
+	if tool["type"] != "function" || function["name"] != "apply_patch" {
+		t.Fatalf("unexpected Chat tool wrapper: %#v", tool)
+	}
+
+	var response struct {
+		Output []struct {
+			Type      string  `json:"type"`
+			Name      string  `json:"name"`
+			Input     *string `json:"input"`
+			Arguments string  `json:"arguments"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal Responses output failed: %v body=%s", err, recorder.Body.String())
+	}
+	if len(response.Output) != 1 || response.Output[0].Type != "custom_tool_call" ||
+		response.Output[0].Name != "apply_patch" || response.Output[0].Input == nil ||
+		*response.Output[0].Input != "*** Begin Patch" || response.Output[0].Arguments != "" {
+		t.Fatalf("unexpected restored custom tool output: %#v", response.Output)
+	}
+}
+
 func TestHandlerFallsBackToNextChannelAfterFirstFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
