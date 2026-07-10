@@ -14,6 +14,8 @@ import (
 	"github.com/U188/octopus/internal/utils/shutdown"
 )
 
+const updateRestartDelay = time.Second
+
 func UpdateCore() error {
 	log.Infof("start update core")
 
@@ -73,7 +75,10 @@ func UpdateCore() error {
 	}
 
 	log.Infof("update core success")
-	go restartExecutable(execPath)
+	go func() {
+		time.Sleep(updateRestartDelay)
+		restartExecutable(execPath)
+	}()
 	return nil
 }
 

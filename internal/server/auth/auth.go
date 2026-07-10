@@ -22,7 +22,7 @@ var (
 )
 
 const (
-	defaultTokenExpiryMinutes = 15
+	defaultTokenExpiryMinutes = 24 * 60
 	maxTokenExpiryMinutes     = 30 * 24 * 60
 )
 

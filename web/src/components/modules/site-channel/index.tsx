@@ -2005,6 +2005,10 @@ function SiteAccountPanel({
         () => visibleGroups.filter((group) => !group.has_keys),
         [visibleGroups],
     );
+    const keyManagementGroups = useMemo(
+        () => visibleGroups.filter((group) => group.source_keys.length > 0 || group.has_projected_channel),
+        [visibleGroups],
+    );
     const projectedGroups = useMemo(
         () => visibleGroups.filter((group) => group.has_projected_channel),
         [visibleGroups],
@@ -2358,7 +2362,7 @@ function SiteAccountPanel({
                             </button>
                         ) : null}
 
-                        {projectedGroups.length > 0 ? (
+                        {keyManagementGroups.length > 0 ? (
                             <Popover>
                                 <PopoverTrigger asChild>
                                     <button
@@ -2366,14 +2370,14 @@ function SiteAccountPanel({
                                         className="inline-flex h-8 items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 text-xs font-medium text-foreground transition hover:bg-muted/60"
                                     >
                                         <KeyRound className="size-3.5 text-primary" />
-                                        投影 Key {projectedGroups.length} 组
+                                        Key 管理
                                     </button>
                                 </PopoverTrigger>
                                 <PopoverContent align="start" className="w-72 rounded-2xl border border-border/70 bg-card p-3 shadow-xl">
                                     <div className="space-y-2">
-                                        <div className="text-xs font-medium text-muted-foreground">投影渠道 Key 管理</div>
+                                        <div className="text-xs font-medium text-muted-foreground">站点 Key 增删改查</div>
                                         <div className="flex flex-wrap gap-2">
-                                            {projectedGroups.map((group) => (
+                                            {keyManagementGroups.map((group) => (
                                                 <Button
                                                     key={`projected-${group.group_key}`}
                                                     type="button"

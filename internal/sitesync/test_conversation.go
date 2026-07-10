@@ -122,7 +122,7 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 		}
 	}
 	start := time.Now()
-	payload, err := requestTestConversation(ctx, siteRecord, requestURL, body, headers, mode, client, account, emit)
+	payload, err := requestTestConversationWithRetry(ctx, siteRecord, requestURL, body, headers, mode, client, account, emit)
 	duration := time.Since(start)
 	recordTestConversationRelayLog(ctx, siteRecord, account, token, modelName, mode, client, greeting, requestURL, body, headers, payload, duration, err)
 	if err != nil {
@@ -144,6 +144,48 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 		}
 	}
 	return result, nil
+}
+
+func requestTestConversationWithRetry(
+	ctx context.Context,
+	siteRecord *model.Site,
+	requestURL string,
+	body map[string]any,
+	headers map[string]string,
+	mode TestConversationMode,
+	client TestConversationClient,
+	account *model.SiteAccount,
+	emit TestConversationStreamEmit,
+) (map[string]any, error) {
+	const maxClaudeAttempts = 3
+	var payload map[string]any
+	var err error
+	for attempt := 1; attempt <= maxClaudeAttempts; attempt++ {
+		payload, err = requestTestConversation(ctx, siteRecord, requestURL, body, headers, mode, client, account, emit)
+		if err == nil || client != TestConversationClientClaude || !isRetryableClaudeTestConversationError(err) || attempt == maxClaudeAttempts {
+			return payload, err
+		}
+		delay := time.Duration(attempt) * time.Second
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return payload, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return payload, err
+}
+
+func isRetryableClaudeTestConversationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "http 429") ||
+		strings.Contains(message, "http 503") ||
+		strings.Contains(message, "service unavailable") ||
+		strings.Contains(message, "temporarily unavailable")
 }
 
 func recordTestConversationRelayLog(

@@ -429,6 +429,55 @@ func TestRequestClaudeTestConversationRejectsUnavailableJSONMessage(t *testing.T
 	}
 }
 
+func TestRequestClaudeTestConversationWithRetryRecoversFromUnavailable(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "application/json")
+		if attempts < 3 {
+			_, _ = w.Write([]byte(`{
+				"type":"message",
+				"role":"assistant",
+				"content":[{"type":"text","text":"Service temporarily unavailable. Please retry later."}]
+			}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{
+			"id":"msg_ok",
+			"type":"message",
+			"role":"assistant",
+			"model":"claude-fable-5",
+			"content":[{"type":"text","text":"ok"}],
+			"stop_reason":"end_turn"
+		}`))
+	}))
+	defer server.Close()
+
+	siteRecord := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL}
+	_, body, headers := buildTestConversationRequest(siteRecord, model.SiteToken{Token: "sk-test"}, "claude-fable-5", TestConversationModeAnthropic, "hi", TestConversationClientClaude, true)
+
+	payload, err := requestTestConversationWithRetry(
+		context.Background(),
+		siteRecord,
+		server.URL,
+		body,
+		headers,
+		TestConversationModeAnthropic,
+		TestConversationClientClaude,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("expected retry to recover, got %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	if reply := extractTestConversationReply(TestConversationModeAnthropic, payload); reply != "ok" {
+		t.Fatalf("reply = %q, want ok", reply)
+	}
+}
+
 func TestParseClaudeTestConversationSSERejectsUnavailableMessage(t *testing.T) {
 	raw := strings.Join([]string{
 		`data: {"type":"message_start","message":{"id":"msg_probe","type":"message","role":"assistant","model":"claude-fable-5","content":[]}}`,

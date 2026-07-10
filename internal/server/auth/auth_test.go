@@ -3,6 +3,7 @@ package auth
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/op"
@@ -52,6 +53,21 @@ func TestJWTExpiryValidationAndRotation(t *testing.T) {
 	}
 	if !VerifyJWTToken(newToken) {
 		t.Fatal("expected token generated after rotation to verify")
+	}
+}
+
+func TestGenerateJWTTokenDefaultsTo24Hours(t *testing.T) {
+	_, expiresAt, err := GenerateJWTToken(0)
+	if err != nil {
+		t.Fatalf("GenerateJWTToken failed: %v", err)
+	}
+	parsed, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		t.Fatalf("parse expiry: %v", err)
+	}
+	remaining := time.Until(parsed)
+	if remaining < 23*time.Hour+59*time.Minute || remaining > 24*time.Hour+time.Minute {
+		t.Fatalf("default expiry = %v, want approximately 24h", remaining)
 	}
 }
 

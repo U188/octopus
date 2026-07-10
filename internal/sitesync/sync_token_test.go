@@ -6,6 +6,22 @@ import (
 	"github.com/U188/octopus/internal/model"
 )
 
+func TestDropTokensDuplicatingAccountCredentials(t *testing.T) {
+	existing := []model.SiteToken{
+		{ID: 1, Token: "sk-account", Source: "account"},
+		{ID: 2, Token: "sk-old", Source: "sync"},
+	}
+	synced := []model.SiteToken{
+		{Token: "sk-account", Source: "sync"},
+		{Token: "sk-other", Source: "sync"},
+	}
+
+	filtered := dropTokensDuplicatingAccountCredentials(existing, synced)
+	if len(filtered) != 1 || filtered[0].Token != "sk-other" {
+		t.Fatalf("unexpected filtered tokens: %#v", filtered)
+	}
+}
+
 func TestResolveDirectTokenUsesAPIKeyOnly(t *testing.T) {
 	account := &model.SiteAccount{
 		CredentialType: model.SiteCredentialTypeAccessToken,

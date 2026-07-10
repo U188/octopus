@@ -125,7 +125,7 @@ export const useAuthStore = create<AuthState>()(
         }),
         {
             name: 'auth-storage',
-            storage: createJSONStorage(() => sessionStorage),
+            storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 token: state.token,
                 expireAt: state.expireAt,
@@ -137,7 +137,6 @@ export const useAuthStore = create<AuthState>()(
 
 // 注册 auth store getter 到 apiClient
 if (typeof window !== 'undefined') {
-    localStorage.removeItem('auth-storage');
     setAuthStoreGetter(() => {
         const state = useAuthStore.getState();
         return {

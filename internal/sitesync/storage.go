@@ -135,6 +135,7 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 			}
 		}
 		mergedTokens := mergePersistedSiteTokens(accountID, existingTokens, snapshot.tokens, now, removedSiteGroupKeys(snapshot.groupResults))
+		mergedTokens = dropTokensDuplicatingAccountCredentials(existingTokens, mergedTokens)
 		incomingModels := preparePersistedSyncModels(accountID, snapshot.models, existingModelMap, now)
 		finalModels := mergePersistedSiteModelsByGroup(existingModels, incomingModels, snapshot.groupResults)
 
@@ -172,6 +173,31 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 		return err
 	}
 	return nil
+}
+
+func dropTokensDuplicatingAccountCredentials(existingTokens []model.SiteToken, syncedTokens []model.SiteToken) []model.SiteToken {
+	accountValues := make(map[string]struct{})
+	for _, token := range existingTokens {
+		if strings.TrimSpace(token.Source) != "account" {
+			continue
+		}
+		value := model.NormalizeComparableSiteTokenValue(token.Token)
+		if value != "" {
+			accountValues[value] = struct{}{}
+		}
+	}
+	if len(accountValues) == 0 {
+		return syncedTokens
+	}
+	filtered := make([]model.SiteToken, 0, len(syncedTokens))
+	for _, token := range syncedTokens {
+		value := model.NormalizeComparableSiteTokenValue(token.Token)
+		if _, duplicate := accountValues[value]; duplicate {
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	return filtered
 }
 
 func preparePersistedSyncModels(accountID int, incoming []model.SiteModel, existingModelMap map[string]model.SiteModel, now time.Time) []model.SiteModel {
