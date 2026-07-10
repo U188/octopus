@@ -1374,7 +1374,7 @@ func markOpenAIResponsesPassthroughIfNeeded(req *ResponsesRequest, chatReq *mode
 func firstUnsupportedResponsesToolType(tools []ResponsesTool) string {
 	for _, tool := range tools {
 		switch tool.Type {
-		case "function", "custom", "image_generation":
+		case "function", "custom", "image_generation", "tool_search", "web_search":
 			continue
 		case "":
 			return "<empty>"

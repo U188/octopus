@@ -719,6 +719,16 @@ func TestHandlerConvertsResponsesCustomToolThroughChatChannel(t *testing.T) {
 			"type":"custom",
 			"name":"apply_patch",
 			"format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}
+		},{
+			"type":"tool_search",
+			"description":"Search deferred tools",
+			"execution":"client"
+		},{
+			"type":"web_search",
+			"external_web_access":true
+		},{
+			"type":"image_generation",
+			"output_format":"png"
 		}]
 	}`))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -735,7 +745,7 @@ func TestHandlerConvertsResponsesCustomToolThroughChatChannel(t *testing.T) {
 	}
 	tools, ok := upstream["tools"].([]any)
 	if !ok || len(tools) != 1 {
-		t.Fatalf("expected one Chat function tool, got %#v", upstream["tools"])
+		t.Fatalf("expected managed Responses tools to be dropped and one Chat function tool to remain, got %#v", upstream["tools"])
 	}
 	tool := tools[0].(map[string]any)
 	function := tool["function"].(map[string]any)

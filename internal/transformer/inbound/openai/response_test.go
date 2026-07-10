@@ -58,6 +58,34 @@ func TestConvertToInternalRequestMarksPassthroughForUnsupportedToolType(t *testi
 	}
 }
 
+func TestConvertToInternalRequestAllowsManagedToolsToDegradeForChat(t *testing.T) {
+	req := &ResponsesRequest{
+		Model: "grok-4.5",
+		Input: ResponsesInput{Text: stringPtr("hello")},
+		Tools: []ResponsesTool{
+			{Type: "function", Name: "shell_command"},
+			{Type: "custom", Name: "apply_patch"},
+			{Type: "tool_search"},
+			{Type: "web_search"},
+			{Type: "image_generation"},
+		},
+	}
+
+	internalReq, err := convertToInternalRequest(req)
+	if err != nil {
+		t.Fatalf("convertToInternalRequest failed: %v", err)
+	}
+	if internalReq.HasOpenAIResponsesPassthrough() {
+		t.Fatalf("expected optional managed tools to allow the Chat compatibility path")
+	}
+	if len(internalReq.Tools) != 3 ||
+		internalReq.Tools[0].Type != "function" ||
+		internalReq.Tools[1].Type != "custom" ||
+		internalReq.Tools[2].Type != "image_generation" {
+		t.Fatalf("expected unsupported managed tools to be ignored while convertible tools remain, got %#v", internalReq.Tools)
+	}
+}
+
 func TestConvertToInternalRequestNormalizesCustomTool(t *testing.T) {
 	req := &ResponsesRequest{
 		Model: "gpt-5",
