@@ -477,11 +477,16 @@ func hasUsableToken(tokens []model.SiteToken) bool {
 
 func buildChannelKeys(tokens []model.SiteToken, platform model.SitePlatform) []model.ChannelKey {
 	keys := make([]model.ChannelKey, 0, len(tokens))
+	seen := make(map[string]struct{}, len(tokens))
 	for _, token := range tokens {
 		if !isUsableSiteToken(token) {
 			continue
 		}
 		normalized := model.NormalizeSiteSyncTokenValueForPlatform(platform, token.Token)
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
 		keys = append(keys, model.ChannelKey{Enabled: token.Enabled, ChannelKey: normalized, Remark: model.NormalizeSiteGroupName(token.GroupKey, token.GroupName)})
 	}
 	return keys

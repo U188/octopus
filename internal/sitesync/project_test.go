@@ -927,6 +927,18 @@ func TestBuildChannelKeysExcludesDisabledTokens(t *testing.T) {
 	}
 }
 
+func TestBuildChannelKeysDeduplicatesEquivalentValues(t *testing.T) {
+	tokens := []model.SiteToken{
+		{Token: "same-key", Enabled: true, ValueStatus: model.SiteTokenValueStatusReady, Source: "account"},
+		{Token: "sk-same-key", Enabled: true, ValueStatus: model.SiteTokenValueStatusReady, Source: "default"},
+	}
+
+	keys := buildChannelKeys(tokens, model.SitePlatformNewAPI)
+	if len(keys) != 1 || keys[0].ChannelKey != "sk-same-key" {
+		t.Fatalf("expected equivalent projected keys to be deduplicated, got %+v", keys)
+	}
+}
+
 func createProjectionFixture(t *testing.T, ctx context.Context) (*model.Site, *model.SiteAccount) {
 	t.Helper()
 
