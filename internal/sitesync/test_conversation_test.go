@@ -17,35 +17,6 @@ import (
 	"github.com/U188/octopus/internal/op"
 )
 
-func TestShouldRejectAccountCredentialForTestConversation(t *testing.T) {
-	readyAccount := model.SiteToken{Source: "account", Enabled: true, Token: "sk-real-account-key"}
-	maskedAccount := model.SiteToken{Source: "account", Enabled: true, Token: "sk-abc" + strings.Repeat("*", 6) + "xyz"}
-	syncedReady := model.SiteToken{Source: "default", Enabled: true, Token: "sk-synced-ready"}
-	syncedMasked := model.SiteToken{Source: "default", Enabled: true, Token: "sk-def" + strings.Repeat("*", 6) + "uvw"}
-
-	// Non-account tokens are never rejected.
-	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, syncedReady, []model.SiteToken{syncedReady}) {
-		t.Fatal("synced token must not be rejected")
-	}
-	// Direct API / DeepSeek platforms always allow the account credential.
-	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformAPI, readyAccount, []model.SiteToken{readyAccount}) {
-		t.Fatal("api platform account credential must be allowed")
-	}
-	// Managed platform with a usable synced key: keep requiring the synced key.
-	if !shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, readyAccount, []model.SiteToken{readyAccount, syncedReady}) {
-		t.Fatal("managed platform with usable synced key must reject account credential")
-	}
-	// Managed platform where every synced key is masked (待补齐): allow the
-	// ready, unmasked account API key as a fallback.
-	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, readyAccount, []model.SiteToken{readyAccount, syncedMasked}) {
-		t.Fatal("managed platform with only masked synced keys must allow ready account credential")
-	}
-	// A masked account credential cannot be a fallback.
-	if !shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, maskedAccount, []model.SiteToken{maskedAccount, syncedMasked}) {
-		t.Fatal("masked account credential must stay rejected")
-	}
-}
-
 func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
 	siteRecord := &model.Site{
 		Platform: model.SitePlatformAPI,
@@ -103,7 +74,7 @@ func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
 	}
 }
 
-func TestTestConversationTargetRejectsManagedAccountCredentialToken(t *testing.T) {
+func TestTestConversationTargetAllowsManagedAccountCredentialToken(t *testing.T) {
 	ctx := setupProjectTestDB(t)
 	siteRecord := &model.Site{
 		Name:     "managed-test-conversation-site",
@@ -140,8 +111,8 @@ func TestTestConversationTargetRejectsManagedAccountCredentialToken(t *testing.T
 		t.Fatalf("expected account credential token, got %+v", reloaded.Tokens)
 	}
 
-	// A usable synced site key exists, so the account credential must still be
-	// rejected in favour of testing the real synced key.
+	// Another synced key must not make the explicitly supplied account API key
+	// unavailable for testing.
 	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
 		SiteAccountID: account.ID,
 		Purpose:       model.SiteCredentialPurposeChat,
@@ -155,9 +126,12 @@ func TestTestConversationTargetRejectsManagedAccountCredentialToken(t *testing.T
 		t.Fatalf("create synced token failed: %v", err)
 	}
 
-	_, _, _, err = testConversationTarget(ctx, account.ID, accountTokenID)
-	if err == nil || !strings.Contains(err.Error(), "account credential") {
-		t.Fatalf("expected account credential token to be rejected, got %v", err)
+	_, _, token, err := testConversationTarget(ctx, account.ID, accountTokenID)
+	if err != nil {
+		t.Fatalf("expected account credential token to be allowed, got %v", err)
+	}
+	if token == nil || token.Source != "account" || token.Token != "sk-account-key" {
+		t.Fatalf("expected account credential token, got %+v", token)
 	}
 }
 

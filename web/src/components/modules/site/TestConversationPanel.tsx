@@ -5,7 +5,6 @@ import { Bot, Clock3, ImageIcon, LoaderCircle, MessageCircle, Send, UserRound } 
 import {
   type Site,
   type SiteAccount,
-  SitePlatform,
   type SiteTestConversationClient,
   type SiteTestConversationImage,
   type SiteTestConversationResult,
@@ -250,13 +249,8 @@ function dedupeTokenOptions<T extends { token: string; value_status?: string; is
   return [...byValue.values(), ...withoutValue];
 }
 
-function isManagedCredentialPlatform(platform: Site["platform"]) {
-  return platform !== SitePlatform.API && platform !== SitePlatform.DeepSeek;
-}
-
-function isTestConversationTokenOption(site: Site, token: SiteAccount["tokens"][number]) {
+function isTestConversationTokenOption(token: SiteAccount["tokens"][number]) {
   if (!token.enabled) return false;
-  if (isManagedCredentialPlatform(site.platform) && token.source.trim() === "account") return false;
   return true;
 }
 
@@ -289,12 +283,12 @@ export function TestConversationPanel({
 
   const enabledTokenOptions = useMemo(
     () =>
-      dedupeTokenOptions(latestAccount.tokens.filter((token) => isTestConversationTokenOption(site, token)))
+      dedupeTokenOptions(latestAccount.tokens.filter(isTestConversationTokenOption))
         .sort((a, b) => {
           const groupCompare = (a.group_name || a.group_key).localeCompare(b.group_name || b.group_key);
           return Number(b.is_default) - Number(a.is_default) || groupCompare || a.name.localeCompare(b.name);
         }),
-    [latestAccount.tokens, site],
+    [latestAccount.tokens],
   );
   const readyTokenOptions = useMemo(
     () => enabledTokenOptions.filter((token) => token.value_status !== "masked_pending"),

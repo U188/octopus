@@ -195,9 +195,6 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		groups[key] = newSiteChannelGroupView(key, model.NormalizeSiteGroupName(key, group.Name), group)
 	}
 	for _, token := range account.Tokens {
-		if shouldHideSiteAccountCredentialTokenInChannelView(site, token) {
-			continue
-		}
 		key := model.NormalizeSiteGroupKey(token.GroupKey)
 		group := ensureSiteChannelGroup(groups, key, token.GroupName)
 		group.KeyCount++
@@ -206,6 +203,12 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		}
 		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
 			group.EnabledKeyCount++
+		}
+		// Account-level API keys are maintained in the account editor, so they
+		// stay out of the editable source-key list. They still count as usable
+		// chat credentials because projection and test conversations use them.
+		if shouldHideSiteAccountCredentialTokenInChannelView(site, token) {
+			continue
 		}
 		var lastSyncAt *int64
 		if token.LastSyncAt != nil && !token.LastSyncAt.IsZero() {

@@ -314,46 +314,10 @@ func testConversationTarget(ctx context.Context, accountID int, tokenID int) (*m
 	}
 	for i := range accountInSite.Tokens {
 		if accountInSite.Tokens[i].ID == tokenID {
-			if shouldRejectAccountCredentialForTestConversation(siteRecord.Platform, accountInSite.Tokens[i], accountInSite.Tokens) {
-				return nil, nil, nil, fmt.Errorf("api key is an account credential, please select a synced site key")
-			}
 			return siteRecord, accountInSite, &accountInSite.Tokens[i], nil
 		}
 	}
 	return nil, nil, nil, fmt.Errorf("api key not found")
-}
-
-func shouldRejectAccountCredentialForTestConversation(platform model.SitePlatform, token model.SiteToken, accountTokens []model.SiteToken) bool {
-	if strings.TrimSpace(token.Source) != "account" {
-		return false
-	}
-	switch platform {
-	case model.SitePlatformAPI, model.SitePlatformDeepSeek:
-		return false
-	}
-	// Managed platforms normally require testing an actual synced site key. But
-	// when the site's token-list API only returns masked values, every synced key
-	// is masked_pending (待补齐) and unusable — leaving the account's own ready,
-	// unmasked API key as the only thing that can be tested. Allow it as a
-	// fallback so a provided key is not rejected with "no usable key".
-	if model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) && !hasUsableSyncedSiteToken(accountTokens) {
-		return false
-	}
-	return true
-}
-
-// hasUsableSyncedSiteToken reports whether the account has at least one enabled,
-// ready, unmasked synced (non-account) site key.
-func hasUsableSyncedSiteToken(tokens []model.SiteToken) bool {
-	for _, token := range tokens {
-		if strings.TrimSpace(token.Source) == "account" {
-			continue
-		}
-		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeTestConversationMode(mode TestConversationMode) TestConversationMode {

@@ -824,6 +824,67 @@ func TestSiteChannelAccountGetCountsMaskedPendingKeysAsPendingOnly(t *testing.T)
 	}
 }
 
+func TestSiteChannelAccountGetCountsManagedAccountAPIKeyAsUsable(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	site := &model.Site{
+		Name:     "site-channel-account-key-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+
+	account := &model.SiteAccount{
+		SiteID:         site.ID,
+		Name:           "site-channel-account-key-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-token",
+		APIKey:         "sk-account-chat-key",
+		Enabled:        true,
+	}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteUserGroup{
+		SiteAccountID:   account.ID,
+		GroupKey:        model.SiteDefaultGroupKey,
+		Name:            model.SiteDefaultGroupName,
+		ModelSyncStatus: model.SiteGroupModelSyncStatusSynced,
+	}).Error; err != nil {
+		t.Fatalf("create site group failed: %v", err)
+	}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteModel{
+		SiteAccountID: account.ID,
+		GroupKey:      model.SiteDefaultGroupKey,
+		ModelName:     "gpt-account-key",
+		Source:        "sync",
+		RouteType:     model.SiteModelRouteTypeOpenAIChat,
+	}).Error; err != nil {
+		t.Fatalf("create site model failed: %v", err)
+	}
+
+	view, err := SiteChannelAccountGet(site.ID, account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteChannelAccountGet failed: %v", err)
+	}
+	if len(view.Groups) != 1 {
+		t.Fatalf("expected one group, got %+v", view.Groups)
+	}
+	group := view.Groups[0]
+	if group.KeyCount != 1 || group.EnabledKeyCount != 1 || !group.HasKeys {
+		t.Fatalf("expected account API key to count as usable, got %+v", group)
+	}
+	if len(group.SourceKeys) != 0 {
+		t.Fatalf("expected account API key to remain managed by account editor, got %+v", group.SourceKeys)
+	}
+	if len(group.Models) != 1 || group.Models[0].ModelName != "gpt-account-key" {
+		t.Fatalf("expected models to remain visible with account API key, got %+v", group.Models)
+	}
+}
+
 func TestUpdateSiteSourceKeysNormalizesPrefix(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 
