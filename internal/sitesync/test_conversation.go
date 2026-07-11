@@ -565,7 +565,8 @@ func buildClaudeTestConversationBody(modelName string, greeting string, sessionI
 		// A genuine Claude Code request always carries a tools array. Reseller
 		// upstreams reject tool-less agentic requests (thinking but no tools) with
 		// HTTP 503 "Service Unavailable", so advertise the canonical tool set.
-		"tools": claudemode.Tools(),
+		"tools":       claudemode.Tools(),
+		"tool_choice": map[string]string{"type": "none"},
 		"messages": []map[string]any{
 			{
 				"role": "user",
@@ -781,6 +782,7 @@ func parseCodexTestConversationSSEWithEmit(reader io.Reader, emit TestConversati
 	eventTypes := make([]string, 0)
 	var output strings.Builder
 	var completed map[string]any
+	streamComplete := false
 	outputItems := make([]any, 0)
 	appendOutputText := func(text string) error {
 		if text != "" {
@@ -854,6 +856,7 @@ func parseCodexTestConversationSSEWithEmit(reader io.Reader, emit TestConversati
 		dataLines = dataLines[:0]
 		data = trimNestedSSEDataPrefix(data)
 		if strings.TrimSpace(data) == "[DONE]" {
+			streamComplete = true
 			return nil
 		}
 		var event map[string]any
@@ -912,6 +915,7 @@ func parseCodexTestConversationSSEWithEmit(reader io.Reader, emit TestConversati
 					}
 				}
 			}
+			streamComplete = true
 		case "response.failed", "response.incomplete", "error":
 			if message := extractSiteResponseMessage(event); message != "" {
 				return fmt.Errorf("%s", message)
@@ -925,6 +929,9 @@ func parseCodexTestConversationSSEWithEmit(reader io.Reader, emit TestConversati
 		if strings.TrimSpace(line) == "" {
 			if err := flush(); err != nil {
 				return nil, err
+			}
+			if streamComplete {
+				break
 			}
 			continue
 		}
@@ -1041,6 +1048,7 @@ func parseClaudeTestConversationSSEWithEmit(reader io.Reader, emit TestConversat
 	dataLines := make([]string, 0)
 	var output strings.Builder
 	var message map[string]any
+	streamComplete := false
 	flush := func() error {
 		if len(dataLines) == 0 {
 			return nil
@@ -1077,6 +1085,8 @@ func parseClaudeTestConversationSSEWithEmit(reader io.Reader, emit TestConversat
 					message[key] = value
 				}
 			}
+		case "message_stop":
+			streamComplete = true
 		case "error":
 			if messageText := extractSiteResponseMessage(event); messageText != "" {
 				return fmt.Errorf("%s", messageText)
@@ -1090,6 +1100,9 @@ func parseClaudeTestConversationSSEWithEmit(reader io.Reader, emit TestConversat
 		if strings.TrimSpace(line) == "" {
 			if err := flush(); err != nil {
 				return nil, err
+			}
+			if streamComplete {
+				break
 			}
 			continue
 		}

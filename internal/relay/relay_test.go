@@ -2101,6 +2101,9 @@ func TestApplyClaudeAnthropicModeInjectsToolsAndForces1MForToollessClient(t *tes
 	if tools, ok := payload["tools"].([]any); !ok || len(tools) < 10 {
 		t.Fatalf("expected injected tools for tool-less client, got %#v", payload["tools"])
 	}
+	if toolChoice, ok := payload["tool_choice"].(map[string]any); !ok || toolChoice["type"] != "none" {
+		t.Fatalf("expected synthetic tools to be disabled, got %#v", payload["tool_choice"])
+	}
 	if thinking, ok := payload["thinking"].(map[string]any); !ok || thinking["type"] != "adaptive" {
 		t.Fatalf("expected claude thinking defaults, got %#v", payload["thinking"])
 	}
@@ -2171,6 +2174,9 @@ func TestApplyClaudeAnthropicModeCompletesSynthesizedRequest(t *testing.T) {
 	if !clientToolFound {
 		t.Fatalf("expected client tool to be preserved, got %#v", payload["tools"])
 	}
+	if _, ok := payload["tool_choice"]; ok {
+		t.Fatalf("expected client-declared tools to retain automatic selection, got %#v", payload["tool_choice"])
+	}
 	metadata, ok := payload["metadata"].(map[string]any)
 	if !ok || metadata["user_id"] == "openai-client" || metadata["user_id"] == "" {
 		t.Fatalf("expected synthesized Claude session metadata, got %#v", payload["metadata"])
@@ -2181,8 +2187,8 @@ func TestHandlerClaudeModeCompletesOpenAIChatAndResponsesRequests(t *testing.T) 
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)
 
-	seenBodies := make(chan []byte, 2)
-	seenHeaders := make(chan http.Header, 2)
+	seenBodies := make(chan []byte, 3)
+	seenHeaders := make(chan http.Header, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -2218,10 +2224,11 @@ func TestHandlerClaudeModeCompletesOpenAIChatAndResponsesRequests(t *testing.T) 
 	}
 
 	cases := []struct {
-		name        string
-		inboundType inbound.InboundType
-		path        string
-		body        string
+		name          string
+		inboundType   inbound.InboundType
+		path          string
+		body          string
+		syntheticOnly bool
 	}{
 		{
 			name:        "chat",
@@ -2234,6 +2241,13 @@ func TestHandlerClaudeModeCompletesOpenAIChatAndResponsesRequests(t *testing.T) 
 			inboundType: inbound.InboundTypeOpenAIResponse,
 			path:        "/v1/responses",
 			body:        `{"model":"claude-cross-protocol","instructions":"responses instruction","input":"hi","tools":[{"type":"function","name":"responses_tool","description":"keep","parameters":{"type":"object"}}]}`,
+		},
+		{
+			name:          "responses_without_client_tools",
+			inboundType:   inbound.InboundTypeOpenAIResponse,
+			path:          "/v1/responses",
+			body:          `{"model":"claude-cross-protocol","instructions":"responses instruction","input":"hi","stream":false}`,
+			syntheticOnly: true,
 		},
 	}
 
@@ -2266,6 +2280,14 @@ func TestHandlerClaudeModeCompletesOpenAIChatAndResponsesRequests(t *testing.T) 
 			tools, ok := payload["tools"].([]any)
 			if !ok || !claudeToolsContainCanonicalSet(tools, claudemode.Tools()) {
 				t.Fatalf("expected complete Claude Code tool set, got %#v", payload["tools"])
+			}
+			toolChoice, hasToolChoice := payload["tool_choice"].(map[string]any)
+			if tc.syntheticOnly {
+				if !hasToolChoice || toolChoice["type"] != "none" {
+					t.Fatalf("expected synthetic-only tools to be disabled, got %#v", payload["tool_choice"])
+				}
+			} else if hasToolChoice && toolChoice["type"] == "none" {
+				t.Fatalf("expected client tools to remain callable, got %#v", payload["tool_choice"])
 			}
 			headers := <-seenHeaders
 			if got := headers.Get("User-Agent"); got != claudemode.UserAgent {

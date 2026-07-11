@@ -3,10 +3,12 @@ package sitesync
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/U188/octopus/internal/claudemode"
 	"github.com/U188/octopus/internal/codexmode"
@@ -410,6 +412,9 @@ func TestBuildTestConversationRequestClaudeMatchesClientShape(t *testing.T) {
 	if tools, ok := body["tools"].([]map[string]any); !ok || len(tools) < 10 {
 		t.Fatalf("expected claude tools array (upstreams reject tool-less agentic requests), got %#v", body["tools"])
 	}
+	if toolChoice, ok := body["tool_choice"].(map[string]string); !ok || toolChoice["type"] != "none" {
+		t.Fatalf("expected synthetic Claude tools to be disabled, got %#v", body["tool_choice"])
+	}
 	if body["stream"] != true || body["max_tokens"] != claudemode.DefaultMaxTokens {
 		t.Fatalf("unexpected claude body flags: %#v", body)
 	}
@@ -534,6 +539,72 @@ func TestRequestClaudeTestConversationRejectsUnavailableJSONMessage(t *testing.T
 	}
 	if reply := extractTestConversationReply(TestConversationModeAnthropic, payload); reply != "Service temporarily unavailable. Please retry later." {
 		t.Fatalf("expected original upstream response to remain available for logging, got %q", reply)
+	}
+}
+
+func TestParseClaudeTestConversationStopsAtTerminalEvent(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := parseClaudeTestConversationSSE(reader)
+		result <- err
+	}()
+
+	_, err := io.WriteString(writer, strings.Join([]string{
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[]}}`,
+		"",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+		"",
+		`data: {"type":"message_stop"}`,
+		"",
+		"",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("expected terminal event to complete parsing, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Claude parser waited for connection close after message_stop")
+	}
+}
+
+func TestParseCodexTestConversationStopsAtTerminalEvent(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := parseCodexTestConversationSSE(reader)
+		result <- err
+	}()
+
+	_, err := io.WriteString(writer, strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"ok"}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed"}}`,
+		"",
+		"",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("expected terminal event to complete parsing, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Codex parser waited for connection close after response.completed")
 	}
 }
 

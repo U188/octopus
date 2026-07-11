@@ -617,6 +617,11 @@ export async function streamTestSiteConversation(
       handleBlock(block);
       boundary = buffer.search(/\r?\n\r?\n/);
     }
+    const completedResult = finalResult as SiteTestConversationResult | null;
+    if (completedResult) {
+      await reader.cancel();
+      return completedResult;
+    }
     if (done) break;
   }
   if (buffer.trim()) handleBlock(buffer);

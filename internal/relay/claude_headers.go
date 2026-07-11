@@ -189,6 +189,7 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 		payload["output_config"] = map[string]any{"effort": "high"}
 		changed = true
 	}
+	hadClientTools := claudeBodyHasTools(payload["tools"])
 	// A genuine Claude Code request carries the canonical tool set. Cross-protocol
 	// clients may already have their own tools, so merge both sets; native
 	// Anthropic bodies are only completed when tools are absent, preserving a
@@ -200,6 +201,16 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	} else if !claudeBodyHasTools(payload["tools"]) {
 		payload["tools"] = claudemode.Tools()
 		changed = true
+	}
+	// Canonical tools are compatibility markers for upstream agentic gating.
+	// Do not let the model call them when the original client declared no tools:
+	// the client cannot execute those synthetic calls and would never receive a
+	// normal text answer. Real client tools keep their original tool choice.
+	if synthesized && !hadClientTools {
+		if toolChoice, ok := payload["tool_choice"].(map[string]any); !ok || claudeJSONString(toolChoice["type"]) != "none" {
+			payload["tool_choice"] = map[string]any{"type": "none"}
+			changed = true
+		}
 	}
 
 	if _, ok := payload["thinking"]; ok {
