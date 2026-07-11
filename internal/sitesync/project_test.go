@@ -912,6 +912,21 @@ func TestBuildChannelKeysAppliesPlatformPrefix(t *testing.T) {
 	}
 }
 
+func TestBuildChannelKeysExcludesDisabledTokens(t *testing.T) {
+	tokens := []model.SiteToken{
+		{Token: "sk-enabled", Enabled: true, ValueStatus: model.SiteTokenValueStatusReady},
+		{Token: "sk-disabled", Enabled: false, ValueStatus: model.SiteTokenValueStatusReady},
+	}
+
+	if hasUsableToken(tokens[1:]) {
+		t.Fatal("disabled token must not keep a projected group active")
+	}
+	keys := buildChannelKeys(tokens, model.SitePlatformAPI)
+	if len(keys) != 1 || keys[0].ChannelKey != "sk-enabled" || !keys[0].Enabled {
+		t.Fatalf("expected only the enabled token to be projected, got %+v", keys)
+	}
+}
+
 func createProjectionFixture(t *testing.T, ctx context.Context) (*model.Site, *model.SiteAccount) {
 	t.Helper()
 

@@ -458,7 +458,7 @@ func resolveProjectedChannelBaseURL(siteRecord *model.Site, routeType model.Site
 // isUsableSiteToken reports whether a token can produce a projected channel
 // key: it must be ready, unmasked, and carry a non-empty normalized value.
 func isUsableSiteToken(token model.SiteToken) bool {
-	if !model.IsReadySiteToken(token) || model.IsMaskedSiteTokenValue(token.Token) {
+	if !token.Enabled || !model.IsReadySiteToken(token) || model.IsMaskedSiteTokenValue(token.Token) {
 		return false
 	}
 	return strings.TrimSpace(token.Token) != ""
