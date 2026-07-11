@@ -82,13 +82,14 @@ func (ra *relayAttempt) applyClaudeAnthropicMode(req *http.Request) {
 	if firstNonEmptyHeader(req.Header, "Anthropic-Version", "anthropic-version") == "" {
 		req.Header.Set("Anthropic-Version", "2023-06-01")
 	}
-	// Prefer the client's beta list when present. Only synthesize the Claude
-	// Code baseline (+ optional 1M) for non-Claude clients that hit a Claude
-	// mode channel without sending anthropic-beta themselves.
+	// Prefer the client's beta list when present. For non-Claude clients that hit
+	// a Claude mode channel without sending anthropic-beta themselves, synthesize
+	// the Claude Code baseline and force the 1M-context beta: Claude-mode reseller
+	// upstreams reject requests without it (HTTP 400), matching the test path.
 	if strings.TrimSpace(clientAnthropicBeta) != "" {
 		req.Header.Set("anthropic-beta", claudemode.MergeAnthropicBeta(context1M, clientAnthropicBeta))
 	} else {
-		req.Header.Set("anthropic-beta", claudemode.AnthropicBeta(context1M))
+		req.Header.Set("anthropic-beta", claudemode.AnthropicBeta(true))
 	}
 	if firstNonEmptyHeader(req.Header, "Anthropic-Dangerous-Direct-Browser-Access") == "" {
 		req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
@@ -156,6 +157,16 @@ func (ra *relayAttempt) normalizeClaudeAnthropicBody(req *http.Request, sessionI
 	}
 	if _, ok := payload["output_config"]; !ok {
 		payload["output_config"] = map[string]any{"effort": "high"}
+		changed = true
+	}
+	// A genuine Claude Code request always carries a tools array. Non-Claude
+	// clients hitting a Claude mode channel send tool-less bodies, which
+	// Claude-mode reseller upstreams reject with HTTP 503 "Service Unavailable".
+	// Inject the canonical tool set only when absent so real Claude Code bodies
+	// (which already carry tools) stay byte-identical and keep their cache
+	// fingerprint.
+	if !claudeBodyHasTools(payload["tools"]) {
+		payload["tools"] = claudemode.Tools()
 		changed = true
 	}
 
@@ -230,6 +241,20 @@ func claudeJSONString(value any) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+// claudeBodyHasTools reports whether the request body already carries a
+// non-empty tools array, in which case the client (a genuine Claude Code agent)
+// must be left untouched.
+func claudeBodyHasTools(value any) bool {
+	switch tools := value.(type) {
+	case []any:
+		return len(tools) > 0
+	case []map[string]any:
+		return len(tools) > 0
+	default:
+		return false
+	}
 }
 
 func firstNonEmptyHeader(header http.Header, keys ...string) string {

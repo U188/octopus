@@ -1992,6 +1992,9 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if metadata, ok := payload["metadata"].(map[string]any); !ok || metadata["user_id"] == "" {
 		t.Fatalf("expected claude metadata user_id, got %#v", payload["metadata"])
 	}
+	if tools, ok := payload["tools"].([]any); !ok || len(tools) < 10 {
+		t.Fatalf("expected claude mode to inject tools for a tool-less client body, got %#v", payload["tools"])
+	}
 }
 
 func TestApplyClaudeAnthropicModePreservesStreamingClientIdentity(t *testing.T) {
@@ -2006,7 +2009,7 @@ func TestApplyClaudeAnthropicModePreservesStreamingClientIdentity(t *testing.T) 
 		Stream:       boolPtr(true),
 		RawAPIFormat: transformerModel.APIFormatAnthropicMessage,
 	}
-	body := []byte(`{"model":"claude-fable-5","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"adaptive","display":"omitted"},"system":[{"type":"text","text":"keep"}],"metadata":{"user_id":"already"},"output_config":{"effort":"high"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}}`)
+	body := []byte(`{"model":"claude-fable-5","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"adaptive","display":"omitted"},"system":[{"type":"text","text":"keep"}],"metadata":{"user_id":"already"},"output_config":{"effort":"high"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"tools":[{"name":"Bash","description":"run","input_schema":{"type":"object"}}]}`)
 	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -2049,6 +2052,56 @@ func TestApplyClaudeAnthropicModePreservesStreamingClientIdentity(t *testing.T) 
 	}
 	if string(outBody) != string(body) {
 		t.Fatalf("expected complete Claude body to stay byte-identical\nwant=%s\ngot=%s", body, outBody)
+	}
+}
+
+func TestApplyClaudeAnthropicModeInjectsToolsAndForces1MForToollessClient(t *testing.T) {
+	channel := &model.Channel{
+		Name:       "claude-mode-toolless",
+		Type:       outbound.OutboundTypeAnthropic,
+		ClaudeMode: true,
+		Model:      "claude-fable-5",
+	}
+	internalReq := &transformerModel.InternalLLMRequest{
+		Model:        "claude-fable-5",
+		Stream:       boolPtr(false),
+		RawAPIFormat: transformerModel.APIFormatAnthropicMessage,
+	}
+	// A non-Claude-Code client: minimal body, no tools, no anthropic-beta. Such
+	// requests are what Claude-mode reseller upstreams reject (503 for no tools,
+	// 400 for no 1M beta); the relay must complete them.
+	body := []byte(`{"model":"claude-fable-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{internalRequest: internalReq, requestModel: "claude-fable-5"},
+		channel:      channel,
+		usedKey:      model.ChannelKey{ChannelKey: "upstream-key"},
+	}
+	ra.applyClaudeAnthropicMode(req)
+
+	beta := req.Header.Get("anthropic-beta")
+	if !strings.Contains(beta, claudeCodeAnthropicBeta) || !strings.Contains(beta, "context-1m-2025-08-07") {
+		t.Fatalf("expected forced 1m beta for tool-less client, got %q", beta)
+	}
+
+	outBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(outBody, &payload); err != nil {
+		t.Fatalf("decode outbound body: %v", err)
+	}
+	if tools, ok := payload["tools"].([]any); !ok || len(tools) < 10 {
+		t.Fatalf("expected injected tools for tool-less client, got %#v", payload["tools"])
+	}
+	if thinking, ok := payload["thinking"].(map[string]any); !ok || thinking["type"] != "adaptive" {
+		t.Fatalf("expected claude thinking defaults, got %#v", payload["thinking"])
 	}
 }
 
