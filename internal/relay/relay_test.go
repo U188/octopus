@@ -1957,8 +1957,8 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if query := <-seenRawQuery; query != "beta=true" {
 		t.Fatalf("expected beta query, got %q", query)
 	}
-	if got := headers.Get("User-Agent"); got != "external-client/1.0" {
-		t.Fatalf("expected client user-agent to be preserved, got %q", got)
+	if got := headers.Get("User-Agent"); got != claudemode.UserAgent {
+		t.Fatalf("expected synthesized Claude user-agent, got %q", got)
 	}
 	if got := headers.Get("X-App"); got != "cli" {
 		t.Fatalf("expected claude x-app header, got %q", got)
@@ -1969,7 +1969,8 @@ func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	if got := headers.Get("anthropic-beta"); !strings.Contains(got, claudeCodeAnthropicBeta) || !strings.Contains(got, "context-1m-2025-08-07") || !strings.Contains(got, "client-beta") {
 		t.Fatalf("expected claude beta header, got %q", got)
 	}
-	if headers.Get("X-Claude-Code-Session-Id") != "session-from-client" || headers.Get("X-Stainless-Package-Version") != claudemode.StainlessPackageVersion {
+	if headers.Get("X-Claude-Code-Session-Id") == "" || headers.Get("X-Claude-Code-Session-Id") == "session-from-client" ||
+		headers.Get("X-Stainless-Package-Version") != claudemode.StainlessPackageVersion {
 		t.Fatalf("expected claude code headers, got %#v", headers)
 	}
 
@@ -2102,6 +2103,180 @@ func TestApplyClaudeAnthropicModeInjectsToolsAndForces1MForToollessClient(t *tes
 	}
 	if thinking, ok := payload["thinking"].(map[string]any); !ok || thinking["type"] != "adaptive" {
 		t.Fatalf("expected claude thinking defaults, got %#v", payload["thinking"])
+	}
+}
+
+func TestApplyClaudeAnthropicModeCompletesSynthesizedRequest(t *testing.T) {
+	channel := &model.Channel{
+		Name:       "claude-mode-synthesized",
+		Type:       outbound.OutboundTypeAnthropic,
+		ClaudeMode: true,
+		Model:      "claude-fable-5",
+	}
+	internalReq := &transformerModel.InternalLLMRequest{
+		Model:        "claude-fable-5",
+		Stream:       boolPtr(false),
+		RawAPIFormat: transformerModel.APIFormatOpenAIResponse,
+	}
+	body := []byte(`{
+		"model":"claude-fable-5",
+		"max_tokens":8192,
+		"messages":[{"role":"user","content":"hi"}],
+		"system":[{"type":"text","text":"Keep this client instruction."}],
+		"metadata":{"user_id":"openai-client"},
+		"tools":[{"name":"client_tool","description":"keep","input_schema":{"type":"object"}}]
+	}`)
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+	req.Header.Set("anthropic-beta", "client-beta")
+
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{internalRequest: internalReq, requestModel: "claude-fable-5"},
+		channel:      channel,
+		usedKey:      model.ChannelKey{ChannelKey: "upstream-key"},
+	}
+	ra.applyClaudeAnthropicMode(req)
+
+	beta := req.Header.Get("anthropic-beta")
+	if !strings.Contains(beta, "context-1m-2025-08-07") || !strings.Contains(beta, "client-beta") {
+		t.Fatalf("expected synthesized request to force 1m and preserve client beta, got %q", beta)
+	}
+	outBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(outBody, &payload); err != nil {
+		t.Fatalf("decode outbound body: %v", err)
+	}
+	system, ok := payload["system"].([]any)
+	if !ok || !claudeSystemContainsText(system, claudemode.BillingHeaderText) ||
+		!claudeSystemContainsText(system, "You are a Claude agent, built on Anthropic's Claude Agent SDK.") ||
+		!claudeSystemContainsText(system, "Keep this client instruction.") {
+		t.Fatalf("expected canonical and client system prompts, got %#v", payload["system"])
+	}
+	tools, ok := payload["tools"].([]any)
+	if !ok || !claudeToolsContainCanonicalSet(tools, claudemode.Tools()) {
+		t.Fatalf("expected canonical tools, got %#v", payload["tools"])
+	}
+	clientToolFound := false
+	for _, tool := range tools {
+		if claudeToolName(tool) == "client_tool" {
+			clientToolFound = true
+		}
+	}
+	if !clientToolFound {
+		t.Fatalf("expected client tool to be preserved, got %#v", payload["tools"])
+	}
+	metadata, ok := payload["metadata"].(map[string]any)
+	if !ok || metadata["user_id"] == "openai-client" || metadata["user_id"] == "" {
+		t.Fatalf("expected synthesized Claude session metadata, got %#v", payload["metadata"])
+	}
+}
+
+func TestHandlerClaudeModeCompletesOpenAIChatAndResponsesRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	seenBodies := make(chan []byte, 2)
+	seenHeaders := make(chan http.Header, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read upstream request: %v", err)
+		}
+		seenBodies <- body
+		seenHeaders <- r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_cross","type":"message","role":"assistant","model":"claude-fable-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name:       "relay-claude-cross-protocol",
+		Type:       outbound.OutboundTypeAnthropic,
+		Enabled:    true,
+		BaseUrls:   []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:      "claude-fable-5",
+		ClaudeMode: true,
+		Keys:       []model.ChannelKey{{Enabled: true, ChannelKey: "anthropic-key"}},
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+	group := &model.Group{Name: "claude-cross-protocol", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{
+		GroupID: group.ID, ChannelID: channel.ID, ModelName: "claude-fable-5", Priority: 1, Weight: 1,
+	}, ctx); err != nil {
+		t.Fatalf("GroupItemAdd failed: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		inboundType inbound.InboundType
+		path        string
+		body        string
+	}{
+		{
+			name:        "chat",
+			inboundType: inbound.InboundTypeOpenAIChat,
+			path:        "/v1/chat/completions",
+			body:        `{"model":"claude-cross-protocol","messages":[{"role":"system","content":"chat instruction"},{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"chat_tool","description":"keep","parameters":{"type":"object"}}}]}`,
+		},
+		{
+			name:        "responses",
+			inboundType: inbound.InboundTypeOpenAIResponse,
+			path:        "/v1/responses",
+			body:        `{"model":"claude-cross-protocol","instructions":"responses instruction","input":"hi","tools":[{"type":"function","name":"responses_tool","description":"keep","parameters":{"type":"object"}}]}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Set("api_key_id", 7)
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("User-Agent", "codex_cli_rs/1.2.3")
+			c.Request.Header.Set("Originator", "codex_exec")
+			c.Request.Header.Set("Session-Id", "codex-session")
+			c.Request.Header.Set("Thread-Id", "codex-thread")
+			c.Request.Header.Set("X-Client-Request-Id", "codex-request")
+			c.Request.Header.Set("X-Codex-Beta-Features", "responses")
+			Handler(tc.inboundType, c)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected request to succeed, got status %d body %s", recorder.Code, recorder.Body.String())
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(<-seenBodies, &payload); err != nil {
+				t.Fatalf("decode upstream request: %v", err)
+			}
+			system, ok := payload["system"].([]any)
+			if !ok || !claudeSystemContainsText(system, claudemode.BillingHeaderText) {
+				t.Fatalf("expected Claude Code system identity, got %#v", payload["system"])
+			}
+			tools, ok := payload["tools"].([]any)
+			if !ok || !claudeToolsContainCanonicalSet(tools, claudemode.Tools()) {
+				t.Fatalf("expected complete Claude Code tool set, got %#v", payload["tools"])
+			}
+			headers := <-seenHeaders
+			if got := headers.Get("User-Agent"); got != claudemode.UserAgent {
+				t.Fatalf("expected Claude user-agent, got %q", got)
+			}
+			for _, key := range []string{"Originator", "Session-Id", "Thread-Id", "X-Client-Request-Id", "X-Codex-Beta-Features"} {
+				if got := headers.Get(key); got != "" {
+					t.Fatalf("expected synthesized request to remove %s, got %q", key, got)
+				}
+			}
+		})
 	}
 }
 
