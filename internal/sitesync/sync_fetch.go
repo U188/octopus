@@ -271,8 +271,9 @@ func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, accoun
 
 	proxyMode, proxyConfigID := resolveSiteAccountProxy(siteRecord, account)
 	var (
-		firstErr error
-		models   []string
+		firstErr        error
+		models          []string
+		successfulFetch bool
 	)
 
 	for _, baseURL := range buildModelFetchBaseURLs(siteRecord) {
@@ -281,12 +282,20 @@ func fetchModelsForSiteToken(ctx context.Context, siteRecord *model.Site, accoun
 		if err == nil && len(fetched) > 0 {
 			return normalizeModelNames(fetched), nil
 		}
+		if err == nil {
+			successfulFetch = true
+			models = fetched
+			continue
+		}
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 		if len(fetched) > 0 {
 			models = fetched
 		}
+	}
+	if successfulFetch {
+		return normalizeModelNames(models), nil
 	}
 	if siteRecord.Platform != model.SitePlatformOneHub && siteRecord.Platform != model.SitePlatformDoneHub {
 		if firstErr != nil {

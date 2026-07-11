@@ -60,8 +60,26 @@ func buildSyncSnapshotStatus(results []siteGroupSyncResult) model.SiteExecutionS
 
 func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 	counts := make(map[siteGroupSyncStatus]int)
+	emptyGroups := make([]string, 0)
+	failureDetails := make([]string, 0)
 	for _, item := range results {
 		counts[item.Status]++
+		label := firstNonEmptyString(strings.TrimSpace(item.GroupName), strings.TrimSpace(item.GroupKey), "default")
+		switch item.Status {
+		case siteGroupSyncStatusEmpty:
+			emptyGroups = append(emptyGroups, label)
+		case siteGroupSyncStatusFailed, siteGroupSyncStatusUnresolved, siteGroupSyncStatusMissingKey:
+			detail := strings.TrimSpace(item.Message)
+			if detail == "" {
+				switch item.Status {
+				case siteGroupSyncStatusMissingKey:
+					detail = "缺少可用 Key"
+				default:
+					detail = "本次未能确认模型"
+				}
+			}
+			failureDetails = append(failureDetails, fmt.Sprintf("%s（%s）", label, detail))
+		}
 	}
 
 	parts := make([]string, 0, 5)
@@ -69,7 +87,11 @@ func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 		parts = append(parts, fmt.Sprintf("更新 %d 个分组", counts[siteGroupSyncStatusSynced]))
 	}
 	if counts[siteGroupSyncStatusEmpty] > 0 {
-		parts = append(parts, fmt.Sprintf("清空 %d 个分组", counts[siteGroupSyncStatusEmpty]))
+		if len(emptyGroups) == 1 {
+			parts = append(parts, fmt.Sprintf("分组 %s 无可用模型", emptyGroups[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("清空 %d 个分组模型", counts[siteGroupSyncStatusEmpty]))
+		}
 	}
 	if counts[siteGroupSyncStatusRemoved] > 0 {
 		parts = append(parts, fmt.Sprintf("移除 %d 个分组", counts[siteGroupSyncStatusRemoved]))
@@ -88,16 +110,31 @@ func buildSyncSnapshotMessage(results []siteGroupSyncResult) string {
 
 	switch buildSyncSnapshotStatus(results) {
 	case model.SiteExecutionStatusPartial:
+		if counts[siteGroupSyncStatusSynced] == 0 && counts[siteGroupSyncStatusEmpty] > 0 {
+			return "同步完成但无可用模型：" + message
+		}
 		return "部分分组同步完成：" + message
 	case model.SiteExecutionStatusSuccess:
 		if counts[siteGroupSyncStatusSynced] == 0 && counts[siteGroupSyncStatusEmpty] > 0 && counts[siteGroupSyncStatusRemoved] == 0 {
-			return "上游当前无可用模型，已清空历史模型：" + message
+			if len(emptyGroups) == 1 {
+				return fmt.Sprintf("同步完成：上游当前没有可用模型（%s）", emptyGroups[0])
+			}
+			return "同步完成：上游当前没有可用模型"
 		}
 		if counts[siteGroupSyncStatusSynced] == 0 && counts[siteGroupSyncStatusEmpty] > 0 && counts[siteGroupSyncStatusRemoved] > 0 {
-			return "上游当前无可用模型或分组已被移除，已清理历史数据：" + message
+			return "同步完成：上游当前无可用模型或分组已被移除，已清理历史数据"
 		}
 		return "同步完成：" + message
 	default:
+		if onlyMissingKeyResults(results) {
+			if len(failureDetails) > 0 {
+				return "同步失败：所有分组都缺少可用 Key，已暂停投影。" + strings.Join(failureDetails, "；")
+			}
+			return "同步失败：所有分组都缺少可用 Key，已暂停投影"
+		}
+		if len(failureDetails) > 0 {
+			return "同步失败：所有分组都未能确认模型，已保留历史投影。" + strings.Join(failureDetails, "；")
+		}
 		return "同步失败：所有分组都未能确认模型，已保留历史投影"
 	}
 }
@@ -115,13 +152,33 @@ func buildSyncSnapshotFailure(results []siteGroupSyncResult) error {
 			if message == "" {
 				message = "本次未能确认模型"
 			}
-			parts = append(parts, fmt.Sprintf("%s（%s）", item.GroupKey, message))
+			label := firstNonEmptyString(strings.TrimSpace(item.GroupName), strings.TrimSpace(item.GroupKey), "default")
+			parts = append(parts, fmt.Sprintf("%s（%s）", label, message))
 		}
 	}
 	if len(parts) == 0 {
 		return newAllGroupsUnresolvedError("")
 	}
+	if onlyMissingKeyResults(results) {
+		return newAllGroupsUnresolvedError(fmt.Sprintf("站点账号同步失败：所有分组都缺少可用 Key，已暂停投影。%s", strings.Join(parts, "；")))
+	}
 	return newAllGroupsUnresolvedError(fmt.Sprintf("站点账号同步失败：所有分组都未能确认模型，已保留历史投影。%s", strings.Join(parts, "；")))
+}
+
+func onlyMissingKeyResults(results []siteGroupSyncResult) bool {
+	if len(results) == 0 {
+		return false
+	}
+	hasMissingKey := false
+	for _, item := range results {
+		switch item.Status {
+		case siteGroupSyncStatusMissingKey:
+			hasMissingKey = true
+		case siteGroupSyncStatusFailed, siteGroupSyncStatusUnresolved, siteGroupSyncStatusSynced, siteGroupSyncStatusEmpty, siteGroupSyncStatusRemoved:
+			return false
+		}
+	}
+	return hasMissingKey
 }
 
 func finalizeSiteGroupSyncResults(

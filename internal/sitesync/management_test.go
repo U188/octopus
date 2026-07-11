@@ -554,7 +554,7 @@ func TestSyncManagementPlatformMarksAllGroupsEmptyWhenSessionModelsAreEmpty(t *t
 			t.Fatalf("expected all groups to be marked empty, got %+v", snapshot.groupResults)
 		}
 	}
-	if !strings.Contains(snapshot.message, "上游当前无可用模型") {
+	if !strings.Contains(snapshot.message, "上游当前没有可用模型") && !strings.Contains(snapshot.message, "上游当前无可用模型") {
 		t.Fatalf("expected empty-model snapshot message, got %q", snapshot.message)
 	}
 }
