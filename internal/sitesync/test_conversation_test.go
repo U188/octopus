@@ -10,9 +10,39 @@ import (
 
 	"github.com/U188/octopus/internal/claudemode"
 	"github.com/U188/octopus/internal/codexmode"
+	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 )
+
+func TestShouldRejectAccountCredentialForTestConversation(t *testing.T) {
+	readyAccount := model.SiteToken{Source: "account", Enabled: true, Token: "sk-real-account-key"}
+	maskedAccount := model.SiteToken{Source: "account", Enabled: true, Token: "sk-abc" + strings.Repeat("*", 6) + "xyz"}
+	syncedReady := model.SiteToken{Source: "default", Enabled: true, Token: "sk-synced-ready"}
+	syncedMasked := model.SiteToken{Source: "default", Enabled: true, Token: "sk-def" + strings.Repeat("*", 6) + "uvw"}
+
+	// Non-account tokens are never rejected.
+	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, syncedReady, []model.SiteToken{syncedReady}) {
+		t.Fatal("synced token must not be rejected")
+	}
+	// Direct API / DeepSeek platforms always allow the account credential.
+	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformAPI, readyAccount, []model.SiteToken{readyAccount}) {
+		t.Fatal("api platform account credential must be allowed")
+	}
+	// Managed platform with a usable synced key: keep requiring the synced key.
+	if !shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, readyAccount, []model.SiteToken{readyAccount, syncedReady}) {
+		t.Fatal("managed platform with usable synced key must reject account credential")
+	}
+	// Managed platform where every synced key is masked (待补齐): allow the
+	// ready, unmasked account API key as a fallback.
+	if shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, readyAccount, []model.SiteToken{readyAccount, syncedMasked}) {
+		t.Fatal("managed platform with only masked synced keys must allow ready account credential")
+	}
+	// A masked account credential cannot be a fallback.
+	if !shouldRejectAccountCredentialForTestConversation(model.SitePlatformNewAPI, maskedAccount, []model.SiteToken{maskedAccount, syncedMasked}) {
+		t.Fatal("masked account credential must stay rejected")
+	}
+}
 
 func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
 	siteRecord := &model.Site{
@@ -108,9 +138,84 @@ func TestTestConversationTargetRejectsManagedAccountCredentialToken(t *testing.T
 		t.Fatalf("expected account credential token, got %+v", reloaded.Tokens)
 	}
 
+	// A usable synced site key exists, so the account credential must still be
+	// rejected in favour of testing the real synced key.
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
+		SiteAccountID: account.ID,
+		Purpose:       model.SiteCredentialPurposeChat,
+		Name:          "synced",
+		Token:         "sk-synced-ready-key",
+		GroupKey:      model.SiteDefaultGroupKey,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusReady,
+		Source:        "default",
+	}).Error; err != nil {
+		t.Fatalf("create synced token failed: %v", err)
+	}
+
 	_, _, _, err = testConversationTarget(ctx, account.ID, accountTokenID)
 	if err == nil || !strings.Contains(err.Error(), "account credential") {
 		t.Fatalf("expected account credential token to be rejected, got %v", err)
+	}
+}
+
+func TestTestConversationTargetAllowsAccountCredentialWhenSyncedKeysMasked(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	siteRecord := &model.Site{
+		Name:     "managed-masked-sync-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://example.com",
+		Enabled:  true,
+	}
+	if err := op.SiteCreate(siteRecord, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{
+		SiteID:         siteRecord.ID,
+		Name:           "managed-masked-sync-account",
+		CredentialType: model.SiteCredentialTypeAccessToken,
+		AccessToken:    "session-token",
+		APIKey:         "sk-real-account-key",
+		Enabled:        true,
+	}
+	if err := op.SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	// The only synced site key came back masked (待补齐) and is unusable.
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&model.SiteToken{
+		SiteAccountID: account.ID,
+		Purpose:       model.SiteCredentialPurposeChat,
+		Name:          "synced",
+		Token:         "sk-abc" + strings.Repeat("*", 6) + "xyz",
+		GroupKey:      model.SiteDefaultGroupKey,
+		Enabled:       true,
+		ValueStatus:   model.SiteTokenValueStatusMaskedPending,
+		Source:        "default",
+	}).Error; err != nil {
+		t.Fatalf("create masked synced token failed: %v", err)
+	}
+
+	reloaded, err := op.SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("SiteAccountGet failed: %v", err)
+	}
+	var accountTokenID int
+	for _, token := range reloaded.Tokens {
+		if token.Source == "account" {
+			accountTokenID = token.ID
+			break
+		}
+	}
+	if accountTokenID == 0 {
+		t.Fatalf("expected account credential token, got %+v", reloaded.Tokens)
+	}
+
+	_, _, token, err := testConversationTarget(ctx, account.ID, accountTokenID)
+	if err != nil {
+		t.Fatalf("expected account credential to be usable when synced keys are masked, got %v", err)
+	}
+	if token == nil || token.Source != "account" {
+		t.Fatalf("expected the account credential token, got %+v", token)
 	}
 }
 
