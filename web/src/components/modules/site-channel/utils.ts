@@ -64,6 +64,8 @@ export type SiteSourceKeyFormItem = {
     name: string;
     value_status?: 'ready' | 'masked_pending';
     last_sync_at?: number | null;
+    source?: string;
+    account_key: boolean;
 };
 
 export function createGroupFilter(groupKey: string): SiteChannelGroupFilter {
@@ -299,6 +301,8 @@ export function buildSourceKeyFormItems(group: SiteChannelGroup): SiteSourceKeyF
         name: key.name ?? '',
         value_status: key.value_status,
         last_sync_at: key.last_sync_at ?? null,
+        source: key.source,
+        account_key: key.account_key,
     }));
 }
 
@@ -320,6 +324,7 @@ export function buildSourceKeyUpdatePayload(
             enabled: key.enabled,
             token: key.token.trim(),
             name: key.name.trim(),
+            account_key: key.account_key,
         }));
 
     const keys_to_update = nextKeys
@@ -328,7 +333,7 @@ export function buildSourceKeyUpdatePayload(
             const original = originalById.get(key.id as number);
             if (!original) return null;
 
-            const update: { id: number; enabled?: boolean; token?: string; name?: string } = {
+            const update: { id: number; enabled?: boolean; token?: string; name?: string; account_key?: boolean } = {
                 id: key.id as number,
             };
 
@@ -336,19 +341,20 @@ export function buildSourceKeyUpdatePayload(
             const trimmedToken = key.token.trim();
             if (trimmedToken !== (original.token ?? '').trim()) update.token = trimmedToken;
             if ((key.name.trim()) !== (original.name ?? '').trim()) update.name = key.name.trim();
+            if (key.account_key !== original.account_key) update.account_key = key.account_key;
 
-            if (update.enabled === undefined && update.token === undefined && update.name === undefined) {
+            if (update.enabled === undefined && update.token === undefined && update.name === undefined && update.account_key === undefined) {
                 return null;
             }
 
             return update;
         })
-        .filter((item): item is { id: number; enabled?: boolean; token?: string; name?: string } => item !== null);
+        .filter((item): item is { id: number; enabled?: boolean; token?: string; name?: string; account_key?: boolean } => item !== null);
 
     const payload: {
         group_key: string;
-        keys_to_add?: Array<{ enabled: boolean; token: string; name?: string }>;
-        keys_to_update?: Array<{ id: number; enabled?: boolean; token?: string; name?: string }>;
+        keys_to_add?: Array<{ enabled: boolean; token: string; name?: string; account_key?: boolean }>;
+        keys_to_update?: Array<{ id: number; enabled?: boolean; token?: string; name?: string; account_key?: boolean }>;
         keys_to_delete?: number[];
     } = { group_key: groupKey };
 

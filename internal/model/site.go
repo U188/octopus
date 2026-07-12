@@ -266,7 +266,7 @@ func (a *SiteAccount) RedactSecrets() {
 	}
 	a.PasswordStored = strings.TrimSpace(a.Password) != ""
 	a.AccessTokenStored = strings.TrimSpace(a.AccessToken) != ""
-	a.APIKeyStored = strings.TrimSpace(a.APIKey) != ""
+	a.APIKeyStored = strings.TrimSpace(a.APIKey) != "" || a.hasStoredAccountAPIKey()
 	a.RefreshTokenStored = strings.TrimSpace(a.RefreshToken) != ""
 	a.Password = ""
 	a.AccessToken = ""
@@ -275,6 +275,18 @@ func (a *SiteAccount) RedactSecrets() {
 	for i := range a.Tokens {
 		a.Tokens[i].Token = ""
 	}
+}
+
+func (a *SiteAccount) hasStoredAccountAPIKey() bool {
+	for _, token := range a.Tokens {
+		if token.Purpose != "" && token.Purpose != SiteCredentialPurposeChat {
+			continue
+		}
+		if strings.TrimSpace(token.Source) == "account" && strings.TrimSpace(token.Token) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *SiteAccount) UnmarshalJSON(data []byte) error {
@@ -352,6 +364,9 @@ func (a *SiteAccount) HydrateCredentialViews() {
 			continue
 		}
 		if strings.TrimSpace(token.Source) != "account" {
+			continue
+		}
+		if !token.Enabled || !IsReadySiteToken(token) || IsMaskedSiteTokenValue(token.Token) {
 			continue
 		}
 		if token.IsDefault || NormalizeSiteGroupKey(token.GroupKey) == SiteDefaultGroupKey {

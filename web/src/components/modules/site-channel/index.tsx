@@ -1865,7 +1865,12 @@ function SiteAccountPanel({
     };
 
     const handleProjectedKeyFieldChange = (index: number, patch: Partial<SiteSourceKeyFormItem>) => {
-        setSourceKeyForm((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+        setSourceKeyForm((current) => current.map((item, itemIndex) => {
+            if (patch.account_key === true) {
+                return itemIndex === index ? { ...item, ...patch } : { ...item, account_key: false };
+            }
+            return itemIndex === index ? { ...item, ...patch } : item;
+        }));
     };
 
     const handleAddProjectedKeyRow = () => {
@@ -1877,6 +1882,8 @@ function SiteAccountPanel({
                 is_new: true,
                 name: '',
                 value_status: 'ready',
+                source: 'manual',
+                account_key: false,
             },
         ]));
     };
@@ -2706,6 +2713,10 @@ function SiteAccountPanel({
                                         <div className="text-xs text-muted-foreground">
                                             {item.id ? `站点 Key #${item.id}` : '新站点 Key'}
                                             {item.value_status === 'masked_pending' ? ' · 待补全' : ''}
+                                            {' '}
+                                            <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px]">
+                                                {item.account_key ? '账号主 Key' : item.source === 'sync' ? '同步 Key' : '手动 Key'}
+                                            </Badge>
                                         </div>
                                         <Button
                                             type="button"
@@ -2768,6 +2779,18 @@ function SiteAccountPanel({
                                             />
                                         </label>
                                     </div>
+                                    {editingProjectedGroup?.group_key === 'default' ? (
+                                        <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                                            <input
+                                                type="checkbox"
+                                                checked={item.account_key}
+                                                disabled={sourceKeyMutation.isPending}
+                                                onChange={(event) => handleProjectedKeyFieldChange(index, { account_key: event.target.checked })}
+                                                className="size-4 rounded border-border bg-background align-middle accent-primary"
+                                            />
+                                            设为账号主 Key
+                                        </label>
+                                    ) : null}
                                     {item.last_sync_at ? (
                                         <div className="mt-2 text-[11px] text-muted-foreground">
                                             上次同步：{new Date(item.last_sync_at).toLocaleString()}

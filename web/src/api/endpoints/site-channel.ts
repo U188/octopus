@@ -113,6 +113,8 @@ export type SiteSourceKey = {
     group_key: string;
     group_name: string;
     value_status: 'ready' | 'masked_pending';
+    source: string;
+    account_key: boolean;
     last_sync_at?: number | null;
 };
 
@@ -326,6 +328,8 @@ function normalizeSiteChannelAccount(account: SiteChannelAccountServer): SiteCha
                 group_key: typeof key.group_key === 'string' ? key.group_key : group.group_key,
                 group_name: typeof key.group_name === 'string' ? key.group_name : group.group_name,
                 value_status: key.value_status === 'masked_pending' ? 'masked_pending' : 'ready',
+                source: typeof key.source === 'string' ? key.source : '',
+                account_key: key.account_key === true,
                 last_sync_at: typeof key.last_sync_at === 'number' ? key.last_sync_at : null,
             })),
             projected_keys: (group.projected_keys ?? []).map((key) => ({
@@ -415,6 +419,7 @@ export type SiteSourceKeyAddRequest = {
     enabled: boolean;
     token: string;
     name?: string;
+    account_key?: boolean;
 };
 
 export type SiteSourceKeyUpdateItem = {
@@ -422,6 +427,7 @@ export type SiteSourceKeyUpdateItem = {
     enabled?: boolean;
     token?: string;
     name?: string;
+    account_key?: boolean;
 };
 
 export type SiteSourceKeyUpdateRequest = {

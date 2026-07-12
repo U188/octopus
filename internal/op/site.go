@@ -143,6 +143,9 @@ func firstAccountAPIKeyCredential(tokens []model.SiteToken) string {
 		if strings.TrimSpace(token.Source) != "account" {
 			continue
 		}
+		if !token.Enabled || !model.IsReadySiteToken(token) || model.IsMaskedSiteTokenValue(token.Token) {
+			continue
+		}
 		if token.IsDefault || model.NormalizeSiteGroupKey(token.GroupKey) == model.SiteDefaultGroupKey {
 			return strings.TrimSpace(token.Token)
 		}

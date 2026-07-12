@@ -204,12 +204,6 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 		if token.Enabled && model.IsReadySiteToken(token) && !model.IsMaskedSiteTokenValue(token.Token) {
 			group.EnabledKeyCount++
 		}
-		// Account-level API keys are maintained in the account editor, so they
-		// stay out of the editable source-key list. They still count as usable
-		// chat credentials because projection and test conversations use them.
-		if shouldHideSiteAccountCredentialTokenInChannelView(site, token) {
-			continue
-		}
 		var lastSyncAt *int64
 		if token.LastSyncAt != nil && !token.LastSyncAt.IsZero() {
 			unix := token.LastSyncAt.UnixMilli()
@@ -224,6 +218,8 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 			GroupKey:    key,
 			GroupName:   model.NormalizeSiteGroupName(key, token.GroupName),
 			ValueStatus: model.NormalizeSiteTokenValueStatus(token.ValueStatus, token.Token),
+			Source:      strings.TrimSpace(token.Source),
+			AccountKey:  strings.TrimSpace(token.Source) == "account",
 			LastSyncAt:  lastSyncAt,
 		})
 	}
@@ -328,18 +324,6 @@ func buildSiteChannelGroups(ctx context.Context, site model.Site, account model.
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].GroupKey < result[j].GroupKey })
 	return result
-}
-
-func shouldHideSiteAccountCredentialTokenInChannelView(site model.Site, token model.SiteToken) bool {
-	if strings.TrimSpace(token.Source) != "account" {
-		return false
-	}
-	switch site.Platform {
-	case model.SitePlatformAPI, model.SitePlatformDeepSeek:
-		return false
-	default:
-		return true
-	}
 }
 
 func shouldHideSiteProjectedArtifactsInChannelView(group *model.SiteChannelGroup) bool {
@@ -778,6 +762,18 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 			if err != nil {
 				return err
 			}
+			if item.AccountKey && targetGroupKey != model.SiteDefaultGroupKey {
+				return fmt.Errorf("账号主 Key 只能设置在默认分组")
+			}
+			source := "manual"
+			isDefault := false
+			if item.AccountKey {
+				source = "account"
+				isDefault = true
+				if err := demoteAccountSourceKeysTx(tx, accountID, 0); err != nil {
+					return err
+				}
+			}
 			row := model.SiteToken{
 				SiteAccountID: accountID,
 				Purpose:       model.SiteCredentialPurposeChat,
@@ -787,7 +783,8 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 				GroupName:     model.NormalizeSiteGroupName(targetGroupKey, targetGroupKey),
 				Enabled:       item.Enabled,
 				ValueStatus:   model.SiteTokenValueStatusReady,
-				Source:        "manual",
+				Source:        source,
+				IsDefault:     isDefault,
 			}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
@@ -806,7 +803,21 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 			if item.Name != nil {
 				updates["name"] = strings.TrimSpace(*item.Name)
 			}
-			if existing.Source != "manual" {
+			if item.AccountKey != nil {
+				if *item.AccountKey {
+					if targetGroupKey != model.SiteDefaultGroupKey {
+						return fmt.Errorf("账号主 Key 只能设置在默认分组")
+					}
+					if err := demoteAccountSourceKeysTx(tx, accountID, existing.ID); err != nil {
+						return err
+					}
+					updates["source"] = "account"
+					updates["is_default"] = true
+				} else if strings.TrimSpace(existing.Source) == "account" {
+					updates["source"] = "manual"
+					updates["is_default"] = false
+				}
+			} else if strings.TrimSpace(existing.Source) != "account" && existing.Source != "manual" {
 				updates["source"] = "manual"
 			}
 			if item.Token != nil {
@@ -857,6 +868,15 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 		}
 		return restoreSystemPausedSiteGroupProjectionTx(tx, accountID, targetGroupKey)
 	})
+}
+
+func demoteAccountSourceKeysTx(tx *gorm.DB, accountID int, exceptID int) error {
+	query := tx.Model(&model.SiteToken{}).
+		Where("site_account_id = ? AND purpose = ? AND source = ?", accountID, model.SiteCredentialPurposeChat, "account")
+	if exceptID > 0 {
+		query = query.Where("id <> ?", exceptID)
+	}
+	return query.Updates(map[string]any{"source": "manual", "is_default": false}).Error
 }
 
 func siteGroupHasReadyTokenTx(tx *gorm.DB, accountID int, groupKey string) (bool, error) {

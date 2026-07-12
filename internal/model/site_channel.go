@@ -62,6 +62,8 @@ type SiteSourceKey struct {
 	GroupKey    string               `json:"group_key"`
 	GroupName   string               `json:"group_name"`
 	ValueStatus SiteTokenValueStatus `json:"value_status"`
+	Source      string               `json:"source"`
+	AccountKey  bool                 `json:"account_key"`
 	LastSyncAt  *int64               `json:"last_sync_at,omitempty"`
 }
 
@@ -184,16 +186,18 @@ type SiteProjectedKeyUpdateRequest struct {
 }
 
 type SiteSourceKeyAddRequest struct {
-	Enabled bool   `json:"enabled"`
-	Token   string `json:"token" binding:"required"`
-	Name    string `json:"name,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	Token      string `json:"token" binding:"required"`
+	Name       string `json:"name,omitempty"`
+	AccountKey bool   `json:"account_key,omitempty"`
 }
 
 type SiteSourceKeyUpdateItem struct {
-	ID      int     `json:"id" binding:"required"`
-	Enabled *bool   `json:"enabled,omitempty"`
-	Token   *string `json:"token,omitempty"`
-	Name    *string `json:"name,omitempty"`
+	ID         int     `json:"id" binding:"required"`
+	Enabled    *bool   `json:"enabled,omitempty"`
+	Token      *string `json:"token,omitempty"`
+	Name       *string `json:"name,omitempty"`
+	AccountKey *bool   `json:"account_key,omitempty"`
 }
 
 type SiteSourceKeyUpdateRequest struct {

@@ -877,11 +877,97 @@ func TestSiteChannelAccountGetCountsManagedAccountAPIKeyAsUsable(t *testing.T) {
 	if group.KeyCount != 1 || group.EnabledKeyCount != 1 || !group.HasKeys {
 		t.Fatalf("expected account API key to count as usable, got %+v", group)
 	}
-	if len(group.SourceKeys) != 0 {
-		t.Fatalf("expected account API key to remain managed by account editor, got %+v", group.SourceKeys)
+	if len(group.SourceKeys) != 1 || !group.SourceKeys[0].AccountKey || group.SourceKeys[0].Source != "account" {
+		t.Fatalf("expected account API key in unified channel key management, got %+v", group.SourceKeys)
 	}
 	if len(group.Models) != 1 || group.Models[0].ModelName != "gpt-account-key" {
 		t.Fatalf("expected models to remain visible with account API key, got %+v", group.Models)
+	}
+}
+
+func TestUpdateSiteSourceKeysManagesAccountAPIKey(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site := &model.Site{Name: "account-key-crud-site", Platform: model.SitePlatformNewAPI, BaseURL: "https://example.com", Enabled: true}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatalf("SiteCreate failed: %v", err)
+	}
+	account := &model.SiteAccount{SiteID: site.ID, Name: "account-key-crud", CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "session", APIKey: "sk-original", Enabled: true}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatalf("SiteAccountCreate failed: %v", err)
+	}
+	loaded, err := SiteAccountGet(account.ID, ctx)
+	if err != nil || len(loaded.Tokens) != 1 {
+		t.Fatalf("load account key failed: account=%+v err=%v", loaded, err)
+	}
+	keyID := loaded.Tokens[0].ID
+	updatedValue := "sk-updated"
+	disabled := false
+	if err := UpdateSiteSourceKeys(site.ID, account.ID, &model.SiteSourceKeyUpdateRequest{
+		GroupKey:     model.SiteDefaultGroupKey,
+		KeysToUpdate: []model.SiteSourceKeyUpdateItem{{ID: keyID, Token: &updatedValue, Enabled: &disabled}},
+	}, ctx); err != nil {
+		t.Fatalf("update account key failed: %v", err)
+	}
+	updated, err := SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("reload updated account failed: %v", err)
+	}
+	if len(updated.Tokens) != 1 || updated.Tokens[0].Source != "account" || updated.Tokens[0].Token != updatedValue {
+		t.Fatalf("expected updated key to keep account identity, got %+v", updated.Tokens)
+	}
+	if updated.APIKey != "" {
+		t.Fatalf("disabled account key must not be active, got %q", updated.APIKey)
+	}
+	updated.RedactSecrets()
+	if !updated.APIKeyStored {
+		t.Fatal("disabled account key should still report stored state")
+	}
+	if err := UpdateSiteSourceKeys(site.ID, account.ID, &model.SiteSourceKeyUpdateRequest{
+		GroupKey:     model.SiteDefaultGroupKey,
+		KeysToDelete: []int{keyID},
+	}, ctx); err != nil {
+		t.Fatalf("delete account key failed: %v", err)
+	}
+	deleted, err := SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatalf("reload deleted account failed: %v", err)
+	}
+	if deleted.APIKey != "" || len(deleted.Tokens) != 0 {
+		t.Fatalf("expected account API key to be deleted, got api_key=%q tokens=%+v", deleted.APIKey, deleted.Tokens)
+	}
+}
+
+func TestUpdateSiteSourceKeysPromotesOneAccountAPIKey(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	site := &model.Site{Name: "promote-key-site", Platform: model.SitePlatformNewAPI, BaseURL: "https://example.com", Enabled: true}
+	if err := SiteCreate(site, ctx); err != nil {
+		t.Fatal(err)
+	}
+	account := &model.SiteAccount{SiteID: site.ID, Name: "promote-key", CredentialType: model.SiteCredentialTypeAccessToken, AccessToken: "session", APIKey: "sk-old", Enabled: true}
+	if err := SiteAccountCreate(account, ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSiteSourceKeys(site.ID, account.ID, &model.SiteSourceKeyUpdateRequest{
+		GroupKey:  model.SiteDefaultGroupKey,
+		KeysToAdd: []model.SiteSourceKeyAddRequest{{Enabled: true, Token: "sk-new", Name: "new primary", AccountKey: true}},
+	}, ctx); err != nil {
+		t.Fatalf("promote account key failed: %v", err)
+	}
+	loaded, err := SiteAccountGet(account.ID, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.APIKey != "sk-new" {
+		t.Fatalf("expected promoted account key, got %q", loaded.APIKey)
+	}
+	accountKeys := 0
+	for _, token := range loaded.Tokens {
+		if token.Source == "account" {
+			accountKeys++
+		}
+	}
+	if accountKeys != 1 || len(loaded.Tokens) != 2 {
+		t.Fatalf("expected one account key plus preserved manual key, got %+v", loaded.Tokens)
 	}
 }
 
