@@ -25,8 +25,8 @@ export function NavBar() {
                 initial="initial"
                 animate="animate"
             >
-                {ROUTES.map((route, index) => {
-                    const isActive = activeItem === route.id
+                {ROUTES.filter((route) => route.showInNav !== false).map((route, index) => {
+                    const isActive = activeItem === route.id || (route.id === 'setting' && activeItem === 'model')
                     return (
                         <motion.button
                             key={route.id}

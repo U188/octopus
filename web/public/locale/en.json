@@ -645,6 +645,11 @@
         },
         "data": {
             "title": "Data Management"
+        },
+        "price": {
+            "title": "Model pricing",
+            "description": "Manage model input, output, and cache pricing. The pricing page opens only when requested.",
+            "open": "Manage pricing"
         }
     },
     "group": {

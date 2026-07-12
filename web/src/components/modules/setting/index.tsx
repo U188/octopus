@@ -11,6 +11,7 @@ import { SettingData } from './Data';
 import { SettingTelegram } from './Telegram';
 import { SettingVersion } from './Version';
 import { SettingAudit } from './Audit';
+import { SettingPrice } from './Price';
 
 export function Setting() {
     return (
@@ -18,6 +19,7 @@ export function Setting() {
             <PageWrapper className="columns-1 gap-4 pb-24 md:columns-2 md:pb-4 *:mb-4 *:min-w-0 *:break-inside-avoid">
                 <SettingAPIKey key="setting-apikey" />
                 <SettingAppearance key="setting-appearance" />
+                <SettingPrice key="setting-price" />
                 <SettingNetwork key="setting-network" />
                 <SettingVersion key="setting-version" />
                 <SettingTelegram key="setting-telegram" />
