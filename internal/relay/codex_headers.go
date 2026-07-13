@@ -26,10 +26,10 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 
 	req.Header = http.Header{}
 
-	sessionID := uuid.NewString()
+	sessionID := uuid.Must(uuid.NewV7()).String()
 	threadID := sessionID
 	windowID := sessionID + ":0"
-	turnID := uuid.NewString()
+	turnID := uuid.Must(uuid.NewV7()).String()
 	clientRequestID := sessionID
 	installationID := uuid.NewString()
 	turnMetadata := map[string]any{
@@ -53,6 +53,7 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", codexmode.UserAgent)
 	req.Header.Set("Originator", codexmode.Originator)
 	req.Header.Set("X-Codex-Beta-Features", codexmode.BetaFeatures)
+	req.Header.Set(codexmode.ResponsesLiteHeader, codexmode.ResponsesLiteHeaderValue)
 	req.Header.Set("Session-Id", sessionID)
 	req.Header.Set("Thread-Id", threadID)
 	req.Header.Set("X-Codex-Window-Id", windowID)

@@ -15,6 +15,7 @@ import (
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
+	"github.com/google/uuid"
 )
 
 func TestBuildTestConversationRequestCompletesV1BaseURL(t *testing.T) {
@@ -329,6 +330,15 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	}
 	if headers["X-Codex-Beta-Features"] != codexmode.BetaFeatures {
 		t.Fatalf("expected codex beta features header, got %q", headers["X-Codex-Beta-Features"])
+	}
+	if headers[codexmode.ResponsesLiteHeader] != codexmode.ResponsesLiteHeaderValue {
+		t.Fatalf("expected codex responses lite header, got %q", headers[codexmode.ResponsesLiteHeader])
+	}
+	for _, key := range []string{"Session-Id", "Thread-Id", "X-Client-Request-Id"} {
+		id, err := uuid.Parse(headers[key])
+		if err != nil || id.Version() != 7 {
+			t.Fatalf("expected %s to be UUIDv7, got %q", key, headers[key])
+		}
 	}
 	if body["store"] != false || body["stream"] != true {
 		t.Fatalf("unexpected codex body flags: %#v", body)

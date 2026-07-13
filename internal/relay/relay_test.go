@@ -27,6 +27,7 @@ import (
 	"github.com/U188/octopus/internal/utils/tokenizer"
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func TestHandleStreamResponsePassthroughAnthropicPreservesRawSSE(t *testing.T) {
@@ -1766,8 +1767,17 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	if got := headers.Get("X-Codex-Beta-Features"); got != codexmode.BetaFeatures {
 		t.Fatalf("expected codex beta features header, got %q", got)
 	}
+	if got := headers.Get(codexmode.ResponsesLiteHeader); got != codexmode.ResponsesLiteHeaderValue {
+		t.Fatalf("expected codex responses lite header, got %q", got)
+	}
 	if headers.Get("Session-Id") == "" || headers.Get("Thread-Id") == "" || headers.Get("X-Client-Request-Id") == "" {
 		t.Fatalf("expected codex session/thread/client request headers, got %#v", headers)
+	}
+	for _, key := range []string{"Session-Id", "Thread-Id", "X-Client-Request-Id"} {
+		id, err := uuid.Parse(headers.Get(key))
+		if err != nil || id.Version() != 7 {
+			t.Fatalf("expected %s to be UUIDv7, got %q", key, headers.Get(key))
+		}
 	}
 	var metadata map[string]any
 	if err := json.Unmarshal([]byte(headers.Get("X-Codex-Turn-Metadata")), &metadata); err != nil {
@@ -1775,6 +1785,11 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	}
 	if metadata["sandbox"] != codexmode.Sandbox || metadata["window_id"] == "" {
 		t.Fatalf("expected codex turn metadata, got %#v", metadata)
+	}
+	turnIDValue, ok := metadata["turn_id"].(string)
+	turnID, err := uuid.Parse(turnIDValue)
+	if !ok || err != nil || turnID.Version() != 7 {
+		t.Fatalf("expected codex turn metadata UUIDv7, got %#v", metadata["turn_id"])
 	}
 }
 

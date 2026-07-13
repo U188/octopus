@@ -17,6 +17,7 @@ import (
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/utils/log"
+	"github.com/google/uuid"
 )
 
 type TestConversationMode string
@@ -381,16 +382,17 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 		return buildSiteURL(baseURL, "/responses"),
 			buildCodexTestConversationBody(modelName, greeting, sessionID, turnID, installationID, turnMetadata),
 			map[string]string{
-				"Authorization":         ensureBearer(key),
-				"Accept":                "text/event-stream",
-				"Originator":            codexmode.Originator,
-				"Session-Id":            sessionID,
-				"Thread-Id":             sessionID,
-				"User-Agent":            codexmode.UserAgent,
-				"X-Client-Request-Id":   sessionID,
-				"X-Codex-Beta-Features": codexmode.BetaFeatures,
-				"X-Codex-Turn-Metadata": turnMetadata,
-				"X-Codex-Window-Id":     sessionID + ":0",
+				"Authorization":               ensureBearer(key),
+				"Accept":                      "text/event-stream",
+				"Originator":                  codexmode.Originator,
+				"Session-Id":                  sessionID,
+				"Thread-Id":                   sessionID,
+				"User-Agent":                  codexmode.UserAgent,
+				"X-Client-Request-Id":         sessionID,
+				"X-Codex-Beta-Features":       codexmode.BetaFeatures,
+				"X-Codex-Turn-Metadata":       turnMetadata,
+				"X-Codex-Window-Id":           sessionID + ":0",
+				codexmode.ResponsesLiteHeader: codexmode.ResponsesLiteHeaderValue,
 			}
 	}
 	if client == TestConversationClientClaude {
@@ -645,7 +647,7 @@ func codexFunctionTool(name string, description string) map[string]any {
 }
 
 func newCodexTestConversationIDs() (string, string) {
-	return newCodexLikeUUID(), newCodexLikeUUID()
+	return uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
 }
 
 func newCodexLikeUUID() string {
