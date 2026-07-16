@@ -1,12 +1,16 @@
 package codexmode
 
-const UserAgent = "codex_sdk_go/0.144.3 (Debian 12.0.0; x86_64) Konsole/221203 (codex_exec; 0.144.3)"
+const UserAgent = "codex_cli_rs/0.144.5 (Windows 10.0.19044; x86_64) unknown (codex_cli_rs; 0.144.5)"
 
-const Originator = "codex_sdk_go"
+const Originator = "codex_cli_rs"
 
 const BetaFeatures = "remote_compaction_v2"
 
-const Sandbox = "seccomp"
+const Sandbox = "none"
+
+const ReasoningContext = "all_turns"
+
+const ParallelToolCalls = false
 
 const ResponsesLiteHeader = "X-OpenAI-Internal-Codex-Responses-Lite"
 

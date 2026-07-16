@@ -570,10 +570,23 @@ func buildClaudeTestConversationBody(modelName string, greeting string, sessionI
 }
 
 func buildCodexTestConversationBody(modelName string, greeting string, sessionID string, turnID string, installationID string, turnMetadata string) map[string]any {
+	instructions := codexTestConversationInstructions(greeting)
+	tools := codexTestConversationTools()
 	return map[string]any{
-		"model":        modelName,
-		"instructions": codexTestConversationInstructions(greeting),
+		"model": modelName,
 		"input": []map[string]any{
+			{
+				"type":  "additional_tools",
+				"role":  "developer",
+				"tools": tools,
+			},
+			{
+				"type": "message",
+				"role": "developer",
+				"content": []map[string]string{
+					{"type": "input_text", "text": instructions},
+				},
+			},
 			{
 				"type": "message",
 				"role": "user",
@@ -582,15 +595,17 @@ func buildCodexTestConversationBody(modelName string, greeting string, sessionID
 				},
 			},
 		},
-		"tools":               codexTestConversationTools(),
 		"tool_choice":         "auto",
-		"parallel_tool_calls": true,
-		"reasoning":           map[string]any{"effort": "high"},
-		"store":               false,
-		"stream":              true,
-		"include":             []string{"reasoning.encrypted_content"},
-		"prompt_cache_key":    sessionID,
-		"text":                map[string]any{"verbosity": "low"},
+		"parallel_tool_calls": codexmode.ParallelToolCalls,
+		"reasoning": map[string]any{
+			"effort":  "high",
+			"context": codexmode.ReasoningContext,
+		},
+		"store":            false,
+		"stream":           true,
+		"include":          []string{"reasoning.encrypted_content"},
+		"prompt_cache_key": sessionID,
+		"text":             map[string]any{"verbosity": "low"},
 		"client_metadata": map[string]string{
 			"session_id":              sessionID,
 			"thread_id":               sessionID,

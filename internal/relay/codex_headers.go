@@ -86,7 +86,7 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 		payload["store"] = false
 	}
 	if _, ok := payload["parallel_tool_calls"]; !ok {
-		payload["parallel_tool_calls"] = true
+		payload["parallel_tool_calls"] = codexmode.ParallelToolCalls
 	}
 	if _, ok := payload["prompt_cache_key"]; !ok {
 		payload["prompt_cache_key"] = sessionID
@@ -100,6 +100,7 @@ func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID
 		payload["tool_choice"] = "auto"
 	}
 	normalizeCodexResponsesInput(payload)
+	normalizeCodexResponsesEnvelope(payload)
 
 	metadata, _ := payload["client_metadata"].(map[string]any)
 	if metadata == nil {
@@ -133,6 +134,9 @@ func ensureCodexResponsesReasoning(payload map[string]any) {
 	}
 	if _, ok := reasoning["effort"]; !ok {
 		reasoning["effort"] = "high"
+	}
+	if _, ok := reasoning["context"]; !ok {
+		reasoning["context"] = codexmode.ReasoningContext
 	}
 }
 
@@ -171,6 +175,74 @@ func normalizeCodexResponsesInput(payload map[string]any) {
 		return
 	}
 	payload["input"] = normalizeCodexResponsesInputValue(input)
+}
+
+// Codex 0.144.5 represents developer instructions and tool declarations as
+// input items instead of the legacy top-level instructions/tools fields.
+func normalizeCodexResponsesEnvelope(payload map[string]any) {
+	prefix := make([]any, 0, 2)
+
+	if tools, ok := codexResponsesToolList(payload["tools"]); ok {
+		delete(payload, "tools")
+		if len(tools) > 0 {
+			prefix = append(prefix, map[string]any{
+				"type":  "additional_tools",
+				"role":  "developer",
+				"tools": tools,
+			})
+		}
+	}
+
+	if instructions, ok := payload["instructions"].(string); ok {
+		delete(payload, "instructions")
+		if instructions != "" {
+			prefix = append(prefix, map[string]any{
+				"type": "message",
+				"role": "developer",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": instructions},
+				},
+			})
+		}
+	}
+
+	if len(prefix) == 0 {
+		return
+	}
+	input := codexResponsesInputList(payload["input"])
+	payload["input"] = append(prefix, input...)
+}
+
+func codexResponsesInputList(value any) []any {
+	switch values := value.(type) {
+	case nil:
+		return nil
+	case []any:
+		return values
+	case []map[string]any:
+		items := make([]any, len(values))
+		for i := range values {
+			items[i] = values[i]
+		}
+		return items
+	default:
+		return []any{value}
+	}
+}
+
+func codexResponsesToolList(value any) ([]any, bool) {
+	switch tools := value.(type) {
+	case []any:
+		return tools, true
+	case []map[string]any:
+		items := make([]any, len(tools))
+		for i := range tools {
+			items[i] = tools[i]
+		}
+		return items, true
+	default:
+		return nil, false
+	}
 }
 
 func normalizeCodexResponsesInputValue(value any) any {
@@ -246,7 +318,7 @@ func normalizeCodexResponsesContentPart(value any) any {
 }
 
 func hasResponsesTools(value any) bool {
-	tools, ok := value.([]any)
+	tools, ok := codexResponsesToolList(value)
 	return ok && len(tools) > 0
 }
 

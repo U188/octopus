@@ -486,7 +486,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                             <div className="min-w-0">
                                 <div className="text-sm font-medium">Codex 模式</div>
                                 <div className="text-xs text-muted-foreground">
-                                    启用后，Responses 通道上游请求强制使用 Codex CLI 请求头，响应仍按 Responses 格式解析。
+                                    启用后，Responses 通道上游请求强制使用 Codex CLI 请求头与请求体格式，响应仍按 Responses 格式解析。
                                 </div>
                             </div>
                             <Switch

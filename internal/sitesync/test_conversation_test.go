@@ -343,10 +343,18 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if body["store"] != false || body["stream"] != true {
 		t.Fatalf("unexpected codex body flags: %#v", body)
 	}
-	if tools, ok := body["tools"].([]map[string]any); !ok || len(tools) == 0 {
-		t.Fatalf("expected codex tool definitions, got %#v", body["tools"])
+	if _, ok := body["tools"]; ok {
+		t.Fatalf("latest codex shape must not use top-level tools, got %#v", body["tools"])
 	}
-	for _, tool := range body["tools"].([]map[string]any) {
+	input, ok := body["input"].([]map[string]any)
+	if !ok || len(input) != 3 || input[0]["type"] != "additional_tools" || input[0]["role"] != "developer" {
+		t.Fatalf("unexpected codex input shape: %#v", body["input"])
+	}
+	tools, ok := input[0]["tools"].([]map[string]any)
+	if !ok || len(tools) == 0 {
+		t.Fatalf("expected codex additional_tools definitions, got %#v", input[0]["tools"])
+	}
+	for _, tool := range tools {
 		if tool["type"] == "tool_search" {
 			t.Fatalf("codex test conversation must not include tool_search; some upstreams end the stream after codex.rate_limits")
 		}
@@ -354,18 +362,21 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if body["tool_choice"] != "auto" {
 		t.Fatalf("expected codex tool_choice auto, got %#v", body["tool_choice"])
 	}
-	if body["parallel_tool_calls"] != true {
+	if body["parallel_tool_calls"] != false {
 		t.Fatalf("expected codex parallel tool calls, got %#v", body["parallel_tool_calls"])
 	}
-	if instructions, ok := body["instructions"].(string); !ok || !strings.Contains(instructions, "Do not call tools") {
-		t.Fatalf("expected no-tools instruction, got %#v", body["instructions"])
+	if _, ok := body["instructions"]; ok {
+		t.Fatalf("latest codex shape must not use top-level instructions, got %#v", body["instructions"])
+	}
+	developerContent, ok := input[1]["content"].([]map[string]string)
+	if !ok || len(developerContent) != 1 || !strings.Contains(developerContent[0]["text"], "Do not call tools") {
+		t.Fatalf("expected no-tools developer message, got %#v", input[1])
 	}
 	if include, ok := body["include"].([]string); !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
 		t.Fatalf("unexpected include field: %#v", body["include"])
 	}
-	input, ok := body["input"].([]map[string]any)
-	if !ok || len(input) != 1 || input[0]["type"] != "message" || input[0]["role"] != "user" {
-		t.Fatalf("unexpected codex input shape: %#v", body["input"])
+	if input[2]["type"] != "message" || input[2]["role"] != "user" {
+		t.Fatalf("unexpected codex user input shape: %#v", input[2])
 	}
 	metadata, ok := body["client_metadata"].(map[string]string)
 	if !ok || metadata["session_id"] == "" || metadata["x-codex-turn-metadata"] == "" {

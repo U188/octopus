@@ -1843,7 +1843,7 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 	if _, ok := payload["temperature"]; ok {
 		t.Fatalf("expected codex mode to drop temperature, got %#v", payload["temperature"])
 	}
-	if payload["tool_choice"] != "auto" || payload["parallel_tool_calls"] != true {
+	if payload["tool_choice"] != "auto" || payload["parallel_tool_calls"] != false {
 		t.Fatalf("expected codex tool defaults, got %#v", payload)
 	}
 	if got, ok := payload["prompt_cache_key"].(string); !ok || got == "" {
@@ -1852,7 +1852,7 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 	if text, ok := payload["text"].(map[string]any); !ok || text["verbosity"] != "low" {
 		t.Fatalf("expected codex text options, got %#v", payload["text"])
 	}
-	if reasoning, ok := payload["reasoning"].(map[string]any); !ok || reasoning["effort"] != "high" {
+	if reasoning, ok := payload["reasoning"].(map[string]any); !ok || reasoning["effort"] != "high" || reasoning["context"] != codexmode.ReasoningContext {
 		t.Fatalf("expected codex reasoning defaults, got %#v", payload["reasoning"])
 	}
 	include, ok := payload["include"].([]any)
@@ -1863,12 +1863,24 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 		t.Fatalf("expected upstream model rewrite, got %#v", payload["model"])
 	}
 	input, ok := payload["input"].([]any)
-	if !ok || len(input) != 1 {
+	if !ok || len(input) != 3 {
 		t.Fatalf("expected normalized codex input array, got %#v", payload["input"])
 	}
-	message, ok := input[0].(map[string]any)
+	additionalTools, ok := input[0].(map[string]any)
+	if !ok || additionalTools["type"] != "additional_tools" || additionalTools["role"] != "developer" {
+		t.Fatalf("expected codex additional_tools input item, got %#v", input[0])
+	}
+	toolItems, ok := additionalTools["tools"].([]any)
+	if !ok || len(toolItems) != 1 {
+		t.Fatalf("expected migrated codex tools, got %#v", additionalTools["tools"])
+	}
+	developerMessage, ok := input[1].(map[string]any)
+	if !ok || developerMessage["type"] != "message" || developerMessage["role"] != "developer" {
+		t.Fatalf("expected codex developer instructions, got %#v", input[1])
+	}
+	message, ok := input[2].(map[string]any)
 	if !ok || message["type"] != "message" || message["role"] != "user" {
-		t.Fatalf("expected normalized codex message item, got %#v", input[0])
+		t.Fatalf("expected normalized codex message item, got %#v", input[2])
 	}
 	content, ok := message["content"].([]any)
 	if !ok || len(content) != 1 {
@@ -1882,8 +1894,11 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 	if !ok || metadata["session_id"] == "" || metadata["thread_id"] == "" || metadata["turn_id"] == "" || metadata["x-codex-turn-metadata"] == "" {
 		t.Fatalf("expected codex client metadata, got %#v", payload["client_metadata"])
 	}
-	if payload["instructions"] != "external" {
-		t.Fatalf("expected original request fields to be preserved, got %#v", payload["instructions"])
+	if _, ok := payload["instructions"]; ok {
+		t.Fatalf("expected instructions to move into input, got %#v", payload["instructions"])
+	}
+	if _, ok := payload["tools"]; ok {
+		t.Fatalf("expected tools to move into input, got %#v", payload["tools"])
 	}
 }
 
