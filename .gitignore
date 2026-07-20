@@ -23,6 +23,7 @@ web/.next-dev.*.log
 .vscode
 .claude/
 .codex
+.mindfs/
 .gocache/
 .serena/
 .workflow/
