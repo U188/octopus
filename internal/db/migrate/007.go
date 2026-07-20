@@ -25,7 +25,9 @@ func migrateSiteTokensAddValueStatus(db *gorm.DB) error {
 	}
 
 	if !db.Migrator().HasColumn("site_tokens", "value_status") {
-		if err := db.Exec("ALTER TABLE site_tokens ADD COLUMN value_status TEXT NOT NULL DEFAULT 'ready'").Error; err != nil {
+		// 使用 VARCHAR(32) 而非 TEXT：MySQL STRICT 模式下 TEXT/BLOB 列不允许字面量 DEFAULT
+		// (error 1101)，VARCHAR 则三种方言 (SQLite/MySQL/Postgres) 均支持 NOT NULL DEFAULT。
+		if err := db.Exec("ALTER TABLE site_tokens ADD COLUMN value_status VARCHAR(32) NOT NULL DEFAULT 'ready'").Error; err != nil {
 			return fmt.Errorf("failed to add site_tokens.value_status: %w", err)
 		}
 	}

@@ -38,7 +38,7 @@ func Logger(cfg LoggerConfig) gin.HandlerFunc {
 			"ip", c.ClientIP(),
 		}
 		if query != "" && log.IsDebugEnabled() {
-			fields = append(fields, "query", query)
+			fields = append(fields, "query", redactQuery(query))
 		}
 		if len(c.Errors) > 0 {
 			fields = append(fields, "error", c.Errors.String())

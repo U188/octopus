@@ -176,9 +176,8 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		// 尝试一次转发
 		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
 
-		// 更新 channel key 状态
-		usedKey.StatusCode = statusCode
-		usedKey.LastUseTimeStamp = time.Now().Unix()
+		// 更新 channel key 状态：走增量接口避免并发覆盖丢计费
+		lastUse := time.Now().Unix()
 
 		if fwdErr == nil {
 			// ====== 成功 ======
@@ -188,8 +187,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			}
 			metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
 
-			usedKey.TotalCost += metrics.Stats.InputCost + metrics.Stats.OutputCost
-			op.ChannelKeyUpdate(usedKey)
+			op.ChannelKeyAddUsage(channel.ID, usedKey.ID, metrics.Stats.InputCost+metrics.Stats.OutputCost, statusCode, lastUse)
 
 			span.End(model.AttemptSuccess, statusCode, "")
 
@@ -209,7 +207,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		// ====== 失败 ======
-		op.ChannelKeyUpdate(usedKey)
+		op.ChannelKeyAddUsage(channel.ID, usedKey.ID, 0, statusCode, lastUse)
 		span.End(model.AttemptFailed, statusCode, fwdErr.Error())
 
 		// Channel 维度统计

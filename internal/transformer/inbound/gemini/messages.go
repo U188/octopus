@@ -322,6 +322,12 @@ func usageToGemini(response *model.InternalLLMResponse) *model.GeminiUsageMetada
 	}
 	if response.Usage.CompletionTokensDetails != nil {
 		metadata.ThoughtsTokenCount = int(response.Usage.CompletionTokensDetails.ReasoningTokens)
+		// 内部 completion_tokens 含 reasoning（OpenAI 语义）；换回 Gemini 语义时
+		// 从 candidates 中剥离，避免思考 token 在两个字段里双计。
+		metadata.CandidatesTokenCount -= metadata.ThoughtsTokenCount
+		if metadata.CandidatesTokenCount < 0 {
+			metadata.CandidatesTokenCount = 0
+		}
 	}
 	return metadata
 }

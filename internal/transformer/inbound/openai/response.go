@@ -1557,10 +1557,15 @@ func convertItemToMessage(item *ResponsesItem) (*model.Message, error) {
 		}, nil
 
 	case "function_call_output", "custom_tool_call_output":
+		// Output 可能缺省（工具无返回值或 SDK 省略字段），按空结果处理。
+		content := model.MessageContent{Content: lo.ToPtr("")}
+		if item.Output != nil {
+			content = convertInputToMessageContent(*item.Output)
+		}
 		return &model.Message{
 			Role:       "tool",
 			ToolCallID: lo.ToPtr(item.CallID),
-			Content:    convertInputToMessageContent(*item.Output),
+			Content:    content,
 		}, nil
 
 	case "reasoning":

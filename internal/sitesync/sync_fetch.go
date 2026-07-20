@@ -47,9 +47,16 @@ func fetchManagementTokens(ctx context.Context, siteRecord *model.Site, account 
 func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account *model.SiteAccount, accessToken string) ([]model.SiteUserGroup, error) {
 	endpoints := []string{"/api/user/self/groups", "/api/user_group_map"}
 	seen := make(map[string]model.SiteUserGroup)
+	var firstErr error
 	for _, endpoint := range endpoints {
 		payload, err := requestJSONWithManagedAccessToken(ctx, siteRecord, "GET", buildSiteURL(siteRecord.BaseURL, endpoint), nil, accessToken, account)
 		if err != nil {
+			// 404/not found 表示平台没有该分组端点，属于"不支持"而非失败，
+			// 仍允许回退默认分组；其余错误（超时/5xx/鉴权异常）必须记录。
+			lowered := strings.ToLower(err.Error())
+			if !strings.Contains(lowered, "404") && !strings.Contains(lowered, "not found") && firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		for _, group := range parseGroupItems(payload) {
@@ -61,6 +68,12 @@ func fetchManagementGroups(ctx context.Context, siteRecord *model.Site, account 
 		}
 	}
 	if len(seen) == 0 {
+		if firstErr != nil {
+			// 全部端点拉取失败 ≠ 分组确实为空：返回错误让调用方按"本轮未知"降级，
+			// 不得把瞬时失败伪装成权威的默认分组结果，否则历史分组会被当作
+			// "上游已移除"清理，连带清掉用户手工 Key、手工模型和投影设置。
+			return nil, fmt.Errorf("fetch management groups: %w", firstErr)
+		}
 		return []model.SiteUserGroup{{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}}, nil
 	}
 	groups := make([]model.SiteUserGroup, 0, len(seen))

@@ -10,6 +10,7 @@ import (
 
 	"github.com/U188/octopus/internal/db/migrate"
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/utils/snowflake"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -164,10 +165,11 @@ func InitDB(dbType, dsn string, debug bool) error {
 
 	switch dbType {
 	case "sqlite":
-		// SQLite 单写模型：限制为单连接，避免连接池内自相竞争 SQLITE_BUSY；
-		// WAL 模式下读连接由驱动内部处理，不会被该限制阻塞。
-		sqlDB.SetMaxOpenConns(1)
-		sqlDB.SetMaxIdleConns(1)
+		// SQLite 仍由引擎串行化写事务，但 WAL 允许其它连接继续读。
+		// 多连接避免异步 CREATE INDEX 独占唯一连接时把 API/Relay 读请求全部排队；
+		// busy_timeout 负责缓解多个写者的短暂竞争。
+		sqlDB.SetMaxOpenConns(8)
+		sqlDB.SetMaxIdleConns(8)
 		sqlDB.SetConnMaxLifetime(0)
 		sqlDB.SetConnMaxIdleTime(0)
 	default:
@@ -243,6 +245,16 @@ func InitDB(dbType, dsn string, debug bool) error {
 	if err := migrate.AfterAutoMigrate(db); err != nil {
 		return err
 	}
+	// Relay-log IDs retain their millisecond-based format for compatibility.
+	// Advance the in-process floor past persisted data so restart or clock
+	// rollback cannot generate a duplicate primary key.
+	var maxRelayLogID int64
+	if err := db.Model(&model.RelayLog{}).
+		Select("COALESCE(MAX(id), 0)").
+		Scan(&maxRelayLogID).Error; err != nil {
+		return fmt.Errorf("read maximum relay log id: %w", err)
+	}
+	snowflake.AdvanceTo(maxRelayLogID)
 	// Postgres: schema changes during migrations can invalidate cached prepared plans
 	// (e.g. "cached plan must not change result type"). Clear them.
 	if db.Dialector != nil && db.Dialector.Name() == "postgres" {

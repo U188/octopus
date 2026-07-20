@@ -17,7 +17,7 @@ type MigrationRecordStatus int
 
 const (
 	MigrationRecordStatusSuccess MigrationRecordStatus = 1
-	MigrationRecordStatusFailed
+	MigrationRecordStatusFailed  MigrationRecordStatus = 2
 )
 
 type MigrationRecord struct {

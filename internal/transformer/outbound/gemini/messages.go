@@ -727,6 +727,29 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 			if msg.Content.Content != nil && *msg.Content.Content != "" {
 				content.Parts = append(content.Parts, &model.GeminiPart{Text: *msg.Content.Content})
 			}
+			// Handle structured content: assistant history may carry array-form
+			// content (text parts, generated images); dropping it would replay
+			// an empty model turn and get rejected with parts-required errors.
+			for _, part := range msg.Content.MultipleContent {
+				switch part.Type {
+				case "text":
+					if part.Text != nil && *part.Text != "" {
+						content.Parts = append(content.Parts, &model.GeminiPart{Text: *part.Text})
+					}
+				case "image_url":
+					if part.ImageURL != nil {
+						dataurl := xurl.ParseDataURL(part.ImageURL.URL)
+						if dataurl != nil && dataurl.IsBase64 {
+							content.Parts = append(content.Parts, &model.GeminiPart{
+								InlineData: &model.GeminiBlob{
+									MimeType: dataurl.MediaType,
+									Data:     dataurl.Data,
+								},
+							})
+						}
+					}
+				}
+			}
 			// Handle tool calls
 			if len(msg.ToolCalls) > 0 {
 				for _, toolCall := range msg.ToolCalls {
@@ -1259,8 +1282,11 @@ func convertGeminiUsageMetadata(metadata *model.GeminiUsageMetadata) *model.Usag
 		return nil
 	}
 	usage := &model.Usage{
-		PromptTokens:     int64(metadata.PromptTokenCount),
-		CompletionTokens: int64(metadata.CandidatesTokenCount),
+		PromptTokens: int64(metadata.PromptTokenCount),
+		// 内部 usage 采用 OpenAI 语义：completion_tokens 包含 reasoning tokens。
+		// Gemini 的 candidatesTokenCount 不含 thoughtsTokenCount，必须相加，
+		// 否则 thinking 模型的输出计费会大幅少算。
+		CompletionTokens: int64(metadata.CandidatesTokenCount) + int64(metadata.ThoughtsTokenCount),
 		TotalTokens:      int64(metadata.TotalTokenCount),
 	}
 

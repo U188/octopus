@@ -149,6 +149,16 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, err
 	}
 
+	// 导入会改写 DB 中的运行态数据，随后的缓存重刷又会清空 write-behind 脏集；
+	// 先把内存累计的成本/状态/统计落库，避免运行期数据被静默清零。
+	// 落盘属尽力而为的保护：失败（如空库尚无 settings）时告警但不阻断用户明确的导入意图。
+	if err := SaveCache(); err != nil {
+		log.Warnw("save cache before import failed; in-memory runtime state may be overwritten",
+			"operation", "db_import_incremental",
+			"error", err,
+		)
+	}
+
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 

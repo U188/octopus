@@ -29,14 +29,11 @@ var relayLogPerfIndexes = []struct {
 
 const (
 	// relayLogIndexStartupDelay 让 server 完成 InitCache、handler 注册、连接池预热
-	// 之后再开始建索引。SQLite 上 MaxOpenConns=1，CREATE INDEX 期间任何写请求都会排队，
-	// 让出几秒给冷启动后的第一波流量减少抖动。
+	// 之后再开始建索引。SQLite 的写事务仍会串行，但 WAL 下其它连接可以继续读。
 	relayLogIndexStartupDelay = 5 * time.Second
 
-	// relayLogIndexCooldown 单个 CREATE INDEX 之间留出的让步窗口。
-	// SQLite 上整个连接池只有 1 个写连接（见 internal/db/db.go），CREATE INDEX
-	// 期间会独占这个连接；relay log writer / stats save / 管理端 API 都会排队。
-	// 在两个索引之间 sleep 让出片刻，避免连续三次 CREATE INDEX 把请求路径整体卡死。
+	// relayLogIndexCooldown 单个 CREATE INDEX 之间留出的让步窗口，避免连续三次
+	// 写事务造成长时间写锁竞争。
 	relayLogIndexCooldown = 500 * time.Millisecond
 )
 

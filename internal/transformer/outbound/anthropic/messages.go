@@ -905,27 +905,50 @@ func convertSystemPrompt(req *model.InternalLLMRequest) *anthropicModel.SystemPr
 		return nil
 	}
 
-	if len(systemMessages) == 1 {
-		return &anthropicModel.SystemPrompt{
-			MultiplePrompts: []anthropicModel.SystemPromptPart{{
-				Type:         "text",
-				Text:         lo.FromPtr(systemMessages[0].Content.Content),
-				CacheControl: convertCacheControl(systemMessages[0].CacheControl),
-			}},
-		}
-	}
-
 	parts := make([]anthropicModel.SystemPromptPart, 0, len(systemMessages))
 	for _, msg := range systemMessages {
-		parts = append(parts, anthropicModel.SystemPromptPart{
-			Type:         "text",
-			Text:         lo.FromPtr(msg.Content.Content),
-			CacheControl: convertCacheControl(msg.CacheControl),
-		})
+		parts = append(parts, systemPromptPartsFromMessage(msg)...)
+	}
+	// 全部内容为空时省略 system 字段：空 text 块会被 Anthropic 400
+	if len(parts) == 0 {
+		return nil
 	}
 	return &anthropicModel.SystemPrompt{
 		MultiplePrompts: parts,
 	}
+}
+
+// systemPromptPartsFromMessage 展开一条 system 消息为 system prompt 块。
+// OpenAI 允许 system content 为数组形式（[{type:"text",...}, ...]），此时
+// Content.Content 为 nil，必须遍历 MultipleContent，否则数组形式系统提示词
+// 会整条丢失并发出空 text 块。
+func systemPromptPartsFromMessage(msg model.Message) []anthropicModel.SystemPromptPart {
+	if msg.Content.Content != nil {
+		if *msg.Content.Content == "" {
+			return nil
+		}
+		return []anthropicModel.SystemPromptPart{{
+			Type:         "text",
+			Text:         *msg.Content.Content,
+			CacheControl: convertCacheControl(msg.CacheControl),
+		}}
+	}
+	parts := make([]anthropicModel.SystemPromptPart, 0, len(msg.Content.MultipleContent))
+	for _, part := range msg.Content.MultipleContent {
+		if part.Type != "text" || part.Text == nil || *part.Text == "" {
+			continue
+		}
+		cacheControl := convertCacheControl(part.CacheControl)
+		if cacheControl == nil {
+			cacheControl = convertCacheControl(msg.CacheControl)
+		}
+		parts = append(parts, anthropicModel.SystemPromptPart{
+			Type:         "text",
+			Text:         *part.Text,
+			CacheControl: cacheControl,
+		})
+	}
+	return parts
 }
 
 func convertMessages(req *model.InternalLLMRequest) []anthropicModel.MessageParam {

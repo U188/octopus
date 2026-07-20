@@ -19,6 +19,7 @@ type wsUpstreamReader struct {
 	keyID      int
 	closed     bool
 	done       bool // true after a terminal event has been returned
+	dirty      bool // true when the conn may carry residual events or is broken; must not be reused
 	statusCode int
 }
 
@@ -39,6 +40,8 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 
 	msgType, data, err := r.conn.Read(ctx)
 	if err != nil {
+		// 读错误后连接状态不可信（可能仍有在途事件或已损坏），禁止回池复用
+		r.dirty = true
 		// Check if it's a normal close
 		closeStatus := websocket.CloseStatus(err)
 		if closeStatus == websocket.StatusNormalClosure || closeStatus == websocket.StatusGoingAway {
@@ -58,6 +61,7 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 	}
 
 	if msgType != websocket.MessageText {
+		r.dirty = true
 		return nil, fmt.Errorf("unexpected ws message type: %d", msgType)
 	}
 
@@ -87,6 +91,8 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			r.done = true
 		}
 		if isWSStreamErrorEvent(event.Type) || event.Error != nil || (event.Response != nil && event.Response.Error != nil) {
+			// 错误事件后连接上可能还有后续残留事件，不得回池
+			r.dirty = true
 			if event.Status > 0 {
 				r.statusCode = event.Status
 			} else if r.statusCode < 400 {
@@ -128,6 +134,13 @@ func (r *wsUpstreamReader) Close() error {
 		return nil
 	}
 	r.closed = true
+	// 只有完整读到终态事件的干净连接才可回池：中途出错（dirty）或未读完就关闭
+	// （如客户端取消，done=false）的连接上可能残留上一响应的事件，回池会污染下一个请求。
+	if r.dirty || !r.done {
+		wsUpstreamPool.RemoveConn(r.pc)
+		log.Debugf("upstream WS connection removed instead of pooled (channel=%d, key=%d, dirty=%t, done=%t)", r.channelID, r.keyID, r.dirty, r.done)
+		return nil
+	}
 	// Return connection to pool (don't close it)
 	wsUpstreamPool.Put(r.pc)
 	log.Debugf("upstream WS connection returned to pool (channel=%d, key=%d)", r.channelID, r.keyID)

@@ -38,6 +38,8 @@ func init() {
 var hopByHopHeaders = map[string]bool{
 	"authorization":       true,
 	"x-api-key":           true,
+	"cookie":              true,
+	"set-cookie":          true,
 	"connection":          true,
 	"keep-alive":          true,
 	"proxy-authenticate":  true,

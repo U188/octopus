@@ -87,11 +87,25 @@ func apiKeyRefreshCache(ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Find(&apiKeys).Error; err != nil {
 		return err
 	}
-	apiKeyCache.Clear()
-	apiKeyIDMap.Clear()
+	// 先覆盖后清理，不走 Clear→逐条重建：刷新期间鉴权查询始终可命中，
+	// 避免窗口内客户请求瞬时 401。
+	validIDs := make(map[int]struct{}, len(apiKeys))
+	validTokens := make(map[string]struct{}, len(apiKeys))
 	for _, apiKey := range apiKeys {
 		apiKeyCache.Set(apiKey.ID, apiKey)
 		apiKeyIDMap.Set(apiKey.APIKey, apiKey.ID)
+		validIDs[apiKey.ID] = struct{}{}
+		validTokens[apiKey.APIKey] = struct{}{}
+	}
+	for id := range apiKeyCache.GetAll() {
+		if _, ok := validIDs[id]; !ok {
+			apiKeyCache.Del(id)
+		}
+	}
+	for token := range apiKeyIDMap.GetAll() {
+		if _, ok := validTokens[token]; !ok {
+			apiKeyIDMap.Del(token)
+		}
 	}
 	return nil
 }

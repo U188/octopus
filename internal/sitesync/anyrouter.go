@@ -246,10 +246,16 @@ func fetchAnyRouterManagementGroups(ctx context.Context, siteRecord *model.Site,
 	endpoints := []string{"/api/user/self/groups", "/api/user_group_map"}
 	seen := make(map[string]model.SiteUserGroup)
 	var terminalErr error
+	var firstErr error
 
 	for _, endpoint := range endpoints {
 		payload, _, err := anyRouterRequestJSONWithCookies(ctx, siteRecord, http.MethodGet, buildSiteURL(siteRecord.BaseURL, endpoint), nil, anyRouterAuthHeaders(accessToken, userID), account)
 		if err != nil {
+			// 404/not found 视为平台不支持该端点；其余错误记录，避免把瞬时失败当成分组为空
+			lowered := strings.ToLower(err.Error())
+			if !strings.Contains(lowered, "404") && !strings.Contains(lowered, "not found") && firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		if payload != nil && jsonBool(payload["success"]) == false {
@@ -278,6 +284,10 @@ func fetchAnyRouterManagementGroups(ctx context.Context, siteRecord *model.Site,
 	}
 	if terminalErr != nil {
 		return nil, terminalErr
+	}
+	if firstErr != nil {
+		// 全部途径失败 ≠ 分组确实为空，不得回退伪权威的默认分组
+		return nil, fmt.Errorf("fetch anyrouter groups: %w", firstErr)
 	}
 	return []model.SiteUserGroup{{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}}, nil
 }

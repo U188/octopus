@@ -144,14 +144,34 @@ func persistSyncSnapshot(ctx context.Context, accountID int, snapshot *syncSnaps
 				return err
 			}
 		}
-		if err := tx.Where("site_account_id = ? AND purpose = ? AND (source IS NULL OR source <> ?)", accountID, model.SiteCredentialPurposeChat, "account").Delete(&model.SiteToken{}).Error; err != nil {
+		// 按稳定 ID upsert：仅删除本轮未保留的行，保留行原地更新，新行插入。
+		// 删全表重建会每轮轮换全部 Token ID，使用户按旧 ID 提交的禁用/删除操作失效。
+		keptTokenIDs := make([]int, 0, len(mergedTokens))
+		for i := range mergedTokens {
+			mergedTokens[i].Purpose = model.SiteCredentialPurposeChat
+			if mergedTokens[i].ID != 0 {
+				keptTokenIDs = append(keptTokenIDs, mergedTokens[i].ID)
+			}
+		}
+		staleTokens := tx.Where("site_account_id = ? AND purpose = ? AND (source IS NULL OR source <> ?)", accountID, model.SiteCredentialPurposeChat, "account")
+		if len(keptTokenIDs) > 0 {
+			staleTokens = staleTokens.Where("id NOT IN ?", keptTokenIDs)
+		}
+		if err := staleTokens.Delete(&model.SiteToken{}).Error; err != nil {
 			return err
 		}
-		if len(mergedTokens) > 0 {
-			for i := range mergedTokens {
-				mergedTokens[i].Purpose = model.SiteCredentialPurposeChat
+		newTokens := make([]model.SiteToken, 0, len(mergedTokens))
+		for i := range mergedTokens {
+			if mergedTokens[i].ID != 0 {
+				if err := tx.Save(&mergedTokens[i]).Error; err != nil {
+					return err
+				}
+				continue
 			}
-			if err := tx.Create(&mergedTokens).Error; err != nil {
+			newTokens = append(newTokens, mergedTokens[i])
+		}
+		if len(newTokens) > 0 {
+			if err := tx.Create(&newTokens).Error; err != nil {
 				return err
 			}
 		}
@@ -266,9 +286,14 @@ func applyPersistedGroupSyncState(group *model.SiteUserGroup, existing *model.Si
 		group.ProjectionSuspendedAt = &now
 		group.ModelSyncFailureCount++
 	case siteGroupSyncStatusFailed, siteGroupSyncStatusUnresolved:
-		group.ProjectionSuspended = false
-		group.ProjectionSuspendReason = ""
-		group.ProjectionSuspendedAt = nil
+		// 瞬时失败 / 未确认不是权威结论：保留既有暂停状态，只累加失败计数，
+		// 避免已暂停（禁用保留）的投影分组被上游抖动意外"恢复"，
+		// 进而触发渠道删除重建、丢失渠道 ID、参数覆盖和统计。
+		if existing != nil {
+			group.ProjectionSuspended = existing.ProjectionSuspended
+			group.ProjectionSuspendReason = existing.ProjectionSuspendReason
+			group.ProjectionSuspendedAt = existing.ProjectionSuspendedAt
+		}
 		group.ModelSyncFailureCount++
 	default:
 		if existing != nil {
@@ -424,10 +449,8 @@ func mergePersistedSiteTokens(accountID int, existingTokens []model.SiteToken, i
 		return result[i].GroupKey < result[j].GroupKey
 	})
 
-	for i := range result {
-		result[i].ID = 0
-	}
-
+	// 保留匹配到的既有行 ID（稳定标识），持久化时按 ID upsert 而非删全表重建：
+	// 若每轮同步轮换全部 Token ID，用户面对旧 ID 的禁用/删除操作会被静默吞掉。
 	return result
 }
 

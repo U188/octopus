@@ -25,11 +25,18 @@ const (
 )
 
 func Init() {
-	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
-	if err != nil {
-		log.Errorf("failed to get model info update interval: %v", err)
-		return
+	// getIntSetting 读取整型设置项；单个设置项非法（如用户填了非数字）时仅告警并回退默认值，
+	// 绝不因某一项出错就中止 Init，避免统计/日志持久化等后续任务全部失联。
+	getIntSetting := func(key model.SettingKey, def int) int {
+		v, err := op.SettingGetInt(key)
+		if err != nil {
+			log.Warnf("failed to get setting %s, using default %d: %v", key, def, err)
+			return def
+		}
+		return v
 	}
+
+	priceUpdateIntervalHours := getIntSetting(model.SettingKeyModelInfoUpdateInterval, 24)
 	priceUpdateInterval := time.Duration(priceUpdateIntervalHours) * time.Hour
 	// 注册价格更新任务
 	Register(string(model.SettingKeyModelInfoUpdateInterval), priceUpdateInterval, true, func() {
@@ -42,36 +49,20 @@ func Init() {
 	Register(TaskBaseUrlDelay, 24*time.Hour, true, ChannelBaseUrlDelayTask)
 
 	// 注册LLM同步任务
-	syncLLMIntervalHours, err := op.SettingGetInt(model.SettingKeySyncLLMInterval)
-	if err != nil {
-		log.Warnf("failed to get sync LLM interval: %v", err)
-		return
-	}
+	syncLLMIntervalHours := getIntSetting(model.SettingKeySyncLLMInterval, 24)
 	syncLLMInterval := time.Duration(syncLLMIntervalHours) * time.Hour
 	Register(string(model.SettingKeySyncLLMInterval), syncLLMInterval, true, SyncModelsTask)
 
-	siteSyncIntervalHours, err := op.SettingGetInt(model.SettingKeySiteSyncInterval)
-	if err != nil {
-		log.Warnf("failed to get site sync interval: %v", err)
-		return
-	}
+	siteSyncIntervalHours := getIntSetting(model.SettingKeySiteSyncInterval, 12)
 	siteSyncInterval := time.Duration(siteSyncIntervalHours) * time.Hour
 	Register(string(model.SettingKeySiteSyncInterval), siteSyncInterval, true, SiteSyncTask)
 
-	siteCheckinIntervalHours, err := op.SettingGetInt(model.SettingKeySiteCheckinInterval)
-	if err != nil {
-		log.Warnf("failed to get site checkin interval: %v", err)
-		return
-	}
+	siteCheckinIntervalHours := getIntSetting(model.SettingKeySiteCheckinInterval, 24)
 	siteCheckinInterval := time.Duration(siteCheckinIntervalHours) * time.Hour
 	Register(string(model.SettingKeySiteCheckinInterval), siteCheckinInterval, true, SiteCheckinTask)
 
 	// 注册统计保存任务
-	statsSaveIntervalMinutes, err := op.SettingGetInt(model.SettingKeyStatsSaveInterval)
-	if err != nil {
-		log.Warnf("failed to get stats save interval: %v", err)
-		return
-	}
+	statsSaveIntervalMinutes := getIntSetting(model.SettingKeyStatsSaveInterval, 10)
 	statsSaveInterval := time.Duration(statsSaveIntervalMinutes) * time.Minute
 	Register(TaskStatsSave, statsSaveInterval, false, op.StatsSaveDBTask)
 	// 注册中继日志保存任务

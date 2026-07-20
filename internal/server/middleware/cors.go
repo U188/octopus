@@ -13,7 +13,20 @@ func Cors() gin.HandlerFunc {
 	config := cors.DefaultConfig()
 	config.AllowCredentials = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"*"}
+	// 凭据模式下 Access-Control-Allow-Headers 不能用通配符 "*"（浏览器按字面头名处理，
+	// 且通配符永不覆盖 Authorization），必须显式列出允许的请求头。
+	config.AllowHeaders = []string{
+		"Origin",
+		"Content-Type",
+		"Content-Length",
+		"Accept",
+		"Accept-Encoding",
+		"Authorization",
+		"X-Requested-With",
+		"X-Api-Key",
+		"Anthropic-Version",
+		"Anthropic-Beta",
+	}
 	config.ExposeHeaders = []string{"Content-Disposition"}
 	// CORS 白名单:
 	// - 为空: 不允许跨域

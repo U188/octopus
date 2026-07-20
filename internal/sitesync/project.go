@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/helper"
@@ -16,7 +17,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// projectAccountLocks 提供账号级互斥：定时同步、手动触发、Key 完成回调可能并发
+// 投影同一账号，并行执行会重复建渠道与绑定，产生带真实 Key 的孤儿渠道。
+var projectAccountLocks sync.Map // map[int]*sync.Mutex
+
 func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
+	lockAny, _ := projectAccountLocks.LoadOrStore(accountID, &sync.Mutex{})
+	lock := lockAny.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+
 	siteRecord, account, err := loadSiteAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -172,15 +182,12 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 				if err != nil {
 					return nil, err
 				}
-				if err := op.ChannelCreate(&channelPayload, ctx); err != nil {
-					return nil, fmt.Errorf("failed to create managed channel: %w", err)
-				}
 				binding = model.SiteChannelBinding{SiteID: siteRecord.ID, SiteAccountID: account.ID, GroupKey: bindingKey, ChannelID: channelPayload.ID}
 				if group.ID != 0 {
 					binding.SiteUserGroupID = &group.ID
 				}
-				if err := db.GetDB().WithContext(ctx).Create(&binding).Error; err != nil {
-					return nil, fmt.Errorf("failed to create site channel binding: %w", err)
+				if err := op.ChannelCreateManaged(&channelPayload, &binding, 0, ctx); err != nil {
+					return nil, fmt.Errorf("failed to create managed channel and binding: %w", err)
 				}
 				bindingMap[bindingKey] = binding
 				bindingChannelByKey[bindingKey] = channelPayload.ID
@@ -200,20 +207,15 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 				if err != nil {
 					return nil, err
 				}
-				if err := db.GetDB().WithContext(ctx).Delete(&binding).Error; err != nil {
-					return nil, fmt.Errorf("failed to delete broken site channel binding: %w", err)
-				}
-				if err := op.ChannelCreate(&channelPayload, ctx); err != nil {
-					return nil, fmt.Errorf("failed to recreate managed channel: %w", err)
-				}
+				brokenBindingID := binding.ID
 				binding.ChannelID = channelPayload.ID
 				if group.ID != 0 {
 					binding.SiteUserGroupID = &group.ID
 				} else {
 					binding.SiteUserGroupID = nil
 				}
-				if err := db.GetDB().WithContext(ctx).Create(&binding).Error; err != nil {
-					return nil, fmt.Errorf("failed to recreate site channel binding: %w", err)
+				if err := op.ChannelCreateManaged(&channelPayload, &binding, brokenBindingID, ctx); err != nil {
+					return nil, fmt.Errorf("failed to recreate managed channel and binding: %w", err)
 				}
 				bindingChannelByKey[bindingKey] = channelPayload.ID
 				managedChannelIDs = append(managedChannelIDs, channelPayload.ID)
@@ -282,7 +284,14 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			continue
 		}
 		if err := op.ChannelDelManaged(binding.ChannelID, ctx); err != nil {
-			log.Warnf("failed to delete stale managed channel %d: %v", binding.ChannelID, err)
+			// 渠道未删成功时不得删除绑定：绑定是"受管渠道"唯一标记，
+			// 先删绑定会把带真实 Key 的渠道变成无人管理的孤儿（对齐 deleteManagedChannelsByAccount）。
+			// 渠道本就不存在时绑定已无意义，允许继续清理。
+			if !isMissingManagedChannelError(err) {
+				log.Warnf("failed to delete stale managed channel %d, keeping binding for retry: %v", binding.ChannelID, err)
+				continue
+			}
+			log.Warnf("stale managed channel %d already missing; deleting stale site binding", binding.ChannelID)
 		}
 		if err := db.GetDB().WithContext(ctx).Delete(&binding).Error; err != nil {
 			return nil, fmt.Errorf("failed to delete stale site channel binding: %w", err)

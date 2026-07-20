@@ -2,12 +2,14 @@ package db
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/utils/snowflake"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -20,7 +22,7 @@ type sqlCaptureLogger struct {
 	statements []string
 }
 
-func (l *sqlCaptureLogger) LogMode(logger.LogLevel) logger.Interface { return l }
+func (l *sqlCaptureLogger) LogMode(logger.LogLevel) logger.Interface      { return l }
 func (l *sqlCaptureLogger) Info(context.Context, string, ...interface{})  {}
 func (l *sqlCaptureLogger) Warn(context.Context, string, ...interface{})  {}
 func (l *sqlCaptureLogger) Error(context.Context, string, ...interface{}) {}
@@ -132,5 +134,48 @@ func TestEnsureRelayLogColumnsSQLite_NoopOnCurrentSchema(t *testing.T) {
 		if strings.Contains(upper, "ALTER TABLE") || strings.Contains(upper, "RELAY_LOGS__TEMP") {
 			t.Fatalf("ensureRelayLogColumnsSQLite must be a no-op on current schema, but emitted: %s", sql)
 		}
+	}
+}
+
+func TestInitDBSQLiteUsesMultiConnectionPool(t *testing.T) {
+	if db != nil {
+		_ = Close()
+	}
+	if err := InitDB("sqlite", filepath.Join(t.TempDir(), "pool.db"), false); err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	t.Cleanup(func() { _ = Close() })
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB: %v", err)
+	}
+	if got := sqlDB.Stats().MaxOpenConnections; got < 2 {
+		t.Fatalf("SQLite pool has %d max open connections; concurrent WAL reads require at least 2", got)
+	}
+}
+
+func TestInitDBAdvancesRelayLogIDPastPersistedMaximum(t *testing.T) {
+	if db != nil {
+		_ = Close()
+	}
+	path := filepath.Join(t.TempDir(), "snowflake.db")
+	if err := InitDB("sqlite", path, false); err != nil {
+		t.Fatalf("first InitDB failed: %v", err)
+	}
+	futureID := time.Now().UnixMilli() + 60_000
+	if err := db.Create(&model.RelayLog{ID: futureID, Time: time.Now().Unix()}).Error; err != nil {
+		t.Fatalf("insert relay log: %v", err)
+	}
+	if err := Close(); err != nil {
+		t.Fatalf("close first database: %v", err)
+	}
+	if err := InitDB("sqlite", path, false); err != nil {
+		t.Fatalf("second InitDB failed: %v", err)
+	}
+	t.Cleanup(func() { _ = Close() })
+
+	if got := snowflake.GenerateID(); got <= futureID {
+		t.Fatalf("GenerateID() = %d, want greater than persisted maximum %d", got, futureID)
 	}
 }

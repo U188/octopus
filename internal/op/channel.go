@@ -51,7 +51,7 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 	channel.ChannelProxy = nil
 }
 
-func ChannelCreate(channel *model.Channel, ctx context.Context) error {
+func prepareChannelCreate(channel *model.Channel, ctx context.Context) error {
 	if channel == nil {
 		return fmt.Errorf("channel is nil")
 	}
@@ -73,9 +73,10 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	} else {
 		channel.ProxyConfigID = nil
 	}
-	if err := db.GetDB().WithContext(ctx).Create(channel).Error; err != nil {
-		return err
-	}
+	return nil
+}
+
+func cacheCreatedChannel(channel *model.Channel) {
 	normalizeChannelProxyFields(channel)
 	channelCache.Set(channel.ID, *channel)
 	for _, k := range channel.Keys {
@@ -83,34 +84,130 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 			channelKeyCache.Set(k.ID, k)
 		}
 	}
+
+}
+
+func ChannelCreate(channel *model.Channel, ctx context.Context) error {
+	if err := prepareChannelCreate(channel, ctx); err != nil {
+		return err
+	}
+	if err := db.GetDB().WithContext(ctx).Create(channel).Error; err != nil {
+		return err
+	}
+	cacheCreatedChannel(channel)
 	return nil
 }
 
+// ChannelCreateManaged creates a projected channel and its binding in one
+// transaction. replaceBindingID is used when replacing a broken binding; it
+// is deleted in the same transaction before the new binding is inserted.
+// Caches are updated only after commit, so a failed transaction cannot expose
+// a channel that has no durable binding.
+func ChannelCreateManaged(channel *model.Channel, binding *model.SiteChannelBinding, replaceBindingID int, ctx context.Context) error {
+	if binding == nil {
+		return fmt.Errorf("site channel binding is nil")
+	}
+	if err := prepareChannelCreate(channel, ctx); err != nil {
+		return err
+	}
+	tx := db.GetDB().WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if replaceBindingID != 0 {
+		if err := tx.Delete(&model.SiteChannelBinding{}, replaceBindingID).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete replaced site channel binding: %w", err)
+		}
+	}
+	if err := tx.Create(channel).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	newBinding := *binding
+	newBinding.ID = 0
+	newBinding.ChannelID = channel.ID
+	if err := tx.Create(&newBinding).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	*binding = newBinding
+	cacheCreatedChannel(channel)
+	return nil
+}
+
+// applyChannelKeyToChannel 以 copy-on-write 方式把 key 的最新值同步进 Channel.Keys，
+// 供 GetChannelKey 的最低成本选 Key 策略读到实时运行时状态。
+// 必须在 channelCache 的 UpdateExisting 锁内调用，且不得原地修改旧 slice（其他 goroutine 可能正在读）。
+func applyChannelKeyToChannel(ch *model.Channel, key model.ChannelKey) {
+	if len(ch.Keys) == 0 {
+		return
+	}
+	keys := make([]model.ChannelKey, len(ch.Keys))
+	copy(keys, ch.Keys)
+	for i := range keys {
+		if keys[i].ID == key.ID {
+			keys[i] = key
+			break
+		}
+	}
+	ch.Keys = keys
+}
+
+func markChannelKeyNeedUpdate(keyID int) {
+	channelKeyCacheNeedUpdateLock.Lock()
+	channelKeyCacheNeedUpdate[keyID] = struct{}{}
+	channelKeyCacheNeedUpdateLock.Unlock()
+}
+
 // ChannelKeyUpdate 仅更新 ChannelKey 的内存缓存（不落库），并标记为需要在 SaveCache 时写入数据库。
+// Channel 侧通过 UpdateExisting 在锁内基于缓存当前值做最小修改，
+// 不会用调用方手里的旧 Channel 快照覆盖管理员的并发变更（如禁用渠道）。
+// 运行时用量累计请使用 ChannelKeyAddUsage，本接口的整结构覆盖在并发下会丢增量。
 func ChannelKeyUpdate(key model.ChannelKey) error {
 	if key.ID == 0 || key.ChannelID == 0 {
 		return fmt.Errorf("invalid channel key")
 	}
-	ch, ok := channelCache.Get(key.ChannelID)
-	if !ok {
+	if _, ok := channelCache.UpdateExisting(key.ChannelID, func(ch model.Channel) model.Channel {
+		applyChannelKeyToChannel(&ch, key)
+		return ch
+	}); !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if len(ch.Keys) > 0 {
-		keys := make([]model.ChannelKey, len(ch.Keys))
-		copy(keys, ch.Keys)
-		for i := range keys {
-			if keys[i].ID == key.ID {
-				keys[i] = key
-				break
-			}
-		}
-		ch.Keys = keys
-	}
-	channelCache.Set(key.ChannelID, ch)
 	channelKeyCache.Set(key.ID, key)
-	channelKeyCacheNeedUpdateLock.Lock()
-	channelKeyCacheNeedUpdate[key.ID] = struct{}{}
-	channelKeyCacheNeedUpdateLock.Unlock()
+	markChannelKeyNeedUpdate(key.ID)
+	return nil
+}
+
+// ChannelKeyAddUsage 原子累加 ChannelKey 的运行时用量：成本增量、最近状态码与最后使用时间。
+// 在缓存锁内基于当前值做增量，并发请求同时完成时计费累计不会互相覆盖丢失。
+func ChannelKeyAddUsage(channelID, keyID int, costDelta float64, statusCode int, lastUse int64) error {
+	if keyID == 0 || channelID == 0 {
+		return fmt.Errorf("invalid channel key")
+	}
+	if !channelCache.Exists(channelID) {
+		return fmt.Errorf("channel not found")
+	}
+	if _, ok := channelKeyCache.UpdateExisting(keyID, func(k model.ChannelKey) model.ChannelKey {
+		k.TotalCost += costDelta
+		k.StatusCode = statusCode
+		k.LastUseTimeStamp = lastUse
+		return k
+	}); !ok {
+		return fmt.Errorf("channel key not found")
+	}
+	// Channel.Keys 中的运行时视图在锁内从 channelKeyCache 取最新累计值同步，
+	// 两次并发累加乱序到达时也不会把旧的中间值写回。
+	channelCache.UpdateExisting(channelID, func(ch model.Channel) model.Channel {
+		if cur, ok := channelKeyCache.Get(keyID); ok {
+			applyChannelKeyToChannel(&ch, cur)
+		}
+		return ch
+	})
+	markChannelKeyNeedUpdate(keyID)
 	return nil
 }
 func ChannelBaseUrlUpdate(channelID int, baseUrl []model.BaseUrl) error {
@@ -825,18 +922,28 @@ func channelRefreshCache(ctx context.Context) error {
 }
 
 func channelRefreshCacheByID(id int, ctx context.Context) error {
-	if old, ok := channelCache.Get(id); ok {
-		for _, k := range old.Keys {
-			if k.ID != 0 {
-				channelKeyCache.Del(k.ID)
-			}
-		}
-	}
+	// 先读库，成功后再替换缓存：若读库失败就提前清理旧 Key，
+	// 会把带有待落库运行时状态（channelKeyCacheNeedUpdate 脏集）的条目剥离，导致数据丢失。
 	var channel model.Channel
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Keys").
 		First(&channel, id).Error; err != nil {
 		return err
+	}
+	newKeyIDs := make(map[int]struct{}, len(channel.Keys))
+	for _, k := range channel.Keys {
+		if k.ID != 0 {
+			newKeyIDs[k.ID] = struct{}{}
+		}
+	}
+	if old, ok := channelCache.Get(id); ok {
+		for _, k := range old.Keys {
+			if k.ID != 0 {
+				if _, still := newKeyIDs[k.ID]; !still {
+					channelKeyCache.Del(k.ID)
+				}
+			}
+		}
 	}
 	normalizeChannelProxyFields(&channel)
 	channel.Stats = nil

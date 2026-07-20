@@ -338,16 +338,15 @@ func (ra *relayAttempt) attempt() attemptResult {
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
 
-	// 更新 channel key 状态
-	ra.usedKey.StatusCode = statusCode
-	ra.usedKey.LastUseTimeStamp = time.Now().Unix()
+	// 更新 channel key 状态：走 op 层增量接口，在缓存锁内对当前值累加，
+	// 避免并发请求各持旧快照整结构回写互相覆盖（丢计费、丢状态）。
+	lastUse := time.Now().Unix()
 
 	if fwdErr == nil {
 		// ====== 成功 ======
 		// Passthrough handlers collect response at stream end via PassthroughConfig.CollectMetrics
 		ra.collectResponse()
-		ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, ra.metrics.Stats.InputCost+ra.metrics.Stats.OutputCost, statusCode, lastUse)
 
 		span.End(dbmodel.AttemptSuccess, statusCode, ra.attemptMessage(""))
 
@@ -371,7 +370,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		if written {
 			ra.collectResponse()
 		}
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
 		span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 		return attemptResult{
 			Success:    false,
@@ -382,7 +381,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		}
 	}
 
-	op.ChannelKeyUpdate(ra.usedKey)
+	op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
 	span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 
 	// Channel 维度统计

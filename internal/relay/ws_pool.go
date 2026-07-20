@@ -128,7 +128,7 @@ func (p *wsPool) GetPreferred(key wsPoolKey, preferredConnID string) *pooledConn
 	if preferredConnID != "" {
 		for _, pc := range entry.conns {
 			if pc != nil && pc.id == preferredConnID && !pc.busy {
-				if !p.preflightPreferredConnLocked(key, entry, pc, now) {
+				if !p.preflightPreferredConnLocked(key, pc, now) {
 					return nil
 				}
 				pc.busy = true
@@ -257,31 +257,37 @@ func (p *wsPool) releaseDial(key wsPoolKey) {
 	}
 }
 
-func (p *wsPool) preflightPreferredConnLocked(key wsPoolKey, entry *wsPoolEntry, pc *pooledConn, now time.Time) bool {
+func (p *wsPool) preflightPreferredConnLocked(key wsPoolKey, pc *pooledConn, now time.Time) bool {
 	if pc == nil || pc.conn == nil {
 		return false
 	}
 	if now.Sub(pc.lastUsed) < wsHealthCheckIdle {
 		return true
 	}
+	// 释放锁去 ping 前先预占连接：否则解锁窗口内另一请求会把同一空闲连接取走，
+	// 导致两个请求共用一条上游 WS（跨用户串流），或 ping 失败时关闭他人在用的连接。
+	pc.busy = true
 	p.mu.Unlock()
 	pingCtx, cancel := context.WithTimeout(context.Background(), wsHealthCheckTimeout)
 	err := pc.conn.Ping(pingCtx)
 	cancel()
 	p.mu.Lock()
 	if err == nil {
+		// 归还预占，由调用方在同一临界区内按正常取用流程标记 busy
+		pc.busy = false
 		pc.lastUsed = time.Now()
 		return true
 	}
 	log.Debugf("upstream WS preferred connection preflight failed (channel=%d, key=%d, conn_id=%s): %v", key.channelID, key.keyID, pc.id, err)
-	if entry != nil {
-		for i, existing := range entry.conns {
+	// 解锁期间 entry 可能已被摘除或重建，重新取当前 entry 再移除
+	if cur := p.conns[key]; cur != nil {
+		for i, existing := range cur.conns {
 			if existing == pc || (existing != nil && existing.id == pc.id) {
-				entry.conns = append(entry.conns[:i], entry.conns[i+1:]...)
+				cur.conns = append(cur.conns[:i], cur.conns[i+1:]...)
 				break
 			}
 		}
-		if len(entry.conns) == 0 {
+		if len(cur.conns) == 0 {
 			delete(p.conns, key)
 		}
 	}

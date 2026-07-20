@@ -178,9 +178,7 @@ func HandleResponsesCompact(c *gin.Context) {
 			}
 		}
 
-		usedKey.StatusCode = statusCode
-		usedKey.LastUseTimeStamp = time.Now().Unix()
-		op.ChannelKeyUpdate(usedKey)
+		op.ChannelKeyAddUsage(channel.ID, usedKey.ID, 0, statusCode, time.Now().Unix())
 
 		if success {
 			op.StatsChannelUpdate(channel.ID, dbmodel.StatsMetrics{RequestSuccess: 1})

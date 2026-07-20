@@ -41,4 +41,21 @@ func TestMigrateSiteTokensAddValueStatus(t *testing.T) {
 	if rows[1].ValueStatus != string(model.SiteTokenValueStatusMaskedPending) {
 		t.Fatalf("expected masked_pending value status for row 2, got %q", rows[1].ValueStatus)
 	}
+
+	// 迁移应可重复执行（幂等）：列已存在时不应报错
+	if err := migrateSiteTokensAddValueStatus(db); err != nil {
+		t.Fatalf("rerun migrateSiteTokensAddValueStatus returned error: %v", err)
+	}
+
+	// 未显式指定 value_status 的新行应落到列默认值 'ready'
+	if err := db.Exec("INSERT INTO site_tokens (id, token) VALUES (3, 'sk-later-token')").Error; err != nil {
+		t.Fatalf("insert row without value_status failed: %v", err)
+	}
+	var defaulted tokenRow
+	if err := db.Table("site_tokens").Select("id, value_status").Where("id = ?", 3).Take(&defaulted).Error; err != nil {
+		t.Fatalf("query defaulted row failed: %v", err)
+	}
+	if defaulted.ValueStatus != string(model.SiteTokenValueStatusReady) {
+		t.Fatalf("expected default value status %q for new row, got %q", model.SiteTokenValueStatusReady, defaulted.ValueStatus)
+	}
 }

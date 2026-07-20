@@ -794,7 +794,9 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 		for _, item := range req.KeysToUpdate {
 			existing, ok := validIDs[item.ID]
 			if !ok {
-				continue
+				// 静默跳过会把用户的禁用/修改操作悄悄吞掉（例如刚被一轮同步改写），
+				// 必须显式报冲突让前端刷新后重试
+				return fmt.Errorf("site key %d not found in group %s; it may have been changed by a recent sync, please refresh and retry", item.ID, targetGroupKey)
 			}
 			updates := map[string]any{}
 			if item.Enabled != nil {
@@ -844,9 +846,11 @@ func UpdateSiteSourceKeys(siteID int, accountID int, req *model.SiteSourceKeyUpd
 		if len(req.KeysToDelete) > 0 {
 			deletableIDs := make([]int, 0, len(req.KeysToDelete))
 			for _, id := range req.KeysToDelete {
-				if _, ok := validIDs[id]; ok {
-					deletableIDs = append(deletableIDs, id)
+				if _, ok := validIDs[id]; !ok {
+					// 同上：删除泄露 Key 的操作被静默跳过比失败更危险
+					return fmt.Errorf("site key %d not found in group %s; it may have been changed by a recent sync, please refresh and retry", id, targetGroupKey)
 				}
+				deletableIDs = append(deletableIDs, id)
 			}
 			if len(deletableIDs) > 0 {
 				if err := tx.Where("id IN ? AND site_account_id = ? AND purpose = ? AND group_key = ?", deletableIDs, accountID, model.SiteCredentialPurposeChat, targetGroupKey).Delete(&model.SiteToken{}).Error; err != nil {

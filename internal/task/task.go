@@ -27,12 +27,8 @@ var (
 
 // Register 注册一个定时任务
 // runOnStart: 是否在启动时立即执行一次
+// interval <= 0 时注册为暂停状态，后续可通过 Update 启用。
 func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
-	if interval <= 0 {
-		log.Debugf("task %s not registered: interval is 0", name)
-		return
-	}
-
 	tasksMu.Lock()
 	defer tasksMu.Unlock()
 
@@ -47,34 +43,33 @@ func Register(name string, interval time.Duration, runOnStart bool, fn func()) {
 		fn:         fn,
 		runOnStart: runOnStart,
 		stopCh:     make(chan struct{}),
-		updateCh:   make(chan time.Duration),
+		updateCh:   make(chan time.Duration, 1),
+	}
+	if interval <= 0 {
+		log.Debugf("task %s registered as paused: interval is 0", name)
+		return
 	}
 	log.Debugf("task %s registered with interval %v, runOnStart: %v", name, interval, runOnStart)
 }
 
 // Update 更新任务的执行间隔
-// 当 interval 为 0 时，删除任务
+// 当 interval <= 0 时暂停任务（可再次 Update 恢复），不会删除任务。
 func Update(name string, interval time.Duration) {
-	tasksMu.Lock()
+	tasksMu.RLock()
 	entry, exists := tasks[name]
+	tasksMu.RUnlock()
 	if !exists {
-		tasksMu.Unlock()
 		log.Warnf("task %s not found", name)
 		return
 	}
 
-	if interval <= 0 {
-		delete(tasks, name)
-		tasksMu.Unlock()
-		close(entry.stopCh)
-		log.Infof("task %s removed: interval is 0", name)
-		return
-	}
-	tasksMu.Unlock()
-
 	select {
 	case entry.updateCh <- interval:
-		log.Infof("task %s interval updated to %v", name, interval)
+		if interval > 0 {
+			log.Infof("task %s interval updated to %v", name, interval)
+		} else {
+			log.Infof("task %s paused: interval is 0", name)
+		}
 	default:
 		log.Warnf("task %s update channel full, skipping", name)
 	}
@@ -95,12 +90,18 @@ func RUN() {
 }
 
 func runTask(entry *taskEntry) {
-	// 根据配置决定是否在启动时立即执行
-	if entry.runOnStart {
+	// 根据配置决定是否在启动时立即执行；暂停状态不触发
+	if entry.runOnStart && entry.interval > 0 {
 		triggerTask(entry, "startup")
 	}
 
-	entry.ticker = time.NewTicker(entry.interval)
+	// interval <= 0 表示暂停：ticker 保持停止，等待 Update 恢复
+	entry.ticker = time.NewTicker(time.Hour)
+	if entry.interval > 0 {
+		entry.ticker.Reset(entry.interval)
+	} else {
+		entry.ticker.Stop()
+	}
 	defer entry.ticker.Stop()
 
 	for {
@@ -108,9 +109,12 @@ func runTask(entry *taskEntry) {
 		case <-entry.ticker.C:
 			triggerTask(entry, "ticker")
 		case newInterval := <-entry.updateCh:
-			entry.ticker.Stop()
 			entry.interval = newInterval
-			entry.ticker = time.NewTicker(newInterval)
+			if newInterval > 0 {
+				entry.ticker.Reset(newInterval)
+			} else {
+				entry.ticker.Stop()
+			}
 		case <-entry.stopCh:
 			return
 		}

@@ -104,9 +104,13 @@ type Thinking struct {
 type ResponsesInput struct {
 	Text  *string
 	Items []ResponsesItem
+	Raw   json.RawMessage
 }
 
 func (i ResponsesInput) MarshalJSON() ([]byte, error) {
+	if len(i.Raw) > 0 {
+		return json.Marshal(json.RawMessage(i.Raw))
+	}
 	if i.Text != nil {
 		return json.Marshal(i.Text)
 	}
@@ -138,14 +142,51 @@ func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
 		result.Text = input.Text
 		return result
 	}
+	// Raw is the authoritative carrier for Responses requests (see
+	// openai.buildResponsesInput); pass it through instead of dropping it.
+	if len(input.Raw) > 0 {
+		result.Raw = markLastAssistantPartialRaw(input.Raw)
+		return result
+	}
 
 	for _, item := range input.Items {
 		result.Items = append(result.Items, ResponsesItem{ResponsesItem: item})
 	}
 	// If the role of the last message is the assistant, needs set partial.
-	idx := len(input.Items) - 1
-	if result.Items[idx].Role == "assistant" {
-		result.Items[idx].Partial = true
+	if last := len(result.Items) - 1; last >= 0 && result.Items[last].Role == "assistant" {
+		result.Items[last].Partial = true
 	}
 	return result
+}
+
+// markLastAssistantPartialRaw sets "partial": true on the trailing assistant
+// item of a raw input array, rewriting only that element so the rest of the
+// payload stays byte-identical. Non-array or unparsable raw is returned as is.
+func markLastAssistantPartialRaw(raw json.RawMessage) json.RawMessage {
+	var elems []json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil || len(elems) == 0 {
+		return raw
+	}
+	var last map[string]json.RawMessage
+	if err := json.Unmarshal(elems[len(elems)-1], &last); err != nil {
+		return raw
+	}
+	var role string
+	if roleRaw, ok := last["role"]; ok {
+		_ = json.Unmarshal(roleRaw, &role)
+	}
+	if role != "assistant" {
+		return raw
+	}
+	last["partial"] = json.RawMessage("true")
+	patched, err := json.Marshal(last)
+	if err != nil {
+		return raw
+	}
+	elems[len(elems)-1] = patched
+	out, err := json.Marshal(elems)
+	if err != nil {
+		return raw
+	}
+	return out
 }

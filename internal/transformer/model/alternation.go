@@ -193,7 +193,11 @@ func EnforceAlternation(msgs []Message, provider AlternationProvider) []Message 
 			for k := runStart; k < j; k++ {
 				group = append(group, pending[roles[k].idx])
 			}
-			merged = append(merged, mergeSameRole(group, startRole))
+			if toolRun, ok := prepareParallelToolRun(group, runStart); ok {
+				merged = append(merged, toolRun...)
+			} else {
+				merged = append(merged, mergeSameRole(group, startRole))
+			}
 		}
 		i = j
 	}
@@ -219,6 +223,43 @@ func effectiveRole(role string, provider AlternationProvider) string {
 	default:
 		return role
 	}
+}
+
+// prepareParallelToolRun handles a run made up entirely of tool-result
+// messages carrying two or more distinct ToolCallIDs (OpenAI-style parallel
+// tool calls). Physically merging such a run keeps only the first ID, so the
+// remaining results either mis-bind or get rejected upstream. Instead the
+// messages stay separate and share a synthetic MessageIndex: the Anthropic
+// outbound groups same-index tool messages into a single user message whose
+// content carries one tool_result block per ID, and the Gemini outbound emits
+// one functionResponse per message — both valid wire shapes.
+func prepareParallelToolRun(group []Message, runStart int) ([]Message, bool) {
+	if len(group) < 2 {
+		return nil, false
+	}
+	ids := make(map[string]struct{}, len(group))
+	for _, m := range group {
+		if m.Role != "tool" || m.ToolCallID == nil {
+			return nil, false
+		}
+		ids[*m.ToolCallID] = struct{}{}
+	}
+	if len(ids) < 2 {
+		return nil, false
+	}
+	out := make([]Message, len(group))
+	copy(out, group)
+	// Negative synthetic index cannot collide with inbound-assigned message
+	// indexes (original request positions, always >= 0). Messages that already
+	// carry an index (anthropic inbound) keep it so user-content association
+	// via findUserMessageByIndex stays intact.
+	syntheticIndex := -1 - runStart
+	for i := range out {
+		if out[i].MessageIndex == nil {
+			out[i].MessageIndex = &syntheticIndex
+		}
+	}
+	return out, true
 }
 
 // mergeSameRole collapses a run of consecutive same-effective-role messages
