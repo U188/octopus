@@ -742,12 +742,11 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                         </span>
                                     </div>
                                 ) : null}
-                                {log.request_ip ? (
-                                    <div className="flex items-center gap-1.5">
-                                        <Globe2 className="size-3.5 shrink-0 text-sky-500" />
-                                        <span className="truncate" title={log.request_ip}>{log.request_ip}</span>
-                                    </div>
-                                ) : null}
+                                <div className="col-span-2 flex min-w-0 items-center gap-1.5 md:col-span-1">
+                                    <Globe2 className="size-3.5 shrink-0 text-sky-500" />
+                                    <span className="shrink-0 font-medium text-foreground/70">IP</span>
+                                    <span className="truncate" title={log.request_ip || undefined}>{log.request_ip || '-'}</span>
+                                </div>
                                 <div className="flex items-center gap-1.5">
                                     <Zap className="size-3.5 shrink-0 text-amber-500" />
                                     <span>{t('duration')} {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>
@@ -1064,12 +1063,11 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                     </span>
                                 </div>
                             ) : null}
-                            {displayLog.request_ip ? (
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                    <Globe2 className="size-3.5 shrink-0 text-sky-500" />
-                                    <span className="truncate" title={displayLog.request_ip}>{displayLog.request_ip}</span>
-                                </div>
-                            ) : null}
+                            <div className="flex min-w-0 items-center gap-1.5">
+                                <Globe2 className="size-3.5 shrink-0 text-sky-500" />
+                                <span className="shrink-0 font-medium text-foreground/70">IP</span>
+                                <span className="truncate" title={displayLog.request_ip || undefined}>{displayLog.request_ip || '-'}</span>
+                            </div>
                             <div className="flex items-center gap-1.5">
                                 <Zap className="size-3.5 text-amber-500" />
                                 <span>{t('duration')}: {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>
