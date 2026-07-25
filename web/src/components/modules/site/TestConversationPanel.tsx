@@ -43,6 +43,31 @@ const CLIENT_OPTIONS: Array<{ value: SiteTestConversationClient; label: string }
   { value: "claude", label: "Claude" },
 ];
 
+const DEFAULT_IMAGE_PROMPT = "a clean product-style image of a small orange octopus mascot";
+
+function randomInteger(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateCalculusProblem() {
+  const a = randomInteger(2, 6);
+  const b = randomInteger(2, 8);
+  const c = randomInteger(1, 5);
+  const n = randomInteger(2, 5);
+  const x0 = randomInteger(1, 3);
+  const problems = [
+    `设 f(x)=(${a}x^2+${b}x+${c})e^(${n}x)，求 f'(x)，并计算 f'(${x0})。请给出主要步骤。`,
+    `求极限：lim_(x→0) [sin(${a}x)-${a}x]/x^3。请说明所用方法。`,
+    `计算定积分：∫_0^${a} x^${n}·ln(x+1) dx。请给出主要步骤和最终结果。`,
+    `判断级数 Σ_(n=1)^∞ (n+${a})/(n^3+${b}) 的敛散性；若收敛，请说明理由。`,
+    `求解初值问题：y'+${a}y=e^(${b}x)，y(0)=${c}。`,
+    `计算二重积分：∫_0^${a} ∫_0^(${a}-x) (x+${b}y) dy dx。`,
+    `设 z=x^2y+${a}xy^2-${b}x，求点 (${x0}, ${c}) 处的梯度，并写出该点处的最速上升方向。`,
+    `求函数 f(x)=x^${n}e^(-${a}x) 在区间 [0,+∞) 上的最大值，并说明极值判定过程。`,
+  ];
+  return problems[randomInteger(0, problems.length - 1)];
+}
+
 function defaultMode(site: Site): SiteTestConversationMode {
   if (site.default_route_type === "openai_response") return "openai_response";
   if (site.default_route_type === "openai_image") return "openai_image";
@@ -266,7 +291,8 @@ export function TestConversationPanel({
   const [model, setModel] = useState("");
   const [mode, setMode] = useState<SiteTestConversationMode>(() => defaultMode(site));
   const [client, setClient] = useState<SiteTestConversationClient>("default");
-  const [greeting, setGreeting] = useState("hi");
+  const [textGreeting, setTextGreeting] = useState("");
+  const [imageGreeting, setImageGreeting] = useState(DEFAULT_IMAGE_PROMPT);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<Error | null>(null);
   const [conversationResult, setConversationResult] = useState<SiteTestConversationResult | null>(null);
@@ -328,10 +354,11 @@ export function TestConversationPanel({
 
   const suggestedMode = modeFromRouteType(selectedModelRouteType);
 
-  const canSend = Boolean(effectiveTokenID && effectiveModel && greeting.trim()) && !isStreaming;
   const selectedToken = readyTokenOptions.find((token) => String(token.id) === effectiveTokenID);
   const effectiveMode = client === "codex" ? "openai_response" : client === "claude" ? "anthropic" : mode;
   const isImageMode = effectiveMode === "openai_image";
+  const greeting = isImageMode ? imageGreeting : textGreeting;
+  const canSend = Boolean(effectiveTokenID && effectiveModel && greeting.trim()) && !isStreaming;
   const imagePreviews = useMemo(
     () =>
       conversationResult?.mode === "openai_image"
@@ -429,7 +456,15 @@ export function TestConversationPanel({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen && !textGreeting.trim()) {
+          setTextGreeting(generateCalculusProblem());
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant="outline" className="h-8 rounded-xl">
           <MessageCircle className="size-4" />
@@ -556,10 +591,16 @@ export function TestConversationPanel({
             <span className="text-muted-foreground">{isImageMode ? "图片提示词" : "招呼语"}</span>
             <textarea
               value={greeting}
-              onChange={(event) => setGreeting(event.target.value)}
+              onChange={(event) => {
+                if (isImageMode) {
+                  setImageGreeting(event.target.value);
+                } else {
+                  setTextGreeting(event.target.value);
+                }
+              }}
               rows={3}
               className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder={isImageMode ? "a clean product-style image of a small orange octopus mascot" : "hi"}
+              placeholder={isImageMode ? DEFAULT_IMAGE_PROMPT : "随机生成一道高数题"}
             />
           </label>
 

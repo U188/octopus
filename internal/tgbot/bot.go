@@ -2224,7 +2224,7 @@ func (r *Runner) runPendingTest(ctx context.Context, action pendingAction, text 
 			messageStart = 3
 		}
 	}
-	greeting := "hi"
+	greeting := ""
 	if len(fields) > messageStart {
 		greeting = strings.Join(fields[messageStart:], " ")
 	}
@@ -2435,7 +2435,7 @@ func (r *Runner) testConversation(ctx context.Context, args []string) string {
 			messageStart = 4
 		}
 	}
-	greeting := "hi"
+	greeting := ""
 	if len(args) > messageStart {
 		greeting = strings.Join(args[messageStart:], " ")
 	}

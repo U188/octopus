@@ -308,6 +308,19 @@ func TestBuildTestConversationRequestResponsesDefaultsToStream(t *testing.T) {
 	}
 }
 
+func TestDefaultTestConversationGreeting(t *testing.T) {
+	if got := DefaultTestConversationGreeting(TestConversationModeOpenAIImage); got != defaultTestConversationImagePrompt {
+		t.Fatalf("expected image prompt %q, got %q", defaultTestConversationImagePrompt, got)
+	}
+
+	for i := 0; i < 32; i++ {
+		got := strings.TrimSpace(DefaultTestConversationGreeting(TestConversationModeOpenAIChat))
+		if got == "" || got == "hi" {
+			t.Fatalf("expected a generated calculus problem, got %q", got)
+		}
+	}
+}
+
 func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	siteRecord := &model.Site{
 		Platform: model.SitePlatformAPI,
@@ -369,7 +382,7 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 		t.Fatalf("latest codex shape must not use top-level instructions, got %#v", body["instructions"])
 	}
 	developerContent, ok := input[1]["content"].([]map[string]string)
-	if !ok || len(developerContent) != 1 || !strings.Contains(developerContent[0]["text"], "Do not call tools") {
+	if !ok || len(developerContent) != 1 || !strings.Contains(developerContent[0]["text"], "enough reasoning") || !strings.Contains(developerContent[0]["text"], "Do not call tools") {
 		t.Fatalf("expected no-tools developer message, got %#v", input[1])
 	}
 	if include, ok := body["include"].([]string); !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {

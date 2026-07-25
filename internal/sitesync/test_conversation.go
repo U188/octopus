@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -33,8 +34,9 @@ const (
 	TestConversationClientCodex   TestConversationClient = "codex"
 	TestConversationClientClaude  TestConversationClient = "claude"
 
-	claudeTestConversationUserAgent = claudemode.UserAgent
-	claudeTestConversationBeta      = claudemode.BaseAnthropicBeta
+	claudeTestConversationUserAgent    = claudemode.UserAgent
+	claudeTestConversationBeta         = claudemode.BaseAnthropicBeta
+	defaultTestConversationImagePrompt = "a clean product-style image of a small orange octopus mascot"
 )
 
 type TestConversationRequest struct {
@@ -91,10 +93,6 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	greeting := strings.TrimSpace(req.Greeting)
-	if greeting == "" {
-		greeting = "hi"
-	}
 	mode := normalizeTestConversationMode(req.Mode)
 	client := normalizeTestConversationClient(req.Client)
 	if client == TestConversationClientCodex {
@@ -102,6 +100,10 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 	}
 	if client == TestConversationClientClaude {
 		mode = TestConversationModeAnthropic
+	}
+	greeting := strings.TrimSpace(req.Greeting)
+	if greeting == "" {
+		greeting = DefaultTestConversationGreeting(mode)
 	}
 
 	siteRecord, account, token, err := testConversationTarget(ctx, req.AccountID, req.TokenID)
@@ -337,6 +339,40 @@ func normalizeTestConversationClient(client TestConversationClient) TestConversa
 	default:
 		return TestConversationClientDefault
 	}
+}
+
+func DefaultTestConversationGreeting(mode TestConversationMode) string {
+	if normalizeTestConversationMode(mode) == TestConversationModeOpenAIImage {
+		return defaultTestConversationImagePrompt
+	}
+
+	a := randomTestConversationInteger(2, 6)
+	b := randomTestConversationInteger(2, 8)
+	c := randomTestConversationInteger(1, 5)
+	n := randomTestConversationInteger(2, 5)
+	x0 := randomTestConversationInteger(1, 3)
+	problems := []string{
+		fmt.Sprintf("设 f(x)=(%dx^2+%dx+%d)e^(%dx)，求 f'(x)，并计算 f'(%d)。请给出主要步骤。", a, b, c, n, x0),
+		fmt.Sprintf("求极限：lim_(x→0) [sin(%dx)-%dx]/x^3。请说明所用方法。", a, a),
+		fmt.Sprintf("计算定积分：∫_0^%d x^%d·ln(x+1) dx。请给出主要步骤和最终结果。", a, n),
+		fmt.Sprintf("判断级数 Σ_(n=1)^∞ (n+%d)/(n^3+%d) 的敛散性；若收敛，请说明理由。", a, b),
+		fmt.Sprintf("求解初值问题：y'+%dy=e^(%dx)，y(0)=%d。", a, b, c),
+		fmt.Sprintf("计算二重积分：∫_0^%d ∫_0^(%d-x) (x+%dy) dy dx。", a, a, b),
+		fmt.Sprintf("设 z=x^2y+%dxy^2-%dx，求点 (%d, %d) 处的梯度，并写出该点处的最速上升方向。", a, b, x0, c),
+		fmt.Sprintf("求函数 f(x)=x^%de^(-%dx) 在区间 [0,+∞) 上的最大值，并说明极值判定过程。", n, a),
+	}
+	return problems[randomTestConversationInteger(0, len(problems)-1)]
+}
+
+func randomTestConversationInteger(minimum int, maximum int) int {
+	if maximum <= minimum {
+		return minimum
+	}
+	value, err := rand.Int(rand.Reader, big.NewInt(int64(maximum-minimum+1)))
+	if err != nil {
+		return minimum
+	}
+	return minimum + int(value.Int64())
 }
 
 func testConversationClientName(client TestConversationClient) string {
@@ -619,7 +655,7 @@ func buildCodexTestConversationBody(modelName string, greeting string, sessionID
 
 func codexTestConversationInstructions(greeting string) string {
 	return fmt.Sprintf(
-		"You are Codex. This is an Octopus connectivity test. Reply directly to the user's greeting %q with one short plain-text sentence. Do not call tools.",
+		"You are Codex. This is an Octopus connectivity test. Answer the user's question %q directly and concisely in plain text. Include enough reasoning to make the answer verifiable. Do not call tools.",
 		greeting,
 	)
 }
