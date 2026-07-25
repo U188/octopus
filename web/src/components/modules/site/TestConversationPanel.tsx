@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Bot, Clock3, ImageIcon, LoaderCircle, MessageCircle, Send, UserRound } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Clock3, ImageIcon, LoaderCircle, MessageCircle, Send, Square, UserRound } from "lucide-react";
 import {
   type Site,
   type SiteAccount,
@@ -44,6 +44,8 @@ const CLIENT_OPTIONS: Array<{ value: SiteTestConversationClient; label: string }
 ];
 
 const DEFAULT_IMAGE_PROMPT = "a clean product-style image of a small orange octopus mascot";
+const TEXT_STREAM_INACTIVITY_TIMEOUT_MS = 90_000;
+const IMAGE_STREAM_INACTIVITY_TIMEOUT_MS = 110_000;
 
 function randomInteger(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -294,8 +296,11 @@ export function TestConversationPanel({
   const [textGreeting, setTextGreeting] = useState("");
   const [imageGreeting, setImageGreeting] = useState(DEFAULT_IMAGE_PROMPT);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [conversationCompleted, setConversationCompleted] = useState(false);
   const [streamError, setStreamError] = useState<Error | null>(null);
   const [conversationResult, setConversationResult] = useState<SiteTestConversationResult | null>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const abortMessageRef = useRef("");
   const { data: latestSites } = useSiteList();
 
   const latestAccount = useMemo(() => {
@@ -410,9 +415,37 @@ export function TestConversationPanel({
     setMode(suggestedMode);
   }, [client, suggestedMode]);
 
+  useEffect(
+    () => () => {
+      abortMessageRef.current = "测试对话已停止";
+      requestControllerRef.current?.abort();
+    },
+    [],
+  );
+
+  const resetConversation = () => {
+    setConversationResult(null);
+    setStreamError(null);
+    setConversationCompleted(false);
+    setTextGreeting(generateCalculusProblem());
+    setImageGreeting(DEFAULT_IMAGE_PROMPT);
+  };
+
   const handleSend = async () => {
-    if (!canSend) return;
-    const nextGreeting = greeting.trim() || "hi";
+    if (!canSend || requestControllerRef.current) return;
+    const nextGreeting = greeting.trim();
+    const controller = new AbortController();
+    const inactivityTimeoutMS = isImageMode
+      ? IMAGE_STREAM_INACTIVITY_TIMEOUT_MS
+      : TEXT_STREAM_INACTIVITY_TIMEOUT_MS;
+    let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        abortMessageRef.current = `测试对话超过 ${Math.round(inactivityTimeoutMS / 1000)} 秒没有返回新内容，已自动停止`;
+        controller.abort();
+      }, inactivityTimeoutMS);
+    };
     const pendingResult: SiteTestConversationResult = {
       model: effectiveModel,
       mode: effectiveMode,
@@ -420,9 +453,13 @@ export function TestConversationPanel({
       reply: "",
       duration_ms: 0,
     };
+    requestControllerRef.current = controller;
+    abortMessageRef.current = "";
     setConversationResult(pendingResult);
     setStreamError(null);
+    setConversationCompleted(false);
     setIsStreaming(true);
+    resetInactivityTimer();
     try {
       await streamTestSiteConversation(
         {
@@ -434,41 +471,64 @@ export function TestConversationPanel({
           client,
         },
         {
+          onStart: resetInactivityTimer,
           onDelta: (delta) => {
+            resetInactivityTimer();
             setConversationResult((current) => ({
               ...(current ?? pendingResult),
               reply: `${current?.reply ?? ""}${delta}`,
             }));
           },
           onDone: (result) => {
+            if (inactivityTimer) clearTimeout(inactivityTimer);
             setConversationResult(result);
+            setConversationCompleted(true);
           },
           onError: (message) => {
+            if (inactivityTimer) clearTimeout(inactivityTimer);
             setStreamError(new Error(message));
           },
         },
+        controller.signal,
       );
     } catch (error) {
-      setStreamError(error instanceof Error ? error : new Error("测试对话失败"));
+      const message = abortMessageRef.current;
+      setConversationCompleted(false);
+      setStreamError(message ? new Error(message) : error instanceof Error ? error : new Error("测试对话失败"));
     } finally {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+      }
+      abortMessageRef.current = "";
       setIsStreaming(false);
     }
+  };
+
+  const handleStop = () => {
+    if (!isStreaming || !requestControllerRef.current) return;
+    abortMessageRef.current = "测试对话已手动停止，可保留当前内容后重新测试";
+    requestControllerRef.current.abort();
   };
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (nextOpen && !textGreeting.trim()) {
-          setTextGreeting(generateCalculusProblem());
+        if (nextOpen) {
+          if (conversationCompleted) {
+            resetConversation();
+          } else if (!textGreeting.trim()) {
+            setTextGreeting(generateCalculusProblem());
+          }
         }
         setOpen(nextOpen);
       }}
     >
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant="outline" className="h-8 rounded-xl">
-          <MessageCircle className="size-4" />
-          测试对话
+          {isStreaming ? <LoaderCircle className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+          {isStreaming ? "测试中" : "测试对话"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto sm:max-w-2xl">
@@ -483,7 +543,7 @@ export function TestConversationPanel({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm">
               <span className="text-muted-foreground">API Key</span>
-              <Select value={effectiveTokenID} onValueChange={setTokenID}>
+              <Select value={effectiveTokenID} onValueChange={setTokenID} disabled={isStreaming}>
                 <SelectTrigger className="h-9 w-full rounded-xl">
                   <SelectValue placeholder="选择 Key" />
                 </SelectTrigger>
@@ -524,7 +584,7 @@ export function TestConversationPanel({
                   setMode(nextMode);
                   if (nextMode === "openai_image") setClient("default");
                 }}
-                disabled={client === "codex" || client === "claude"}
+                disabled={isStreaming || client === "codex" || client === "claude"}
               >
                 <SelectTrigger className="h-9 w-full rounded-xl">
                   <SelectValue />
@@ -547,7 +607,7 @@ export function TestConversationPanel({
             <span className="text-muted-foreground">客户端</span>
             <Select
               value={client}
-              disabled={isImageMode}
+              disabled={isStreaming || isImageMode}
               onValueChange={(value) => {
                 const nextClient = value as SiteTestConversationClient;
                 setClient(nextClient);
@@ -573,7 +633,7 @@ export function TestConversationPanel({
 
           <label className="grid gap-1.5 text-sm">
             <span className="text-muted-foreground">模型</span>
-            <Select value={effectiveModel} onValueChange={setModel}>
+            <Select value={effectiveModel} onValueChange={setModel} disabled={isStreaming}>
               <SelectTrigger className="h-9 w-full rounded-xl">
                 <SelectValue placeholder="选择模型" />
               </SelectTrigger>
@@ -599,6 +659,7 @@ export function TestConversationPanel({
                 }
               }}
               rows={3}
+              disabled={isStreaming}
               className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               placeholder={isImageMode ? DEFAULT_IMAGE_PROMPT : "随机生成一道高数题"}
             />
@@ -615,7 +676,15 @@ export function TestConversationPanel({
               {conversationResult ? (
                 <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                   <Clock3 className="size-3.5" />
-                  {conversationResult.duration_ms > 0 ? `${conversationResult.duration_ms}ms` : "streaming"}
+                  {isStreaming
+                    ? "进行中"
+                    : conversationCompleted
+                      ? conversationResult.duration_ms > 0
+                        ? `${conversationResult.duration_ms}ms`
+                        : "已完成"
+                      : streamError
+                        ? "已停止"
+                        : "等待结果"}
                 </div>
               ) : null}
             </div>
@@ -625,7 +694,8 @@ export function TestConversationPanel({
                 <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {errorMessage(streamError)}
                 </div>
-              ) : conversationResult ? (
+              ) : null}
+              {conversationResult ? (
                 <>
                   <div className="flex justify-end gap-2">
                     <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary px-3 py-2 text-sm leading-relaxed text-primary-foreground">
@@ -685,14 +755,17 @@ export function TestConversationPanel({
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>
             关闭
           </Button>
-          <Button type="button" disabled={!canSend} onClick={handleSend}>
-            {isStreaming ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
+          {isStreaming ? (
+            <Button type="button" variant="destructive" onClick={handleStop}>
+              <Square className="size-4" />
+              停止测试
+            </Button>
+          ) : (
+            <Button type="button" disabled={!canSend} onClick={handleSend}>
               <Send className="size-4" />
-            )}
-            {isImageMode ? "生成图片" : "发送测试"}
-          </Button>
+              {streamError ? "重新测试" : isImageMode ? "生成图片" : "发送测试"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
