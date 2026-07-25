@@ -17,6 +17,7 @@ import (
 	"github.com/U188/octopus/internal/outlierwindow"
 	"github.com/U188/octopus/internal/relay/balancer"
 	"github.com/U188/octopus/internal/relay/stream"
+	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	"github.com/U188/octopus/internal/transformer/inbound"
 	"github.com/U188/octopus/internal/transformer/model"
@@ -96,6 +97,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 初始化 Metrics
 	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, internalRequest)
+	metrics.SetRequestIP(middleware.RequestIP(c))
 	responsesPassthroughRequired := internalRequest.HasOpenAIResponsesPassthrough()
 	responsesCustomTools := hasOpenAIResponsesCustomTools(internalRequest)
 	responsesPassthroughCapableFound := false

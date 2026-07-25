@@ -89,7 +89,7 @@ func TestRelayLogListDefaultsToLightFieldsAndNoContentKeyword(t *testing.T) {
 	resetRelayLogStateForTest()
 
 	rows := []model.RelayLog{
-		{ID: 101, Time: 101, RequestModelName: "gpt-visible", RequestAPIKeyName: "key-a", ChannelId: 1, ChannelName: "primary", ActualModelName: "gpt-visible", RequestContent: "hidden-needle", ResponseContent: "hidden-response", Success: true},
+		{ID: 101, Time: 101, RequestIP: "203.0.113.10", RequestModelName: "gpt-visible", RequestAPIKeyName: "key-a", ChannelId: 1, ChannelName: "primary", ActualModelName: "gpt-visible", RequestContent: "hidden-needle", ResponseContent: "hidden-response", Success: true},
 		{ID: 102, Time: 102, RequestModelName: "claude", RequestAPIKeyName: "key-b", ChannelId: 1, ChannelName: "secondary", ActualModelName: "claude", Error: "visible failure", RequestContent: "plain", Success: false},
 	}
 	if err := dbpkg.GetDB().WithContext(ctx).Create(&rows).Error; err != nil {
@@ -123,6 +123,14 @@ func TestRelayLogListDefaultsToLightFieldsAndNoContentKeyword(t *testing.T) {
 	}
 	if contentResult.Total != 1 || len(contentResult.Logs) != 1 || contentResult.Logs[0].ID != 101 {
 		t.Fatalf("content keyword did not find expected row: %+v", contentResult)
+	}
+
+	ipResult, err := RelayLogListWithFilter(ctx, RelayLogListFilter{Keyword: "203.0.113.10", KeywordMode: RelayLogKeywordModeExact, Page: 1, PageSize: 10, WithTotal: true})
+	if err != nil {
+		t.Fatalf("RelayLogListWithFilter IP keyword failed: %v", err)
+	}
+	if ipResult.Total != 1 || len(ipResult.Logs) != 1 || ipResult.Logs[0].RequestIP != "203.0.113.10" {
+		t.Fatalf("IP keyword did not find expected row: %+v", ipResult)
 	}
 }
 

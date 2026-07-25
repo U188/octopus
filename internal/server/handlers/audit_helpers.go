@@ -6,6 +6,7 @@ import (
 
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
+	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
 )
@@ -29,7 +30,7 @@ func recordAudit(c *gin.Context, action, status string, detail map[string]any, a
 		Action:    action,
 		Status:    status,
 		Actor:     actor,
-		IP:        c.ClientIP(),
+		IP:        middleware.RequestIP(c),
 		UserAgent: c.Request.UserAgent(),
 		Method:    c.Request.Method,
 		Path:      c.FullPath(),

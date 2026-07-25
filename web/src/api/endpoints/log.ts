@@ -55,6 +55,7 @@ export interface LogSiteActionTargets {
 export interface RelayLog {
     id: number;
     time: number;                // 时间戳
+    request_ip?: string;         // 客户端请求 IP
     request_model_name: string;  // 请求模型名称
     request_api_key_name?: string; // 请求使用的 API Key 名称
     channel: number;             // 实际使用的渠道ID

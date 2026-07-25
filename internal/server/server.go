@@ -35,6 +35,11 @@ func Start() error {
 	}
 
 	r := gin.New()
+	// Gin trusts forwarded IP headers by default. Disable that implicit trust
+	// and only honor headers from explicitly configured proxy networks.
+	if err := r.SetTrustedProxies(conf.AppConfig.Server.TrustedProxies); err != nil {
+		return fmt.Errorf("invalid trusted proxy configuration: %w", err)
+	}
 	r.Use(middleware.SecurityHeaders())
 	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
 		log.Errorf("http panic recovered: %v", recovered)

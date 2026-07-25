@@ -23,6 +23,7 @@ import (
 	"github.com/U188/octopus/internal/price"
 	"github.com/U188/octopus/internal/relay/balancer"
 	"github.com/U188/octopus/internal/relay/bodycache"
+	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	"github.com/U188/octopus/internal/transformer/outbound"
 	"github.com/U188/octopus/internal/utils/log"
@@ -116,6 +117,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 
 	// 初始化 Metrics（Images 独立，避免 b64_json 内存膨胀）
 	metrics := newImagesRelayMetrics(apiKeyID, requestModel)
+	metrics.SetRequestIP(middleware.RequestIP(c))
 	metrics.RequestContent = buildImagesRequestContentForLog(isMultipart, bc, jsonPayload)
 
 	// === 早期心跳 ===
@@ -241,6 +243,7 @@ type imagesUsage struct {
 type imagesRelayMetrics struct {
 	APIKeyID     int
 	RequestModel string
+	RequestIP    string
 	ActualModel  string
 	StartTime    time.Time
 	FirstToken   time.Time
@@ -258,6 +261,13 @@ func newImagesRelayMetrics(apiKeyID int, requestModel string) *imagesRelayMetric
 		RequestModel: requestModel,
 		StartTime:    time.Now(),
 	}
+}
+
+func (m *imagesRelayMetrics) SetRequestIP(ip string) {
+	if m == nil {
+		return
+	}
+	m.RequestIP = strings.TrimSpace(ip)
 }
 
 func (m *imagesRelayMetrics) SetFirstTokenTime(t time.Time) {
@@ -315,6 +325,7 @@ func (m *imagesRelayMetrics) SaveWithChannelStats(ctx context.Context, success b
 	if conf.AppConfig.Log.Relay.Summary || !success {
 		fields := []interface{}{
 			"model", m.RequestModel,
+			"request_ip", m.RequestIP,
 			"actual_model", m.ActualModel,
 			"channel_id", channelID,
 			"channel", channelName,
@@ -345,6 +356,7 @@ func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err erro
 
 	relayLog := model.RelayLog{
 		Time:             m.StartTime.Unix(),
+		RequestIP:        m.RequestIP,
 		RequestModelName: m.RequestModel,
 		ChannelName:      channelName,
 		ChannelId:        channelID,

@@ -79,6 +79,14 @@ func setSetting(c *gin.Context) {
 		resp.Error(c, http.StatusForbidden, "jwt secret is managed internally")
 		return
 	}
+	if setting.Key == model.SettingKeyIPWhitelist {
+		normalized, err := model.NormalizeIPWhitelist(setting.Value)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		setting.Value = normalized
+	}
 	if err := setting.Validate(); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return

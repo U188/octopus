@@ -94,6 +94,10 @@ func InvalidToken(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthInvalidToken, ErrUnauthorized).WithStatus(http.StatusUnauthorized))
 }
 
+func IPNotAllowed(c *gin.Context) {
+	ErrorWithAppError(c, http.StatusForbidden, apperror.New(apperror.CodeAuthIPNotAllowed, "request IP is not allowed").WithStatus(http.StatusForbidden))
+}
+
 func InvalidCredentials(c *gin.Context) {
 	ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthInvalidCredentials, ErrUnauthorized).WithStatus(http.StatusUnauthorized))
 }

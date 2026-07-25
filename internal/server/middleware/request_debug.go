@@ -32,7 +32,7 @@ func RequestDebug(cfg RequestDebugConfig) gin.HandlerFunc {
 			fields := []interface{}{
 				"method", c.Request.Method,
 				"path", c.Request.URL.Path,
-				"ip", c.ClientIP(),
+				"ip", RequestIP(c),
 				"content_type", c.GetHeader("Content-Type"),
 				"content_length", c.Request.ContentLength,
 			}

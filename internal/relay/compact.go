@@ -16,6 +16,7 @@ import (
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/outlierwindow"
 	"github.com/U188/octopus/internal/relay/balancer"
+	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	transformerModel "github.com/U188/octopus/internal/transformer/model"
 	"github.com/U188/octopus/internal/transformer/outbound"
@@ -91,6 +92,7 @@ func HandleResponsesCompact(c *gin.Context) {
 
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
+	metrics.SetRequestIP(middleware.RequestIP(c))
 
 	var lastErr error
 	var lastStatusCode int

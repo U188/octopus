@@ -11,6 +11,7 @@ import (
 	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	"github.com/U188/octopus/internal/server/router"
+	"github.com/U188/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -39,12 +40,14 @@ func init() {
 }
 
 func login(c *gin.Context) {
+	requestIP := middleware.RequestIP(c)
 	var user model.UserLogin
 	if err := c.ShouldBindJSON(&user); err != nil {
 		resp.InvalidJSON(c)
 		return
 	}
-	if allowed, retryAfter := auth.LoginAllowed(c.Request.RemoteAddr); !allowed {
+	if allowed, retryAfter := auth.LoginAllowed(requestIP); !allowed {
+		log.Warnw("auth.login.rate_limited", "ip", requestIP)
 		seconds := int(retryAfter.Seconds())
 		if seconds < 1 {
 			seconds = 1
@@ -55,7 +58,8 @@ func login(c *gin.Context) {
 		return
 	}
 	if err := op.UserVerify(user.Username, user.Password); err != nil {
-		auth.RecordLoginFailure(c.Request.RemoteAddr)
+		auth.RecordLoginFailure(requestIP)
+		log.Warnw("auth.login.failed", "ip", requestIP)
 		resp.InvalidCredentials(c)
 		return
 	}
@@ -64,7 +68,8 @@ func login(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	auth.ClearLoginFailures(c.Request.RemoteAddr)
+	auth.ClearLoginFailures(requestIP)
+	log.Infow("auth.login.success", "ip", requestIP)
 	resp.Success(c, model.UserLoginResponse{Token: token, ExpireAt: expire})
 }
 

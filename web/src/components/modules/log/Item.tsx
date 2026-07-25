@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, Zap, AlertCircle, ArrowDownToLine, ArrowUpFromLine, DollarSign, ArrowRight, ArrowDown, Send, MessageSquare, Loader2, RotateCw, ChevronDown, ChevronUp, Pin, KeyRound, CircleOff, Link } from 'lucide-react';
+import { Clock, Zap, AlertCircle, ArrowDownToLine, ArrowUpFromLine, DollarSign, ArrowRight, ArrowDown, Send, MessageSquare, Loader2, RotateCw, ChevronDown, ChevronUp, Pin, KeyRound, CircleOff, Link, Globe2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'motion/react';
 import JsonView from '@uiw/react-json-view';
@@ -742,6 +742,12 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                         </span>
                                     </div>
                                 ) : null}
+                                {log.request_ip ? (
+                                    <div className="flex items-center gap-1.5">
+                                        <Globe2 className="size-3.5 shrink-0 text-sky-500" />
+                                        <span className="truncate" title={log.request_ip}>{log.request_ip}</span>
+                                    </div>
+                                ) : null}
                                 <div className="flex items-center gap-1.5">
                                     <Zap className="size-3.5 shrink-0 text-amber-500" />
                                     <span>{t('duration')} {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>
@@ -1056,6 +1062,12 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                     <span className="truncate" title={requestAPIKeyName}>
                                         {requestAPIKeyName}
                                     </span>
+                                </div>
+                            ) : null}
+                            {displayLog.request_ip ? (
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                    <Globe2 className="size-3.5 shrink-0 text-sky-500" />
+                                    <span className="truncate" title={displayLog.request_ip}>{displayLog.request_ip}</span>
                                 </div>
                             ) : null}
                             <div className="flex items-center gap-1.5">

@@ -32,6 +32,10 @@ func Auth() gin.HandlerFunc {
 
 func APIKeyAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !checkIPWhitelist(c) {
+			return
+		}
+
 		var apiKey string
 		var requestType string
 

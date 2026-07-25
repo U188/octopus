@@ -289,6 +289,17 @@
             "hint": "为空禁止跨域，* 允许所有",
             "example": "只允许指定域名: https://example.com,https://example2.com"
         },
+        "ipWhitelist": {
+            "enabled": {
+                "label": "API 请求 IP 白名单",
+                "description": "开启后仅允许白名单中的 IP/CIDR 调用 API Key 接口；后台登录和管理接口不受影响。列表为空时拒绝全部 API Key 请求；使用反向代理时需配置 server.trusted_proxies。"
+            },
+            "list": {
+                "label": "允许的 IP/CIDR",
+                "description": "支持单个 IPv4/IPv6 或 CIDR 网段，多个值用逗号或换行分隔。",
+                "placeholder": "例如：192.0.2.10\n192.0.2.0/24"
+            }
+        },
         "responsesWS": {
             "label": "OpenAI Responses WebSocket",
             "description": "为客户端 WebSocket /v1/responses 入站启用上游 WebSocket。「启用 · 默认关闭」表示能力开启但默认不使用，渠道可单独开启；直通/转换为渠道未覆盖时的默认模式。",
@@ -1129,6 +1140,7 @@
         "auth": {
             "unauthorized": "请先登录后再继续操作。",
             "forbidden": "没有权限执行此操作。",
+            "ip_not_allowed": "当前请求 IP 不在允许的白名单中。",
             "invalid_token": "登录状态已失效，请重新登录。",
             "expired_token": "登录状态已过期，请重新登录。",
             "invalid_credentials": "用户名或密码错误。",

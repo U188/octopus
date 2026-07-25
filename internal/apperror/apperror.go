@@ -18,6 +18,7 @@ const (
 
 	CodeAuthUnauthorized       = "auth.unauthorized"
 	CodeAuthForbidden          = "auth.forbidden"
+	CodeAuthIPNotAllowed       = "auth.ip_not_allowed"
 	CodeAuthInvalidToken       = "auth.invalid_token"
 	CodeAuthExpiredToken       = "auth.expired_token"
 	CodeAuthInvalidCredentials = "auth.invalid_credentials"

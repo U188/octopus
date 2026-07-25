@@ -11,6 +11,7 @@ import (
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/relay/balancer"
+	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/transformer/inbound"
 	transformerModel "github.com/U188/octopus/internal/transformer/model"
 	"github.com/U188/octopus/internal/transformer/outbound"
@@ -52,6 +53,7 @@ func HandleWSResponse(c *gin.Context) {
 
 	apiKeyID := c.GetInt("api_key_id")
 	supportedModels := c.GetString("supported_models")
+	requestIP := middleware.RequestIP(c)
 
 	log.Debugf("ws client connected (apikey=%d)", apiKeyID)
 
@@ -98,7 +100,7 @@ func HandleWSResponse(c *gin.Context) {
 			continue
 		}
 
-		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, downstreamSessionID, conversationState)
+		conversationState = processWSResponseCreate(ctx, conn, data, apiKeyID, supportedModels, requestIP, downstreamSessionID, conversationState)
 	}
 }
 
@@ -108,6 +110,7 @@ func processWSResponseCreate(
 	data []byte,
 	apiKeyID int,
 	supportedModels string,
+	requestIP string,
 	downstreamSessionID string,
 	conversationState *wsConversationState,
 ) *wsConversationState {
@@ -211,7 +214,7 @@ func processWSResponseCreate(
 	}
 
 	requestModel = executionRequest.Model
-	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
+	req, group, err := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, requestIP, cloneInternalRequest(executionRequest), originalRequest, preferredSticky, bodyBytes)
 	if err != nil {
 		status := 404
 		code := "model_not_found"
@@ -245,7 +248,7 @@ func processWSResponseCreate(
 			apiKeyID, requestModel, failedPreviousResponseID, result.ResetConversation)
 		balancer.DeleteSticky(apiKeyID, requestModel)
 		replayedRequest := conversationState.BuildReplayRequest(originalRequest)
-		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, replayedRequest, originalRequest, preferredSticky, bodyBytes)
+		replayReq, replayGroup, replayErr := newWSRelayRequest(ctx, conn, inAdapter, apiKeyID, requestModel, requestIP, replayedRequest, originalRequest, preferredSticky, bodyBytes)
 		if replayErr == nil {
 			replayReq.metrics.SetWSMode(dbmodel.RelayLogWSModeReplay)
 			replayReq.metrics.SetWSRecovery(dbmodel.RelayLogWSRecoveryReplay)
@@ -391,6 +394,7 @@ func newWSRelayRequest(
 	inAdapter transformerModel.Inbound,
 	apiKeyID int,
 	requestModel string,
+	requestIP string,
 	executionRequest *transformerModel.InternalLLMRequest,
 	metricsRequest *transformerModel.InternalLLMRequest,
 	preferredSticky *balancer.SessionEntry,
@@ -405,13 +409,15 @@ func newWSRelayRequest(
 	if iter.Len() == 0 {
 		return nil, nil, fmt.Errorf("no available channel")
 	}
+	metrics := NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest)
+	metrics.SetRequestIP(requestIP)
 
 	return &relayRequest{
 		c:               nil,
 		ctx:             ctx,
 		inAdapter:       inAdapter,
 		internalRequest: executionRequest,
-		metrics:         NewRelayMetrics(apiKeyID, requestModel, rawBody, metricsRequest),
+		metrics:         metrics,
 		apiKeyID:        apiKeyID,
 		requestModel:    requestModel,
 		groupID:         group.ID,

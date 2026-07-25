@@ -20,6 +20,7 @@ import (
 type RelayMetrics struct {
 	APIKeyID     int
 	RequestModel string
+	RequestIP    string
 	StartTime    time.Time
 
 	// 首 Token 时间
@@ -53,6 +54,13 @@ func NewRelayMetrics(apiKeyID int, requestModel string, rawBody []byte, req *tra
 		RawRequest:      rawBody,
 		InternalRequest: req,
 	}
+}
+
+func (m *RelayMetrics) SetRequestIP(ip string) {
+	if m == nil {
+		return
+	}
+	m.RequestIP = strings.TrimSpace(ip)
 }
 
 func (m *RelayMetrics) SetFirstTokenTime(t time.Time) {
@@ -193,6 +201,7 @@ func (m *RelayMetrics) SaveWithChannelStats(ctx context.Context, success bool, e
 	if conf.AppConfig.Log.Relay.Summary || !success {
 		fields := []interface{}{
 			"model", m.RequestModel,
+			"request_ip", m.RequestIP,
 			"actual_model", m.ActualModel,
 			"channel_id", channelID,
 			"channel", channelName,
@@ -240,6 +249,7 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 
 	relayLog := model.RelayLog{
 		Time:             m.StartTime.Unix(),
+		RequestIP:        m.RequestIP,
 		RequestModelName: m.RequestModel,
 		ChannelName:      channelName,
 		ChannelId:        channelID,

@@ -278,7 +278,8 @@ The configuration file is located at `data/config.json` by default and is automa
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 8080,
+    "trusted_proxies": []
   },
   "database": {
     "type": "sqlite",
@@ -296,6 +297,7 @@ The configuration file is located at `data/config.json` by default and is automa
 |--------|-------------|---------|
 | `server.host` | Listen address | `0.0.0.0` |
 | `server.port` | Server port | `8080` |
+| `server.trusted_proxies` | Trusted reverse-proxy IPs/CIDRs used to resolve the real client IP | `[]` |
 | `database.type` | Database type | `sqlite` |
 | `database.path` | Database connection string | `data/data.db` |
 | `log.level` | Log level | `info` |
@@ -342,6 +344,7 @@ All configuration options can be overridden via environment variables using the 
 |---------------------|---------------------|
 | `OCTOPUS_SERVER_PORT` | `server.port` |
 | `OCTOPUS_SERVER_HOST` | `server.host` |
+| `OCTOPUS_SERVER_TRUSTED_PROXIES` | `server.trusted_proxies` |
 | `OCTOPUS_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
@@ -473,6 +476,10 @@ Manage model pricing information in the system.
 ### ⚙️ Settings
 
 Global system configuration.
+
+**API request IP allowlist:**
+
+In **Settings → Network**, enable the allowlist and enter permitted IPv4/IPv6 addresses or CIDR networks (separated by commas or new lines). The setting applies to API-key endpoints only; admin login and management APIs remain available. An enabled empty list denies every API-key request. When Octopus runs behind a reverse proxy, configure that proxy's IP/CIDR in `server.trusted_proxies`; otherwise Octopus intentionally uses the direct peer address. Request logs include the resolved client IP for troubleshooting.
 
 **Statistics Save Interval (minutes):**
 

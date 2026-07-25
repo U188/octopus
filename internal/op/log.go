@@ -180,7 +180,7 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 
 func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size := 256
-	size += len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ChannelName) + len(relayLog.ActualModelName)
+	size += len(relayLog.RequestIP) + len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ChannelName) + len(relayLog.ActualModelName)
 	size += len(relayLog.RequestHeaders) + len(relayLog.RequestContent) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
 		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.Msg)
@@ -710,6 +710,7 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 	return query.Select(
 		"id",
 		"time",
+		"request_ip",
 		"request_model_name",
 		"request_api_key_name",
 		"channel_id",
@@ -887,21 +888,21 @@ func applyRelayLogDBFilters(query *gorm.DB, filter RelayLogListFilter) *gorm.DB 
 	switch filter.KeywordMode {
 	case RelayLogKeywordModeExact:
 		query = query.Where(
-			"LOWER(request_model_name) = ? OR LOWER(actual_model_name) = ? OR LOWER(request_api_key_name) = ? OR LOWER(channel_name) = ?",
-			keyword, keyword, keyword, keyword,
+			"LOWER(request_ip) = ? OR LOWER(request_model_name) = ? OR LOWER(actual_model_name) = ? OR LOWER(request_api_key_name) = ? OR LOWER(channel_name) = ?",
+			keyword, keyword, keyword, keyword, keyword,
 		)
 	case RelayLogKeywordModeContains:
 		escaped := escapeLikeKeyword(keyword)
 		like := "%" + escaped + "%"
 		if filter.KeywordScope == RelayLogKeywordScopeContent {
 			query = query.Where(
-				"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(request_headers) LIKE ? ESCAPE '#' OR LOWER(request_content) LIKE ? ESCAPE '#' OR LOWER(response_content) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
-				like, like, like, like, like, like, like, like,
+				"LOWER(request_ip) LIKE ? ESCAPE '#' OR LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(request_headers) LIKE ? ESCAPE '#' OR LOWER(request_content) LIKE ? ESCAPE '#' OR LOWER(response_content) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
+				like, like, like, like, like, like, like, like, like,
 			)
 		} else {
 			query = query.Where(
-				"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
-				like, like, like, like, like,
+				"LOWER(request_ip) LIKE ? ESCAPE '#' OR LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
+				like, like, like, like, like, like,
 			)
 		}
 	default:
@@ -909,8 +910,8 @@ func applyRelayLogDBFilters(query *gorm.DB, filter RelayLogListFilter) *gorm.DB 
 		// indexes where available, and avoids the worst leading-wildcard scans.
 		like := escapeLikeKeyword(keyword) + "%"
 		query = query.Where(
-			"LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#'",
-			like, like, like, like,
+			"LOWER(request_ip) LIKE ? ESCAPE '#' OR LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#'",
+			like, like, like, like, like,
 		)
 	}
 	return query
@@ -937,6 +938,7 @@ func logMatchesChannels(log model.RelayLog, channelSet map[int]struct{}) bool {
 
 func logMatchesKeyword(relayLog model.RelayLog, keyword string, scope RelayLogKeywordScope, mode RelayLogKeywordMode) bool {
 	fields := []string{
+		relayLog.RequestIP,
 		relayLog.RequestModelName,
 		relayLog.ActualModelName,
 		relayLog.RequestAPIKeyName,

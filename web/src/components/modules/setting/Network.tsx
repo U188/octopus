@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Download, Globe, Link, Network, Radio, Shield, X } from 'lucide-react';
+import { Activity, Download, Globe, Link, Network, Radio, Shield, ShieldCheck, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
 import { toast } from '@/components/common/Toast';
 import type { ApiError } from '@/api/types';
-import { SettingCard, SettingRow, useSettingField } from './shared';
+import { SettingCard, SettingRow, useSettingField, useSettingToggle } from './shared';
 
 // SSE 心跳间隔与流建立前首次心跳延迟统一为一个值（通常配置相同），回显以心跳间隔为准
 const SSE_MIRROR_KEYS = [SettingKey.SSEPreStreamHeartbeatDelay] as const;
@@ -86,6 +87,8 @@ export function SettingNetwork() {
     const apiBaseUrl = useSettingField(SettingKey.ApiBaseUrl);
     const updateDownloadURL = useSettingField(SettingKey.UpdateDownloadURL);
     const cors = useSettingField(SettingKey.CORSAllowOrigins);
+    const ipWhitelistEnabled = useSettingToggle(SettingKey.IPWhitelistEnabled);
+    const ipWhitelist = useSettingField(SettingKey.IPWhitelist);
     const sseHeartbeat = useSettingField(SettingKey.SSEHeartbeatInterval, SSE_MIRROR_KEYS);
     const responsesWS = useResponsesWSMode();
 
@@ -220,6 +223,29 @@ export function SettingNetwork() {
                         </div>
                     </PopoverContent>
                 </Popover>
+            </SettingRow>
+
+            {/* API 请求 IP 白名单 */}
+            <SettingRow
+                icon={ShieldCheck}
+                label={t('ipWhitelist.enabled.label')}
+                tooltip={t('ipWhitelist.enabled.description')}
+            >
+                <Switch checked={ipWhitelistEnabled.enabled} onCheckedChange={ipWhitelistEnabled.toggle} />
+            </SettingRow>
+            <SettingRow
+                icon={ShieldCheck}
+                label={t('ipWhitelist.list.label')}
+                tooltip={t('ipWhitelist.list.description')}
+            >
+                <textarea
+                    value={ipWhitelist.value}
+                    onChange={(e) => ipWhitelist.setValue(e.target.value)}
+                    onBlur={ipWhitelist.save}
+                    placeholder={t('ipWhitelist.list.placeholder')}
+                    rows={3}
+                    className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 w-48 resize-y rounded-xl border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
+                />
             </SettingRow>
 
             {/* SSE 心跳：同一个值写入流中心跳间隔与流建立前首次心跳延迟 */}

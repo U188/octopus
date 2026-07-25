@@ -21,6 +21,8 @@ const (
 	SettingKeyRelayLogKeepPeriod               SettingKey = "relay_log_keep_period"                 // 日志保存时间范围(天)
 	SettingKeyRelayLogKeepEnabled              SettingKey = "relay_log_keep_enabled"                // 是否保留历史日志
 	SettingKeyCORSAllowOrigins                 SettingKey = "cors_allow_origins"                    // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
+	SettingKeyIPWhitelistEnabled               SettingKey = "ip_whitelist_enabled"                  // 是否启用 API 请求 IP 白名单
+	SettingKeyIPWhitelist                      SettingKey = "ip_whitelist"                          // API 请求 IP 白名单（IP/CIDR，逗号或换行分隔）
 	SettingKeyCircuitBreakerThreshold          SettingKey = "circuit_breaker_threshold"             // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown           SettingKey = "circuit_breaker_cooldown"              // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown        SettingKey = "circuit_breaker_max_cooldown"          // 熔断最大冷却时间（秒），指数退避上限
@@ -80,6 +82,8 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyProxyURL, Value: ""},
 		{Key: SettingKeyStatsSaveInterval, Value: "10"},               // 默认10分钟保存一次统计信息
 		{Key: SettingKeyCORSAllowOrigins, Value: ""},                  // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
+		{Key: SettingKeyIPWhitelistEnabled, Value: "false"},           // 默认不限制 API 请求来源
+		{Key: SettingKeyIPWhitelist, Value: ""},                       // IP/CIDR 白名单默认为空
 		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},         // 默认24小时更新一次模型信息
 		{Key: SettingKeySyncLLMInterval, Value: "24"},                 // 默认24小时同步一次LLM
 		{Key: SettingKeySiteSyncInterval, Value: "12"},                // 默认12小时同步一次站点账号信息
@@ -176,11 +180,14 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled, SettingKeyTelegramReportEnabled, SettingKeyTelegramAlertEnabled, SettingKeyWebDAVAutoBackupEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyIPWhitelistEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled, SettingKeyTelegramReportEnabled, SettingKeyTelegramAlertEnabled, SettingKeyWebDAVAutoBackupEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
 		}
 		return nil
+	case SettingKeyIPWhitelist:
+		_, err := NormalizeIPWhitelist(s.Value)
+		return err
 	case SettingKeyWebDAVAutoBackupIntervalHours:
 		return validateIntMin(s.Value, 1)
 	case SettingKeyWebDAVAutoBackupRetention:

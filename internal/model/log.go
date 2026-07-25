@@ -52,6 +52,7 @@ const (
 type RelayLog struct {
 	ID                   int64               `json:"id" gorm:"primaryKey;autoIncrement:false"` // Snowflake ID
 	Time                 int64               `json:"time"`                                     // 时间戳（秒）
+	RequestIP            string              `json:"request_ip,omitempty" gorm:"size:64"`      // 客户端请求 IP
 	RequestModelName     string              `json:"request_model_name"`                       // 请求模型名称
 	RequestAPIKeyName    string              `json:"request_api_key_name"`                     // 请求使用的 API Key 名称
 	ChannelId            int                 `json:"channel" gorm:"index"`                     // 实际使用的渠道ID

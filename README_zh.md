@@ -277,7 +277,8 @@ corepack pnpm dev
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 8080,
+    "trusted_proxies": []
   },
   "database": {
     "type": "sqlite",
@@ -301,6 +302,7 @@ corepack pnpm dev
 |--------|------|--------|
 | `server.host` | 监听地址 | `0.0.0.0` |
 | `server.port` | 服务端口 | `8080` |
+| `server.trusted_proxies` | 可信反向代理 IP/CIDR（用于解析真实客户端 IP） | `[]` |
 | `database.type` | 数据库类型 | `sqlite` |
 | `database.path` | 数据库连接地址 | `data/data.db` |
 | `log.level` | 日志级别 | `info` |
@@ -351,6 +353,7 @@ corepack pnpm dev
 |----------|-----------|
 | `OCTOPUS_SERVER_PORT` | `server.port` |
 | `OCTOPUS_SERVER_HOST` | `server.host` |
+| `OCTOPUS_SERVER_TRUSTED_PROXIES` | `server.trusted_proxies` |
 | `OCTOPUS_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
@@ -487,6 +490,10 @@ corepack pnpm dev
 ### ⚙️ 设置
 
 系统全局配置项。
+
+**API 请求 IP 白名单：**
+
+在「设置 → 网络与服务」中打开白名单开关，并填写允许的 IPv4/IPv6 地址或 CIDR 网段（多个值用逗号或换行分隔）。开启后仅限制 API Key 对外接口；后台登录和管理接口不受影响。开启但列表为空时会拒绝全部 API Key 请求。若 Octopus 位于反向代理后方，需要在 `server.trusted_proxies` 中配置代理 IP/CIDR，否则系统会按直连对端 IP 判断。请求日志会记录解析后的客户端 IP，便于排查来源。
 
 **统计保存周期（分钟）：**
 

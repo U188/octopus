@@ -456,7 +456,7 @@ Settings → Passive Outlier Retirement: Based on real request success/failure s
 
 ### 11.4 What Log Cards Show
 
-Each log entry can be expanded to see: error message, **time to first token**, total duration, input/output tokens, cost, **retry details** (each attempt's success/failure/skip/circuit-break), and WS-related markers (passthrough/conversion/continuation/replay/fallback, etc.). Log cards also display **cache tokens** inline (e.g., `R 148K`), making it easy to see how much prompt cache was hit.
+Each log entry can be expanded to see: error message, **request IP**, **time to first token**, total duration, input/output tokens, cost, **retry details** (each attempt's success/failure/skip/circuit-break), and WS-related markers (passthrough/conversion/continuation/replay/fallback, etc.). Log cards also display **cache tokens** inline (e.g., `R 148K`), making it easy to see how much prompt cache was hit.
 
 ---
 
@@ -464,7 +464,7 @@ Each log entry can be expanded to see: error message, **time to first token**, t
 
 | Panel | Key Items |
 |-------|-----------|
-| **System** | Proxy address, **Statistics save interval (minutes)**, CORS whitelist, Responses WebSocket (default mode: passthrough/convert/off), SSE heartbeat, **Group health check** toggle |
+| **System** | Proxy address, **Statistics save interval (minutes)**, CORS whitelist, **API request IP allowlist (toggle + IP/CIDR list)**, Responses WebSocket (default mode: passthrough/convert/off), SSE heartbeat, **Group health check** toggle |
 | **Circuit Breaker** | Trigger threshold, base cooldown, max cooldown (exponential backoff) |
 | **Passive Outlier Retirement** | Site projected channels only, disabled by default. Includes failure rate / min samples / consecutive failures / window parameters |
 | **Channel Sync** | Auto-sync interval (hours), manual sync |

@@ -45,9 +45,9 @@ func (l *sqlCaptureLogger) reset() {
 	l.statements = l.statements[:0]
 }
 
-// TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate 模拟 v0.8.25
-// 留下的 relay_logs（25 列、无 success）。ensureRelayLogColumnsSQLite 必须：
-//  1. 把缺失的 success 列加上来；
+// TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate 模拟旧版本
+// 留下的 relay_logs。ensureRelayLogColumnsSQLite 必须：
+//  1. 把缺失的 success、request_ip 等列加上来；
 //  2. 全程不发出任何 recreateTable 特征 SQL。
 func TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate(t *testing.T) {
 	capture := &sqlCaptureLogger{}
@@ -93,16 +93,18 @@ func TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate(t *testing.T) {
 		t.Fatalf("ensureRelayLogColumnsSQLite failed: %v", err)
 	}
 
-	// success 列被加上。
-	var name string
-	if err := gormDB.Raw(
-		"SELECT name FROM pragma_table_info('relay_logs') WHERE name = ? LIMIT 1",
-		"success",
-	).Scan(&name).Error; err != nil {
-		t.Fatalf("read columns: %v", err)
-	}
-	if name != "success" {
-		t.Fatalf("success column not added by ensureRelayLogColumnsSQLite")
+	// 新增列被安全补齐。
+	for _, column := range []string{"success", "request_ip"} {
+		var name string
+		if err := gormDB.Raw(
+			"SELECT name FROM pragma_table_info('relay_logs') WHERE name = ? LIMIT 1",
+			column,
+		).Scan(&name).Error; err != nil {
+			t.Fatalf("read column %s: %v", column, err)
+		}
+		if name != column {
+			t.Fatalf("%s column not added by ensureRelayLogColumnsSQLite", column)
+		}
 	}
 
 	// 没发出过 recreateTable 特征 SQL。
