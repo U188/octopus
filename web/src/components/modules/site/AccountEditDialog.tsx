@@ -68,6 +68,7 @@ const CREDENTIAL_LABELS: Record<SiteCredentialType, string> = {
 const DIRECT_API_KEY_PLATFORMS = new Set<SitePlatform>([
     SitePlatform.API,
     SitePlatform.DeepSeek,
+    SitePlatform.Claude,
 ]);
 
 const FORM_SECTION_TRANSITION: Transition = {

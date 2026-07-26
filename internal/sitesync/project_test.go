@@ -39,6 +39,11 @@ func TestBuildProjectedChannelBaseURL(t *testing.T) {
 			expected: "https://api.anthropic.com/v1",
 		},
 		{
+			name:     "claude official platform appends v1",
+			site:     &model.Site{Platform: model.SitePlatformClaude, BaseURL: "https://api.anthropic.com"},
+			expected: "https://api.anthropic.com/v1",
+		},
+		{
 			name:     "api platform with gemini default appends v1",
 			site:     &model.Site{Platform: model.SitePlatformAPI, DefaultRouteType: model.SiteModelRouteTypeGemini, BaseURL: "https://gemini.example.com"},
 			expected: "https://gemini.example.com/v1",
@@ -56,6 +61,13 @@ func TestBuildProjectedChannelBaseURL(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.expected, actual)
 			}
 		})
+	}
+}
+
+func TestClaudeOfficialPlatformUsesAnthropicOutbound(t *testing.T) {
+	site := &model.Site{Platform: model.SitePlatformClaude, BaseURL: "https://api.anthropic.com"}
+	if actual := platformOutboundType(site); actual != outbound.OutboundTypeAnthropic {
+		t.Fatalf("expected Anthropic outbound type, got %v", actual)
 	}
 }
 

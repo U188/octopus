@@ -115,6 +115,7 @@ import {
 const PLATFORM_LABELS: Record<SitePlatform, string> = {
   [SitePlatform.API]: "API 直连",
   [SitePlatform.DeepSeek]: "DeepSeek 官方",
+  [SitePlatform.Claude]: "Claude 官方",
   [SitePlatform.NewAPI]: "New API",
   [SitePlatform.AnyRouter]: "AnyRouter",
   [SitePlatform.OneAPI]: "One API",

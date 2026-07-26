@@ -61,6 +61,7 @@ func TestNormalizeSiteSyncTokenValueForPlatform(t *testing.T) {
 		{name: "api keeps verbatim 2", platform: SitePlatformAPI, input: "AIzaXXXX", expected: "AIzaXXXX"},
 		{name: "api keeps verbatim and trims", platform: SitePlatformAPI, input: "  sk-ant-abc  ", expected: "sk-ant-abc"},
 		{name: "deepseek keeps verbatim", platform: SitePlatformDeepSeek, input: "abc123", expected: "abc123"},
+		{name: "claude keeps verbatim", platform: SitePlatformClaude, input: "sk-ant-xyz", expected: "sk-ant-xyz"},
 	}
 
 	for _, tt := range tests {
@@ -69,6 +70,21 @@ func TestNormalizeSiteSyncTokenValueForPlatform(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.expected, actual)
 			}
 		})
+	}
+}
+
+func TestClaudeSiteNormalizeKeepsOfficialPlatform(t *testing.T) {
+	site := &Site{Platform: SitePlatformClaude, DefaultRouteType: SiteModelRouteTypeOpenAIChat}
+	site.Normalize()
+
+	if site.Platform != SitePlatformClaude {
+		t.Fatalf("expected Claude platform to be preserved, got %q", site.Platform)
+	}
+	if site.ResolveDefaultRouteType() != SiteModelRouteTypeAnthropic {
+		t.Fatalf("expected Anthropic default route, got %q", site.ResolveDefaultRouteType())
+	}
+	if !SitePlatformUsesDirectAPIKey(site.Platform) {
+		t.Fatal("expected Claude official platform to use a direct API key")
 	}
 }
 

@@ -23,6 +23,7 @@ const (
 	SitePlatformSub2API   SitePlatform = "sub2api"
 	SitePlatformAPI       SitePlatform = "api"
 	SitePlatformDeepSeek  SitePlatform = "deepseek"
+	SitePlatformClaude    SitePlatform = "claude"
 )
 
 type SiteCredentialType string
@@ -670,6 +671,8 @@ func (p SitePlatform) usesSyncTokenSkPrefix() bool {
 		return false
 	case SitePlatformDeepSeek:
 		return false
+	case SitePlatformClaude:
+		return false
 	default:
 		return true
 	}
@@ -928,7 +931,7 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 
 func ShouldSplitSiteChannelRoutes(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI, SitePlatformDeepSeek:
+	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude:
 		return false
 	default:
 		return true
@@ -974,7 +977,7 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 func (p SitePlatform) Validate() error {
 	switch p {
 	case SitePlatformNewAPI, SitePlatformAnyRouter, SitePlatformOneAPI, SitePlatformOneHub, SitePlatformDoneHub,
-		SitePlatformSub2API, SitePlatformAPI, SitePlatformDeepSeek:
+		SitePlatformSub2API, SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site platform: %s", p)
@@ -992,7 +995,7 @@ func (t SiteCredentialType) Validate() error {
 
 func SitePlatformUsesDirectAPIKey(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI, SitePlatformDeepSeek:
+	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude:
 		return true
 	default:
 		return false
@@ -1042,11 +1045,8 @@ func (s *Site) normalizeLegacyAPIPlatform() {
 		if s.DefaultRouteType == "" {
 			s.DefaultRouteType = SiteModelRouteTypeOpenAIChat
 		}
-	case "claude":
-		s.Platform = SitePlatformAPI
-		if s.DefaultRouteType == "" {
-			s.DefaultRouteType = SiteModelRouteTypeAnthropic
-		}
+	case SitePlatformClaude:
+		s.DefaultRouteType = SiteModelRouteTypeAnthropic
 	case "gemini":
 		s.Platform = SitePlatformAPI
 		if s.DefaultRouteType == "" {

@@ -490,7 +490,7 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 			"X-API-Key":         key,
 			"Anthropic-Version": "2023-06-01",
 		}
-		if siteRecord.Platform != model.SitePlatformAPI {
+		if siteRecord.Platform != model.SitePlatformAPI && siteRecord.Platform != model.SitePlatformClaude {
 			headers["Authorization"] = ensureBearer(key)
 		}
 		return buildSiteURL(baseURL, "/messages"),

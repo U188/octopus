@@ -19,8 +19,8 @@ var urlPlatformHints = []struct {
 }{
 	{"api.openai.com", model.SitePlatformAPI, model.SiteModelRouteTypeOpenAIChat},
 	{"api.deepseek.com", model.SitePlatformDeepSeek, model.SiteModelRouteTypeOpenAIChat},
-	{"api.anthropic.com", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
-	{"anthropic.com/v1", model.SitePlatformAPI, model.SiteModelRouteTypeAnthropic},
+	{"api.anthropic.com", model.SitePlatformClaude, model.SiteModelRouteTypeAnthropic},
+	{"anthropic.com/v1", model.SitePlatformClaude, model.SiteModelRouteTypeAnthropic},
 	{"generativelanguage.googleapis.com", model.SitePlatformAPI, model.SiteModelRouteTypeGemini},
 	{"googleapis.com/v1beta/openai", model.SitePlatformAPI, model.SiteModelRouteTypeGemini},
 }

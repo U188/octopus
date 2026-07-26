@@ -135,6 +135,8 @@ export function platformLabel(platform: SiteChannelCard['platform']) {
             return 'API 直连';
         case 'deepseek':
             return 'DeepSeek 官方';
+        case 'claude':
+            return 'Claude 官方';
         default:
             return platform;
     }

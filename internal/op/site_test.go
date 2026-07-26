@@ -947,6 +947,14 @@ func TestSiteImportAllAPIHubImportsAndUpdatesAccounts(t *testing.T) {
 		t.Fatalf("expected one normalized API site, got %d", apiSiteCount)
 	}
 
+	var claudeSite model.Site
+	if err := dbpkg.GetDB().Where("platform = ? AND base_url = ?", model.SitePlatformClaude, "https://api.anthropic.com").First(&claudeSite).Error; err != nil {
+		t.Fatalf("query Claude official site failed: %v", err)
+	}
+	if claudeSite.ResolveDefaultRouteType() != model.SiteModelRouteTypeAnthropic {
+		t.Fatalf("expected imported Claude site to use Anthropic route, got %q", claudeSite.ResolveDefaultRouteType())
+	}
+
 	var compatSite model.Site
 	if err := dbpkg.GetDB().Where("platform = ? AND base_url = ?", model.SitePlatformAPI, "https://compat.example.com").First(&compatSite).Error; err != nil {
 		t.Fatalf("query compat site failed: %v", err)

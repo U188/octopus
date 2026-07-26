@@ -41,6 +41,8 @@ func fetchSiteAccountBalance(ctx context.Context, siteRecord *model.Site, accoun
 		return balance, used, 0
 	case model.SitePlatformDeepSeek:
 		return fetchDeepSeekBalance(ctx, siteRecord, account, accessToken), 0, 0
+	case model.SitePlatformClaude:
+		return 0, 0, 0
 	default:
 		return 0, 0, 0
 	}

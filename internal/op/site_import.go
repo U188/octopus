@@ -62,8 +62,8 @@ var supportedImportPlatforms = map[string]model.SitePlatform{
 	"donehub":   model.SitePlatformDoneHub,
 	"sub2api":   model.SitePlatformSub2API,
 	"openai":    model.SitePlatformAPI,
-	"anthropic": model.SitePlatformAPI,
-	"claude":    model.SitePlatformAPI,
+	"anthropic": model.SitePlatformClaude,
+	"claude":    model.SitePlatformClaude,
 	"google":    model.SitePlatformAPI,
 	"gemini":    model.SitePlatformAPI,
 	"deepseek":  model.SitePlatformDeepSeek,
@@ -78,7 +78,9 @@ var unsupportedImportHints = []string{
 }
 
 var directImportPlatforms = map[model.SitePlatform]struct{}{
-	model.SitePlatformAPI: {},
+	model.SitePlatformAPI:      {},
+	model.SitePlatformDeepSeek: {},
+	model.SitePlatformClaude:   {},
 }
 
 func SiteImportAllAPIHub(ctx context.Context, body []byte) (*model.AllAPIHubImportResult, []int, error) {
@@ -1095,7 +1097,7 @@ func resolveImportedProfilePlatform(rawType any, baseURL string) (model.SitePlat
 	case "openai", "openai-compatible", "":
 		return model.SitePlatformAPI, true
 	case "anthropic":
-		return model.SitePlatformAPI, true
+		return model.SitePlatformClaude, true
 	case "google":
 		return model.SitePlatformAPI, true
 	default:
@@ -1122,7 +1124,9 @@ func detectSupportedPlatform(values ...any) (model.SitePlatform, bool) {
 	case strings.Contains(combined, "api.openai.com"):
 		return model.SitePlatformAPI, false
 	case strings.Contains(combined, "api.anthropic.com"), strings.Contains(combined, "anthropic.com/v1"):
-		return model.SitePlatformAPI, false
+		return model.SitePlatformClaude, false
+	case strings.Contains(combined, "api.deepseek.com"):
+		return model.SitePlatformDeepSeek, false
 	case strings.Contains(combined, "generativelanguage.googleapis.com"),
 		strings.Contains(combined, "googleapis.com/v1beta/openai"),
 		strings.Contains(combined, "gemini.google.com"):
@@ -1148,7 +1152,7 @@ func isDirectImportPlatform(platform model.SitePlatform) bool {
 
 func platformSupportsCheckin(platform model.SitePlatform) bool {
 	switch platform {
-	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI:
+	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI, model.SitePlatformDeepSeek, model.SitePlatformClaude:
 		return false
 	default:
 		return true

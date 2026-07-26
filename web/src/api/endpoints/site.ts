@@ -13,6 +13,7 @@ export enum SitePlatform {
   Sub2API = "sub2api",
   API = "api",
   DeepSeek = "deepseek",
+  Claude = "claude",
 }
 
 export enum SiteCredentialType {

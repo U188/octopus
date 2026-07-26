@@ -42,6 +42,7 @@ export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
     case SitePlatform.Sub2API:
     case SitePlatform.API:
     case SitePlatform.DeepSeek:
+    case SitePlatform.Claude:
       return false;
     default:
       return true;

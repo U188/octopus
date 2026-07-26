@@ -84,6 +84,7 @@ const DEFAULT_ROUTE_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }
 const PLATFORM_LABELS: Record<SitePlatform, string> = {
     [SitePlatform.API]: 'API 直连',
     [SitePlatform.DeepSeek]: 'DeepSeek 官方',
+    [SitePlatform.Claude]: 'Claude 官方',
     [SitePlatform.NewAPI]: 'New API',
     [SitePlatform.AnyRouter]: 'AnyRouter',
     [SitePlatform.OneAPI]: 'One API',
@@ -94,6 +95,7 @@ const PLATFORM_LABELS: Record<SitePlatform, string> = {
 
 const PLATFORM_DEFAULT_BASE_URLS: Partial<Record<SitePlatform, string>> = {
     [SitePlatform.DeepSeek]: 'https://api.deepseek.com',
+    [SitePlatform.Claude]: 'https://api.anthropic.com',
 };
 
 function createEmptySiteForm(): SiteFormState {
