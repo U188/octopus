@@ -27,6 +27,7 @@ export enum AutoGroupType {
 }
 
 export type ChannelWSMode = 'inherit' | 'off' | 'passthrough' | 'transform';
+export type CodexHeaderProfile = 'windows' | 'local';
 
 export type BaseUrl = {
     url: string;
@@ -83,6 +84,7 @@ export type Channel = {
     custom_header: CustomHeader[];
     ws_mode: ChannelWSMode;
     codex_mode: boolean;
+    codex_header_profile: CodexHeaderProfile;
     claude_mode: boolean;
     responses_tool_denylist: string[];
     responses_tool_auto_denylist: ResponsesToolAutoDeny[];
@@ -119,6 +121,7 @@ export type CreateChannelRequest = {
     custom_header?: CustomHeader[];
     ws_mode?: ChannelWSMode;
     codex_mode?: boolean;
+    codex_header_profile?: CodexHeaderProfile;
     claude_mode?: boolean;
     responses_tool_denylist?: string[];
     param_override?: string | null;
@@ -143,6 +146,7 @@ export type UpdateChannelRequest = {
     custom_header?: CustomHeader[];
     ws_mode?: ChannelWSMode;
     codex_mode?: boolean;
+    codex_header_profile?: CodexHeaderProfile;
     claude_mode?: boolean;
     responses_tool_denylist?: string[];
     param_override?: string | null;
@@ -189,6 +193,7 @@ export function useChannelList() {
                 custom_header: item.custom_header ?? [],
                 ws_mode: item.ws_mode ?? 'inherit',
                 codex_mode: item.codex_mode ?? false,
+                codex_header_profile: item.codex_header_profile ?? 'windows',
                 claude_mode: item.claude_mode ?? false,
                 responses_tool_denylist: Array.isArray(item.responses_tool_denylist) ? item.responses_tool_denylist : [],
                 responses_tool_auto_denylist: normalizeResponsesToolAutoDenylist(item.responses_tool_auto_denylist),

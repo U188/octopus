@@ -76,6 +76,7 @@ type Channel struct {
 	CustomHeader              []CustomHeader          `json:"custom_header" gorm:"serializer:json"`
 	WSMode                    ChannelWSMode           `json:"ws_mode" gorm:"type:varchar(16);not null;default:'inherit'"`
 	CodexMode                 bool                    `json:"codex_mode" gorm:"default:false"`
+	CodexHeaderProfile        CodexHeaderProfile      `json:"codex_header_profile" gorm:"type:varchar(32);not null;default:'windows'"`
 	ClaudeMode                bool                    `json:"claude_mode" gorm:"default:false"`
 	ResponsesToolDenylist     []string                `json:"responses_tool_denylist" gorm:"serializer:json"`
 	ResponsesToolAutoDenylist []ResponsesToolAutoDeny `json:"responses_tool_auto_denylist" gorm:"serializer:json"`
@@ -196,6 +197,7 @@ type ChannelUpdateRequest struct {
 	CustomHeader          *[]CustomHeader        `json:"custom_header,omitempty"`
 	WSMode                *ChannelWSMode         `json:"ws_mode,omitempty"`
 	CodexMode             *bool                  `json:"codex_mode,omitempty"`
+	CodexHeaderProfile    *CodexHeaderProfile    `json:"codex_header_profile,omitempty"`
 	ClaudeMode            *bool                  `json:"claude_mode,omitempty"`
 	ResponsesToolDenylist *[]string              `json:"responses_tool_denylist,omitempty"`
 	ChannelProxy          *string                `json:"-"`

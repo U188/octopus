@@ -25,6 +25,7 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	}
 
 	req.Header = http.Header{}
+	headers := codexmode.HeadersForProfile(ra.channel.CodexHeaderProfile)
 
 	sessionID := uuid.Must(uuid.NewV7()).String()
 	threadID := sessionID
@@ -50,10 +51,10 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", codexmode.UserAgent)
-	req.Header.Set("Originator", codexmode.Originator)
-	req.Header.Set("X-Codex-Beta-Features", codexmode.BetaFeatures)
-	req.Header.Set(codexmode.ResponsesLiteHeader, codexmode.ResponsesLiteHeaderValue)
+	req.Header.Set("User-Agent", headers.UserAgent)
+	req.Header.Set("Originator", headers.Originator)
+	req.Header.Set("X-Codex-Beta-Features", headers.BetaFeatures)
+	req.Header.Set(codexmode.ResponsesLiteHeader, headers.ResponsesLiteHeaderValue)
 	req.Header.Set("Session-Id", sessionID)
 	req.Header.Set("Thread-Id", threadID)
 	req.Header.Set("X-Codex-Window-Id", windowID)

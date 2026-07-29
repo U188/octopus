@@ -181,6 +181,7 @@ type Site struct {
 	RouteBaseURLs      []SiteRouteBaseURL `json:"route_base_urls" gorm:"serializer:json"`
 	DefaultRouteType   SiteModelRouteType `json:"default_route_type" gorm:"type:varchar(32);not null;default:''"`
 	CodexMode          bool               `json:"codex_mode" gorm:"default:false"`
+	CodexHeaderProfile CodexHeaderProfile `json:"codex_header_profile" gorm:"type:varchar(32);not null;default:'windows'"`
 	ClaudeMode         bool               `json:"claude_mode" gorm:"default:false"`
 	Tags               []string           `json:"tags" gorm:"serializer:json"`
 	Archived           bool               `json:"archived" gorm:"default:false;index"`
@@ -469,6 +470,7 @@ type SiteUpdateRequest struct {
 	CustomHeader       *[]CustomHeader     `json:"custom_header,omitempty"`
 	RouteBaseURLs      *[]SiteRouteBaseURL `json:"route_base_urls,omitempty"`
 	CodexMode          *bool               `json:"codex_mode,omitempty"`
+	CodexHeaderProfile *CodexHeaderProfile `json:"codex_header_profile,omitempty"`
 	ClaudeMode         *bool               `json:"claude_mode,omitempty"`
 	Tags               *[]string           `json:"tags,omitempty"`
 }
@@ -1035,6 +1037,7 @@ func (s *Site) Normalize() {
 	}
 	s.Tags = NormalizeSiteTags(s.Tags)
 	s.RouteBaseURLs = NormalizeSiteRouteBaseURLs(s.RouteBaseURLs)
+	s.CodexHeaderProfile = s.CodexHeaderProfile.Normalize()
 	s.normalizeLegacyAPIPlatform()
 }
 
@@ -1086,6 +1089,9 @@ func (s *Site) Validate() error {
 		return fmt.Errorf("site base url is invalid: %w", err)
 	}
 	if err := ValidateSiteRouteBaseURLs(s.RouteBaseURLs); err != nil {
+		return err
+	}
+	if err := s.CodexHeaderProfile.Validate(); err != nil {
 		return err
 	}
 	if s.ExternalCheckinURL != nil {

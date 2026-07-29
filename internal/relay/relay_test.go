@@ -1712,13 +1712,14 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	defer server.Close()
 
 	channel := &model.Channel{
-		Name:      "relay-http-codex",
-		Type:      outbound.OutboundTypeOpenAIResponse,
-		Enabled:   true,
-		BaseUrls:  []model.BaseUrl{{URL: server.URL + "/v1"}},
-		Model:     "gpt-4o",
-		CodexMode: true,
-		Keys:      []model.ChannelKey{{Enabled: true, ChannelKey: "upstream-key"}},
+		Name:               "relay-http-codex",
+		Type:               outbound.OutboundTypeOpenAIResponse,
+		Enabled:            true,
+		BaseUrls:           []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:              "gpt-4o",
+		CodexMode:          true,
+		CodexHeaderProfile: model.CodexHeaderProfileLocal,
+		Keys:               []model.ChannelKey{{Enabled: true, ChannelKey: "upstream-key"}},
 	}
 	if err := op.ChannelCreate(channel, ctx); err != nil {
 		t.Fatalf("ChannelCreate failed: %v", err)
@@ -1747,7 +1748,7 @@ func TestForwardViaHTTPCodexModeOverridesResponsesHeaders(t *testing.T) {
 	if path := <-seenPath; path != "/v1/responses" {
 		t.Fatalf("expected /v1/responses path, got %q", path)
 	}
-	if got := headers.Get("User-Agent"); got != codexmode.UserAgent {
+	if got := headers.Get("User-Agent"); got != codexmode.LocalUserAgent {
 		t.Fatalf("expected codex user-agent, got %q", got)
 	}
 	if got := headers.Get("Originator"); got != codexmode.Originator {

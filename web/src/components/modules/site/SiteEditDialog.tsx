@@ -35,6 +35,7 @@ import { useSettingStore } from '@/stores/setting';
 import {
     Site as SiteRecord,
     SitePlatform,
+    type CodexHeaderProfile,
     type CustomHeader,
     type SiteRouteBaseURL,
     useCreateSite,
@@ -60,6 +61,7 @@ type SiteFormState = {
     tags: string[];
     default_route_type: string;
     codex_mode: boolean;
+    codex_header_profile: CodexHeaderProfile;
     claude_mode: boolean;
 };
 
@@ -115,6 +117,7 @@ function createEmptySiteForm(): SiteFormState {
         tags: [],
         default_route_type: 'openai_chat',
         codex_mode: false,
+        codex_header_profile: 'windows',
         claude_mode: false,
     };
 }
@@ -138,6 +141,7 @@ function createSiteForm(site: SiteRecord): SiteFormState {
         tags: [...(site.tags ?? [])],
         default_route_type: site.default_route_type || 'openai_chat',
         codex_mode: site.codex_mode ?? false,
+        codex_header_profile: site.codex_header_profile ?? 'windows',
         claude_mode: site.claude_mode ?? false,
     };
 }
@@ -158,6 +162,7 @@ function normalizeSiteRecord(site: SiteRecord): SiteRecord {
                 ? site.global_weight
                 : 1,
         codex_mode: site.codex_mode ?? false,
+        codex_header_profile: site.codex_header_profile ?? 'windows',
         claude_mode: site.claude_mode ?? false,
         accounts: (site.accounts ?? []).map((account) => ({
             ...account,
@@ -310,6 +315,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                 default_route_type:
                     platform === SitePlatform.API ? defaultRouteType : undefined,
                 codex_mode: siteForm.codex_mode,
+                codex_header_profile: siteForm.codex_header_profile,
                 claude_mode: siteForm.claude_mode,
             };
 
@@ -498,6 +504,33 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                                 }
                             />
                         </div>
+
+                        {siteForm.codex_mode && (
+                            <label className="grid gap-2 text-sm">
+                                <span className="font-medium">Codex 请求头</span>
+                                <Select
+                                    value={siteForm.codex_header_profile}
+                                    onValueChange={(value) =>
+                                        setSiteForm((current) => ({
+                                            ...current,
+                                            codex_header_profile: value as CodexHeaderProfile,
+                                        }))
+                                    }
+                                >
+                                    <SelectTrigger className="w-full rounded-xl">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl">
+                                        <SelectItem className="rounded-xl" value="windows">
+                                            Windows Codex 0.144.5（现有）
+                                        </SelectItem>
+                                        <SelectItem className="rounded-xl" value="local">
+                                            本机 Codex 0.146.0（Debian）
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </label>
+                        )}
 
                         <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
                             <div className="min-w-0">

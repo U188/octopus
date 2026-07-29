@@ -32,6 +32,8 @@ export type SiteRouteBaseURL = {
   base_url: string;
 };
 
+export type CodexHeaderProfile = "windows" | "local";
+
 export type SiteToken = {
   id: number;
   site_account_id: number;
@@ -142,6 +144,7 @@ export type Site = {
   tags: string[];
   default_route_type?: string;
   codex_mode: boolean;
+  codex_header_profile: CodexHeaderProfile;
   claude_mode: boolean;
   archived: boolean;
   archived_at?: string | null;
@@ -294,6 +297,7 @@ function normalizeSiteServerList(data: SiteServer[]): Site[] {
     tags: site.tags ?? [],
     default_route_type: site.default_route_type ?? undefined,
     codex_mode: site.codex_mode ?? false,
+    codex_header_profile: site.codex_header_profile ?? "windows",
     claude_mode: site.claude_mode ?? false,
     proxy_mode: site.proxy_mode ?? "direct",
     proxy_config_id: site.proxy_config_id ?? null,

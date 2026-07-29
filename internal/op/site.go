@@ -85,6 +85,7 @@ func normalizeSiteProxyFields(site *model.Site) {
 	if site == nil {
 		return
 	}
+	site.CodexHeaderProfile = site.CodexHeaderProfile.Normalize()
 	if site.ProxyMode == "" {
 		site.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -260,6 +261,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		merged.CodexMode = *req.CodexMode
 		selectFields = append(selectFields, "codex_mode")
 	}
+	if req.CodexHeaderProfile != nil {
+		merged.CodexHeaderProfile = req.CodexHeaderProfile.Normalize()
+		selectFields = append(selectFields, "codex_header_profile")
+	}
 	if req.ClaudeMode != nil {
 		merged.ClaudeMode = *req.ClaudeMode
 		selectFields = append(selectFields, "claude_mode")
@@ -316,6 +321,9 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.CodexMode != nil {
 		updates.CodexMode = merged.CodexMode
+	}
+	if req.CodexHeaderProfile != nil {
+		updates.CodexHeaderProfile = merged.CodexHeaderProfile
 	}
 	if req.ClaudeMode != nil {
 		updates.ClaudeMode = merged.ClaudeMode

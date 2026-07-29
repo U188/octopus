@@ -395,6 +395,12 @@ func TestBuildTestConversationRequestCodexMatchesClientShape(t *testing.T) {
 	if !ok || metadata["session_id"] == "" || metadata["x-codex-turn-metadata"] == "" {
 		t.Fatalf("unexpected codex client metadata: %#v", body["client_metadata"])
 	}
+
+	siteRecord.CodexHeaderProfile = model.CodexHeaderProfileLocal
+	_, _, localHeaders := buildTestConversationRequest(siteRecord, token, "gpt-5.5", TestConversationModeOpenAIResponse, "hi", TestConversationClientCodex, false)
+	if localHeaders["User-Agent"] != codexmode.LocalUserAgent {
+		t.Fatalf("expected local codex user agent, got %q", localHeaders["User-Agent"])
+	}
 }
 
 func TestBuildTestConversationRequestClaudeMatchesClientShape(t *testing.T) {

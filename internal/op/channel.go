@@ -41,6 +41,7 @@ func normalizeChannelProxyFields(channel *model.Channel) {
 	if channel == nil {
 		return
 	}
+	channel.CodexHeaderProfile = channel.CodexHeaderProfile.Normalize()
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -60,6 +61,10 @@ func prepareChannelCreate(channel *model.Channel, ctx context.Context) error {
 	}
 	channel.ResponsesToolDenylist = normalizeResponsesToolDenylist(channel.ResponsesToolDenylist)
 	channel.ResponsesToolAutoDenylist = normalizeResponsesToolAutoDenylist(channel.ResponsesToolAutoDenylist, time.Now().Unix())
+	channel.CodexHeaderProfile = channel.CodexHeaderProfile.Normalize()
+	if err := channel.CodexHeaderProfile.Validate(); err != nil {
+		return err
+	}
 	if err := channel.ProxyMode.Validate(false); err != nil {
 		return err
 	}
@@ -374,6 +379,15 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	if req.CodexMode != nil {
 		selectFields = append(selectFields, "codex_mode")
 		updates.CodexMode = *req.CodexMode
+	}
+	if req.CodexHeaderProfile != nil {
+		profile := req.CodexHeaderProfile.Normalize()
+		if err := profile.Validate(); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		selectFields = append(selectFields, "codex_header_profile")
+		updates.CodexHeaderProfile = profile
 	}
 	if req.ClaudeMode != nil {
 		selectFields = append(selectFields, "claude_mode")

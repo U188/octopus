@@ -411,6 +411,7 @@ func testConversationContext1M(account *model.SiteAccount, token *model.SiteToke
 func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken, modelName string, mode TestConversationMode, greeting string, client TestConversationClient, context1M bool) (string, map[string]any, map[string]string) {
 	key := model.NormalizeSiteSyncTokenValueForPlatform(siteRecord.Platform, token.Token)
 	if client == TestConversationClientCodex {
+		codexHeaders := codexmode.HeadersForProfile(siteRecord.CodexHeaderProfile)
 		baseURL := testConversationBaseURL(siteRecord, model.SiteModelRouteTypeOpenAIResponse)
 		sessionID, turnID := newCodexTestConversationIDs()
 		installationID := newCodexLikeUUID()
@@ -420,15 +421,15 @@ func buildTestConversationRequest(siteRecord *model.Site, token model.SiteToken,
 			map[string]string{
 				"Authorization":               ensureBearer(key),
 				"Accept":                      "text/event-stream",
-				"Originator":                  codexmode.Originator,
+				"Originator":                  codexHeaders.Originator,
 				"Session-Id":                  sessionID,
 				"Thread-Id":                   sessionID,
-				"User-Agent":                  codexmode.UserAgent,
+				"User-Agent":                  codexHeaders.UserAgent,
 				"X-Client-Request-Id":         sessionID,
-				"X-Codex-Beta-Features":       codexmode.BetaFeatures,
+				"X-Codex-Beta-Features":       codexHeaders.BetaFeatures,
 				"X-Codex-Turn-Metadata":       turnMetadata,
 				"X-Codex-Window-Id":           sessionID + ":0",
-				codexmode.ResponsesLiteHeader: codexmode.ResponsesLiteHeaderValue,
+				codexmode.ResponsesLiteHeader: codexHeaders.ResponsesLiteHeaderValue,
 			}
 	}
 	if client == TestConversationClientClaude {

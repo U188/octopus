@@ -821,6 +821,18 @@ func TestSiteUpdateTogglesClientModes(t *testing.T) {
 	if !updated.CodexMode {
 		t.Fatalf("expected codex mode to be enabled")
 	}
+	if updated.CodexHeaderProfile != model.CodexHeaderProfileWindows {
+		t.Fatalf("expected existing Windows codex profile by default, got %q", updated.CodexHeaderProfile)
+	}
+
+	localProfile := model.CodexHeaderProfileLocal
+	updated, err = SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CodexHeaderProfile: &localProfile}, ctx)
+	if err != nil {
+		t.Fatalf("SiteUpdate codex header profile failed: %v", err)
+	}
+	if updated.CodexHeaderProfile != model.CodexHeaderProfileLocal {
+		t.Fatalf("expected local codex header profile, got %q", updated.CodexHeaderProfile)
+	}
 
 	updated, err = SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, ClaudeMode: &enabled}, ctx)
 	if err != nil {

@@ -173,7 +173,7 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 		t.Fatalf("create anthropic site model failed: %v", err)
 	}
 
-	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.Site{}).Where("id = ?", site.ID).Updates(map[string]any{"codex_mode": true, "claude_mode": true}).Error; err != nil {
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.Site{}).Where("id = ?", site.ID).Updates(map[string]any{"codex_mode": true, "codex_header_profile": model.CodexHeaderProfileLocal, "claude_mode": true}).Error; err != nil {
 		t.Fatalf("enable site client modes failed: %v", err)
 	}
 	if _, err := ProjectAccount(ctx, account.ID); err != nil {
@@ -192,6 +192,9 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 		if !channel.CodexMode {
 			t.Fatalf("expected projected channel %q to inherit codex mode", channel.Name)
 		}
+		if channel.CodexHeaderProfile != model.CodexHeaderProfileLocal {
+			t.Fatalf("expected projected channel %q to inherit local codex headers, got %q", channel.Name, channel.CodexHeaderProfile)
+		}
 		if !channel.ClaudeMode {
 			t.Fatalf("expected projected channel %q to inherit claude mode", channel.Name)
 		}
@@ -204,7 +207,8 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 	}
 
 	disabled := false
-	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CodexMode: &disabled, ClaudeMode: &disabled}, ctx); err != nil {
+	windowsProfile := model.CodexHeaderProfileWindows
+	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CodexMode: &disabled, CodexHeaderProfile: &windowsProfile, ClaudeMode: &disabled}, ctx); err != nil {
 		t.Fatalf("SiteUpdate disable failed: %v", err)
 	}
 	if _, err := ProjectAccount(ctx, account.ID); err != nil {
@@ -214,6 +218,9 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 	for _, channel := range channels {
 		if channel.CodexMode {
 			t.Fatalf("expected projected channel %q to clear codex mode", channel.Name)
+		}
+		if channel.CodexHeaderProfile != model.CodexHeaderProfileWindows {
+			t.Fatalf("expected projected channel %q to inherit Windows codex headers, got %q", channel.Name, channel.CodexHeaderProfile)
 		}
 		if channel.ClaudeMode {
 			t.Fatalf("expected projected channel %q to clear claude mode", channel.Name)
