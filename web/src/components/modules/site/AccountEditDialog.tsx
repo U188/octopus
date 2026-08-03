@@ -69,6 +69,7 @@ const DIRECT_API_KEY_PLATFORMS = new Set<SitePlatform>([
     SitePlatform.API,
     SitePlatform.DeepSeek,
     SitePlatform.Claude,
+    SitePlatform.NVIDIA,
 ]);
 
 const FORM_SECTION_TRANSITION: Transition = {

@@ -230,6 +230,7 @@ func preparePersistedSyncModels(accountID int, incoming []model.SiteModel, exist
 		if existing, ok := existingModelMap[key]; ok {
 			item.ID = existing.ID
 			item.Disabled = existing.Disabled
+			item.Context1M = existing.Context1M
 			applyPersistedRouteState(&item, &existing, now)
 		} else {
 			applyPersistedRouteState(&item, nil, now)
@@ -766,7 +767,9 @@ func applyPersistedRouteState(item *model.SiteModel, existing *model.SiteModel, 
 		return
 	}
 
-	if existing != nil && (existing.ManualOverride || existing.RouteSource == model.SiteModelRouteSourceRuntimeLearned) {
+	if existing != nil && (existing.ManualOverride ||
+		existing.RouteSource == model.SiteModelRouteSourceRuntimeLearned ||
+		model.IsProjectedSiteModelRouteType(model.NormalizeSiteModelRouteType(existing.RouteType))) {
 		item.RouteType = model.NormalizeSiteModelRouteType(existing.RouteType)
 		item.RouteSource = model.NormalizeSiteModelRouteSource(existing.RouteSource, existing.ManualOverride)
 		item.ManualOverride = existing.ManualOverride

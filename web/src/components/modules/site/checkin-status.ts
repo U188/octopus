@@ -43,6 +43,7 @@ export function sitePlatformSupportsCheckin(platform: Site["platform"]) {
     case SitePlatform.API:
     case SitePlatform.DeepSeek:
     case SitePlatform.Claude:
+    case SitePlatform.NVIDIA:
       return false;
     default:
       return true;

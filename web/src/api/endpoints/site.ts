@@ -14,6 +14,7 @@ export enum SitePlatform {
   API = "api",
   DeepSeek = "deepseek",
   Claude = "claude",
+  NVIDIA = "nvidia",
 }
 
 export enum SiteCredentialType {

@@ -62,6 +62,7 @@ func TestNormalizeSiteSyncTokenValueForPlatform(t *testing.T) {
 		{name: "api keeps verbatim and trims", platform: SitePlatformAPI, input: "  sk-ant-abc  ", expected: "sk-ant-abc"},
 		{name: "deepseek keeps verbatim", platform: SitePlatformDeepSeek, input: "abc123", expected: "abc123"},
 		{name: "claude keeps verbatim", platform: SitePlatformClaude, input: "sk-ant-xyz", expected: "sk-ant-xyz"},
+		{name: "nvidia keeps verbatim", platform: SitePlatformNVIDIA, input: "nvapi-test", expected: "nvapi-test"},
 	}
 
 	for _, tt := range tests {

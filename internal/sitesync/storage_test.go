@@ -81,6 +81,56 @@ func TestApplyPersistedRouteStateKeepsManualOverrideUntouched(t *testing.T) {
 	}
 }
 
+func TestPreparePersistedSyncModelsPreservesExistingModelSettings(t *testing.T) {
+	updatedAt := time.Unix(1711929600, 0)
+	existing := model.SiteModel{
+		ID:              42,
+		SiteAccountID:   9,
+		GroupKey:        model.SiteDefaultGroupKey,
+		ModelName:       "gpt-5",
+		Source:          "sync",
+		RouteType:       model.SiteModelRouteTypeOpenAIResponse,
+		RouteSource:     model.SiteModelRouteSourceSyncInferred,
+		RouteRawPayload: `{"source":"previous-sync"}`,
+		RouteUpdatedAt:  &updatedAt,
+		Disabled:        true,
+		Context1M:       true,
+	}
+	incoming := []model.SiteModel{{
+		GroupKey:    model.SiteDefaultGroupKey,
+		ModelName:   "gpt-5",
+		Source:      "sync",
+		RouteType:   model.SiteModelRouteTypeOpenAIChat,
+		RouteSource: model.SiteModelRouteSourceSyncInferred,
+	}}
+	key := model.SiteDefaultGroupKey + "\x00gpt-5"
+
+	prepared := preparePersistedSyncModels(9, incoming, map[string]model.SiteModel{key: existing}, time.Unix(1712016000, 0))
+
+	if len(prepared) != 1 {
+		t.Fatalf("expected one prepared model, got %+v", prepared)
+	}
+	actual := prepared[0]
+	if actual.ID != existing.ID {
+		t.Fatalf("expected stable model id %d, got %d", existing.ID, actual.ID)
+	}
+	if actual.RouteType != model.SiteModelRouteTypeOpenAIResponse {
+		t.Fatalf("expected existing response route to be preserved, got %q", actual.RouteType)
+	}
+	if actual.RouteSource != existing.RouteSource || actual.RouteRawPayload != existing.RouteRawPayload {
+		t.Fatalf("expected existing route metadata to be preserved, got %+v", actual)
+	}
+	if actual.RouteUpdatedAt == nil || !actual.RouteUpdatedAt.Equal(updatedAt) {
+		t.Fatalf("expected route update time %v to be preserved, got %v", updatedAt, actual.RouteUpdatedAt)
+	}
+	if !actual.Disabled {
+		t.Fatal("expected disabled state to be preserved")
+	}
+	if !actual.Context1M {
+		t.Fatal("expected 1M context state to be preserved")
+	}
+}
+
 func TestMergePersistedSiteTokensPreservesManualFullTokenWhenIncomingIsMasked(t *testing.T) {
 	now := time.Unix(1711929600, 0)
 	existing := []model.SiteToken{{
@@ -546,6 +596,67 @@ func TestPersistSyncSnapshotPreservesGroupProjectionDisabled(t *testing.T) {
 	}
 	if reloaded.Name != "VIP Renamed" {
 		t.Fatalf("expected synced group metadata to be updated, got %q", reloaded.Name)
+	}
+}
+
+func TestPersistSyncSnapshotPreservesExistingModelSettings(t *testing.T) {
+	ctx := setupProjectTestDB(t)
+	_, account := createProjectionFixture(t, ctx)
+
+	if err := dbpkg.GetDB().WithContext(ctx).
+		Model(&model.SiteModel{}).
+		Where("site_account_id = ? AND group_key = ? AND model_name = ?", account.ID, model.SiteDefaultGroupKey, "gpt-4o-mini").
+		Updates(map[string]any{
+			"route_type":        model.SiteModelRouteTypeOpenAIResponse,
+			"route_source":      model.SiteModelRouteSourceSyncInferred,
+			"manual_override":   false,
+			"route_raw_payload": `{"source":"previous-sync"}`,
+			"context_1m":        true,
+		}).Error; err != nil {
+		t.Fatalf("seed existing model settings failed: %v", err)
+	}
+
+	snapshot := &syncSnapshot{
+		accessToken: account.AccessToken,
+		groups:      []model.SiteUserGroup{{GroupKey: model.SiteDefaultGroupKey, Name: model.SiteDefaultGroupName}},
+		tokens:      []model.SiteToken{{Name: "primary", Token: "key-primary", GroupKey: model.SiteDefaultGroupKey, GroupName: model.SiteDefaultGroupName, Enabled: true, Source: "sync"}},
+		models: []model.SiteModel{{
+			GroupKey:    model.SiteDefaultGroupKey,
+			ModelName:   "gpt-4o-mini",
+			Source:      "sync",
+			RouteType:   model.SiteModelRouteTypeOpenAIChat,
+			RouteSource: model.SiteModelRouteSourceSyncInferred,
+		}},
+		groupResults: []siteGroupSyncResult{{
+			GroupKey:      model.SiteDefaultGroupKey,
+			GroupName:     model.SiteDefaultGroupName,
+			HasKey:        true,
+			Status:        siteGroupSyncStatusSynced,
+			Authoritative: true,
+			ModelCount:    1,
+		}},
+		status:  model.SiteExecutionStatusSuccess,
+		message: "同步完成",
+	}
+
+	if err := persistSyncSnapshot(ctx, account.ID, snapshot); err != nil {
+		t.Fatalf("persistSyncSnapshot returned error: %v", err)
+	}
+
+	var reloaded model.SiteModel
+	if err := dbpkg.GetDB().WithContext(ctx).
+		Where("site_account_id = ? AND group_key = ? AND model_name = ?", account.ID, model.SiteDefaultGroupKey, "gpt-4o-mini").
+		First(&reloaded).Error; err != nil {
+		t.Fatalf("query reloaded model failed: %v", err)
+	}
+	if reloaded.RouteType != model.SiteModelRouteTypeOpenAIResponse {
+		t.Fatalf("expected response route to survive sync, got %q", reloaded.RouteType)
+	}
+	if reloaded.RouteRawPayload != `{"source":"previous-sync"}` {
+		t.Fatalf("expected route metadata to survive sync, got %q", reloaded.RouteRawPayload)
+	}
+	if !reloaded.Context1M {
+		t.Fatal("expected 1M context switch to survive sync")
 	}
 }
 
