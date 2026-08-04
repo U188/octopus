@@ -308,6 +308,33 @@ func TestBuildTestConversationRequestResponsesDefaultsToStream(t *testing.T) {
 	}
 }
 
+func TestValidateTestConversationCompatibilityRejectsUnsupportedNVIDIAModes(t *testing.T) {
+	nvidia := &model.Site{Platform: model.SitePlatformNVIDIA}
+	if err := validateTestConversationCompatibility(nvidia, TestConversationModeOpenAIChat, TestConversationClientDefault); err != nil {
+		t.Fatalf("expected NVIDIA Default + Chat to be supported, got %v", err)
+	}
+
+	unsupported := []struct {
+		mode   TestConversationMode
+		client TestConversationClient
+	}{
+		{mode: TestConversationModeOpenAIResponse, client: TestConversationClientDefault},
+		{mode: TestConversationModeOpenAIResponse, client: TestConversationClientCodex},
+		{mode: TestConversationModeAnthropic, client: TestConversationClientClaude},
+		{mode: TestConversationModeOpenAIImage, client: TestConversationClientDefault},
+	}
+	for _, item := range unsupported {
+		if err := validateTestConversationCompatibility(nvidia, item.mode, item.client); err == nil || !strings.Contains(err.Error(), "Default + Chat") {
+			t.Fatalf("expected NVIDIA mode=%q client=%q to be rejected with guidance, got %v", item.mode, item.client, err)
+		}
+	}
+
+	apiSite := &model.Site{Platform: model.SitePlatformAPI}
+	if err := validateTestConversationCompatibility(apiSite, TestConversationModeOpenAIResponse, TestConversationClientCodex); err != nil {
+		t.Fatalf("expected generic API site Codex mode to remain supported, got %v", err)
+	}
+}
+
 func TestDefaultTestConversationGreeting(t *testing.T) {
 	if got := DefaultTestConversationGreeting(TestConversationModeOpenAIImage); got != defaultTestConversationImagePrompt {
 		t.Fatalf("expected image prompt %q, got %q", defaultTestConversationImagePrompt, got)

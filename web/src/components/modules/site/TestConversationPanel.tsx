@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Clock3, ImageIcon, LoaderCircle, MessageCircle, Send, Square, UserRound } from "lucide-react";
 import {
+  SitePlatform,
   type Site,
   type SiteAccount,
   type SiteTestConversationClient,
@@ -302,6 +303,9 @@ export function TestConversationPanel({
   const requestControllerRef = useRef<AbortController | null>(null);
   const abortMessageRef = useRef("");
   const { data: latestSites } = useSiteList();
+  const isNVIDIA = site.platform === SitePlatform.NVIDIA;
+  const modeOptions = isNVIDIA ? MODE_OPTIONS.filter((option) => option.value === "openai_chat") : MODE_OPTIONS;
+  const clientOptions = isNVIDIA ? CLIENT_OPTIONS.filter((option) => option.value === "default") : CLIENT_OPTIONS;
 
   const latestAccount = useMemo(() => {
     if (!latestSites) return account;
@@ -406,6 +410,11 @@ export function TestConversationPanel({
   }, [model, modelOptions]);
 
   useEffect(() => {
+    if (isNVIDIA) {
+      setClient("default");
+      setMode("openai_chat");
+      return;
+    }
     if (suggestedMode === "openai_image" && client !== "default") {
       setClient("default");
       setMode("openai_image");
@@ -413,7 +422,7 @@ export function TestConversationPanel({
     }
     if (client !== "default" || !suggestedMode) return;
     setMode(suggestedMode);
-  }, [client, suggestedMode]);
+  }, [client, isNVIDIA, suggestedMode]);
 
   useEffect(
     () => () => {
@@ -584,13 +593,13 @@ export function TestConversationPanel({
                   setMode(nextMode);
                   if (nextMode === "openai_image") setClient("default");
                 }}
-                disabled={isStreaming || client === "codex" || client === "claude"}
+                disabled={isStreaming || isNVIDIA || client === "codex" || client === "claude"}
               >
                 <SelectTrigger className="h-9 w-full rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODE_OPTIONS.map((option) => (
+                  {modeOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -598,7 +607,7 @@ export function TestConversationPanel({
                 </SelectContent>
               </Select>
               <span className="min-h-4 text-xs text-muted-foreground">
-                {suggestedMode ? `按模型端点建议：${MODE_OPTIONS.find((option) => option.value === suggestedMode)?.label ?? suggestedMode}` : "默认按站点路由类型选择"}
+                {isNVIDIA ? "按 NVIDIA 官方端点建议：Chat" : suggestedMode ? `按模型端点建议：${MODE_OPTIONS.find((option) => option.value === suggestedMode)?.label ?? suggestedMode}` : "默认按站点路由类型选择"}
               </span>
             </label>
           </div>
@@ -607,7 +616,7 @@ export function TestConversationPanel({
             <span className="text-muted-foreground">客户端</span>
             <Select
               value={client}
-              disabled={isStreaming || isImageMode}
+              disabled={isStreaming || isImageMode || isNVIDIA}
               onValueChange={(value) => {
                 const nextClient = value as SiteTestConversationClient;
                 setClient(nextClient);
@@ -619,7 +628,7 @@ export function TestConversationPanel({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CLIENT_OPTIONS.map((option) => (
+                {clientOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -627,7 +636,7 @@ export function TestConversationPanel({
               </SelectContent>
             </Select>
             <span className="min-h-4 text-xs text-muted-foreground">
-              {isImageMode ? "图片测试使用 Default 客户端和 Images API" : "Codex 使用 Responses；Claude 使用 Anthropic Messages 和 claude-cli User-Agent"}
+              {isNVIDIA ? "NVIDIA 官方接口仅支持 Default + Chat" : isImageMode ? "图片测试使用 Default 客户端和 Images API" : "Codex 使用 Responses；Claude 使用 Anthropic Messages 和 claude-cli User-Agent"}
             </span>
           </label>
 

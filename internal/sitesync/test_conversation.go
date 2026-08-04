@@ -110,6 +110,9 @@ func testConversation(ctx context.Context, req TestConversationRequest, emit Tes
 	if err != nil {
 		return nil, err
 	}
+	if err := validateTestConversationCompatibility(siteRecord, mode, client); err != nil {
+		return nil, err
+	}
 	if !account.Enabled {
 		return nil, fmt.Errorf("site account is disabled")
 	}
@@ -339,6 +342,16 @@ func normalizeTestConversationClient(client TestConversationClient) TestConversa
 	default:
 		return TestConversationClientDefault
 	}
+}
+
+func validateTestConversationCompatibility(siteRecord *model.Site, mode TestConversationMode, client TestConversationClient) error {
+	if siteRecord == nil || siteRecord.Platform != model.SitePlatformNVIDIA {
+		return nil
+	}
+	if client != TestConversationClientDefault || mode != TestConversationModeOpenAIChat {
+		return fmt.Errorf("NVIDIA 官方接口仅支持 Default + Chat 测试对话，不支持 Codex/Responses、Claude 或 Images")
+	}
+	return nil
 }
 
 func DefaultTestConversationGreeting(mode TestConversationMode) string {
