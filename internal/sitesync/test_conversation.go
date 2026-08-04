@@ -772,6 +772,9 @@ func requestCodexTestConversationStream(ctx context.Context, siteRecord *model.S
 		if len(bodyBytes) == 0 {
 			return map[string]any{}, nil
 		}
+		if looksLikeSSEPayload(bodyBytes) {
+			return parseCodexTestConversationSSEWithEmit(bytes.NewReader(bodyBytes), emit)
+		}
 		var responsePayload map[string]any
 		if err := json.Unmarshal(bodyBytes, &responsePayload); err != nil {
 			return nil, formatSiteDecodeError(resp.Header.Get("Content-Type"), bodyBytes, err)
@@ -1036,6 +1039,9 @@ func requestClaudeTestConversationStream(ctx context.Context, siteRecord *model.
 		}
 		if len(bodyBytes) == 0 {
 			return map[string]any{}, nil
+		}
+		if looksLikeSSEPayload(bodyBytes) {
+			return parseClaudeTestConversationSSEWithEmit(bytes.NewReader(bodyBytes), emit)
 		}
 		var responsePayload map[string]any
 		if err := json.Unmarshal(bodyBytes, &responsePayload); err != nil {

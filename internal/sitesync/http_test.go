@@ -84,6 +84,23 @@ func TestRequestJSONFormatsHTMLErrorSummary(t *testing.T) {
 	}
 }
 
+func TestRequestJSONKeepsPlainTextErrorSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("404 page not found\n"))
+	}))
+	defer server.Close()
+
+	_, err := requestJSON(context.Background(), &model.Site{BaseURL: server.URL}, http.MethodGet, server.URL, nil, nil)
+	if err == nil {
+		t.Fatal("expected requestJSON to fail")
+	}
+	if err.Error() != "http 404: 404 page not found" {
+		t.Fatalf("expected plain-text upstream error, got %v", err)
+	}
+}
+
 func TestRequestJSONDetectsCloudflareAttentionRequired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

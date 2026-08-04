@@ -491,6 +491,26 @@ func TestRequestCodexTestConversationStreamParsesSSE(t *testing.T) {
 	}
 }
 
+func TestRequestCodexTestConversationStreamParsesMislabeledSSE(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	siteRecord := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL}
+	_, body, headers := buildTestConversationRequest(siteRecord, model.SiteToken{Token: "sk-test"}, "gpt-5.5", TestConversationModeOpenAIResponse, "hi", TestConversationClientCodex, false)
+
+	payload, err := requestCodexTestConversationStream(context.Background(), siteRecord, server.URL, body, headers, nil, nil)
+	if err != nil {
+		t.Fatalf("request mislabeled codex stream failed: %v", err)
+	}
+	if payload["output_text"] != "hi" {
+		t.Fatalf("expected parsed output text, got %#v", payload)
+	}
+}
+
 func TestRequestClaudeTestConversationStreamParsesSSE(t *testing.T) {
 	var capturedUserAgent string
 	var capturedBody map[string]any
@@ -523,6 +543,27 @@ func TestRequestClaudeTestConversationStreamParsesSSE(t *testing.T) {
 	}
 	if capturedBody["stream"] != true {
 		t.Fatalf("expected stream=true in request body, got %#v", capturedBody["stream"])
+	}
+	if reply := extractTestConversationReply(TestConversationModeAnthropic, payload); reply != "hi" {
+		t.Fatalf("expected parsed reply, got %q payload=%#v", reply, payload)
+	}
+}
+
+func TestRequestClaudeTestConversationStreamParsesMislabeledSSE(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"message_stop\"}\n\n"))
+	}))
+	defer server.Close()
+
+	siteRecord := &model.Site{Platform: model.SitePlatformAPI, BaseURL: server.URL}
+	_, body, headers := buildTestConversationRequest(siteRecord, model.SiteToken{Token: "sk-test"}, "claude-sonnet-4-5-20250929", TestConversationModeAnthropic, "hi", TestConversationClientClaude, false)
+
+	payload, err := requestClaudeTestConversationStream(context.Background(), siteRecord, server.URL, body, headers, nil, nil)
+	if err != nil {
+		t.Fatalf("request mislabeled claude stream failed: %v", err)
 	}
 	if reply := extractTestConversationReply(TestConversationModeAnthropic, payload); reply != "hi" {
 		t.Fatalf("expected parsed reply, got %q payload=%#v", reply, payload)
