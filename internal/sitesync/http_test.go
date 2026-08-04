@@ -101,6 +101,21 @@ func TestRequestJSONKeepsPlainTextErrorSummary(t *testing.T) {
 	}
 }
 
+func TestRequestJSONExplainsEmptyUnauthorizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	_, err := requestJSON(context.Background(), &model.Site{BaseURL: server.URL}, http.MethodGet, server.URL, nil, nil)
+	if err == nil {
+		t.Fatal("expected requestJSON to fail")
+	}
+	if !strings.Contains(err.Error(), "http 401: 上游鉴权失败") || !strings.Contains(err.Error(), "API Key") {
+		t.Fatalf("expected actionable unauthorized error, got %v", err)
+	}
+}
+
 func TestRequestJSONDetectsCloudflareAttentionRequired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

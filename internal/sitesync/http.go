@@ -140,6 +140,12 @@ func formatSiteHTTPError(statusCode int, header http.Header, bodyBytes []byte) e
 	if summary := extractSitePlainTextResponseSummary(header.Get("Content-Type"), bodyBytes); summary != "" {
 		return newSiteHTTPError(statusCode, summary)
 	}
+	switch statusCode {
+	case http.StatusUnauthorized:
+		return newSiteHTTPError(statusCode, "上游鉴权失败，请检查当前测试所选 API Key 是否完整且有效")
+	case http.StatusForbidden:
+		return newSiteHTTPError(statusCode, "上游拒绝访问，请检查 API Key 权限或模型访问资格")
+	}
 	return newSiteHTTPError(statusCode, "上游返回非 JSON 响应，无法解析为接口响应")
 }
 
