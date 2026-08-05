@@ -46,7 +46,7 @@ const emptyForm: FormState = {
     remark: '',
 };
 
-const DEFAULT_TEST_URL = 'https://api.openai.com/v1/models';
+const DEFAULT_TEST_URL = 'https://www.google.com/generate_204';
 
 function maskProxyURL(value: string) {
     try {

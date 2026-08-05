@@ -101,9 +101,11 @@ export function useDeleteProxyConfiguration() {
 }
 
 export function useTestProxyConfiguration() {
+    const queryClient = useQueryClient();
     const t = useTranslations('proxyPool');
     return useMutation({
         mutationFn: async (data: ProxyTestRequest) => apiClient.post<ProxyTestResult>('/api/v1/proxy-pool/test', data),
         onError: (error) => logger.error(t('testFailed'), error),
+        onSettled: () => queryClient.invalidateQueries({ queryKey: ['audit', 'logs'] }),
     });
 }

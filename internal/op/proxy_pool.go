@@ -17,7 +17,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-const defaultProxyTestURL = "https://api.openai.com/v1/models"
+const defaultProxyTestURL = "https://www.google.com/generate_204"
 
 var proxyConfigurationCache = cache.New[int, model.ProxyConfiguration](16)
 
@@ -401,7 +401,7 @@ func resolveProxyTestURL(req model.ProxyTestRequest, ctx context.Context) (strin
 			return "", fmt.Errorf("proxy configuration is disabled")
 		}
 		proxyURL = item.URL
-	} else if req.UseSystemProxy {
+	} else if req.UseSystemProxy && proxyURL == "" {
 		storedProxyURL, err := SettingGetString(model.SettingKeyProxyURL)
 		if err != nil {
 			return "", fmt.Errorf("system proxy setting not found")

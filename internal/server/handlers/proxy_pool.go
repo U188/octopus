@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -135,10 +138,48 @@ func testProxyConfiguration(c *gin.Context) {
 		resp.InvalidJSON(c)
 		return
 	}
+	action := proxyTestAuditAction(req)
+	detail := proxyTestAuditDetail(req)
 	result, err := op.ProxyConfigurationTest(req, c.Request.Context())
 	if err != nil {
+		recordAuditFailure(c, action, detail, errors.New("proxy connectivity test request failed"))
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	detail["status_code"] = result.StatusCode
+	detail["duration_ms"] = result.DurationMS
+	if result.Success {
+		recordAuditSuccess(c, action, detail)
+	} else {
+		recordAuditFailure(c, action, detail, errors.New("proxy connectivity test failed"))
+	}
 	resp.Success(c, result)
+}
+
+func proxyTestAuditAction(req model.ProxyTestRequest) string {
+	if req.UseSystemProxy {
+		return "system_proxy.test"
+	}
+	return "proxy_pool.test"
+}
+
+func proxyTestAuditDetail(req model.ProxyTestRequest) map[string]any {
+	source := "draft"
+	if req.UseSystemProxy {
+		source = "system"
+	} else if req.ProxyConfigID != nil && *req.ProxyConfigID > 0 {
+		source = "pool"
+	}
+	targetHost := "www.google.com"
+	if parsed, err := url.Parse(strings.TrimSpace(req.URL)); err == nil && strings.TrimSpace(parsed.Hostname()) != "" {
+		targetHost = strings.TrimSpace(parsed.Hostname())
+	}
+	detail := map[string]any{
+		"source":      source,
+		"target_host": targetHost,
+	}
+	if req.ProxyConfigID != nil && *req.ProxyConfigID > 0 {
+		detail["proxy_config_id"] = *req.ProxyConfigID
+	}
+	return detail
 }

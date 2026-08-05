@@ -104,7 +104,9 @@ export function SettingNetwork() {
             return;
         }
         testSystemProxy.mutate(
-            proxyUrl.isMasked ? { use_system_proxy: true } : { proxy_url: currentProxyURL },
+            proxyUrl.isMasked
+                ? { use_system_proxy: true }
+                : { use_system_proxy: true, proxy_url: currentProxyURL },
             {
                 onSuccess: (result) => {
                     if (result.success) {
