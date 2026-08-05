@@ -936,7 +936,17 @@
             "transportInput": "传输输入",
             "billInput": "计费输入",
             "cacheRead": "缓存读取",
-            "cacheWrite": "缓存写入"
+            "cacheWrite": "缓存写入",
+            "tokenSourceReported": "上游",
+            "tokenSourceReportedHint": "由上游接口返回的 usage 精确值。",
+            "tokenSourceEstimated": "估算",
+            "tokenSourceEstimatedHint": "上游未提供可靠 usage，使用本地分词器近似计算。",
+            "tokenSourceMissing": "缺失",
+            "tokenSourceMissingHint": "没有足够信息计算该 Token 数量。",
+            "tokenSourceNotApplicable": "不适用",
+            "tokenSourceNotApplicableHint": "该请求类型没有输出 Token，例如 Embedding。",
+            "tokenSourceLegacy": "历史",
+            "tokenSourceLegacyHint": "旧版日志没有记录 Token 数值来源。"
         },
         "filters": {
             "keywordPlaceholder": "搜索模型、API Key 或内容",

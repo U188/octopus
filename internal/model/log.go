@@ -1,5 +1,17 @@
 package model
 
+// TokenCountSource identifies whether a token count came from the upstream
+// provider, a local estimate, or could not be determined.
+type TokenCountSource string
+
+const (
+	TokenCountSourceReported      TokenCountSource = "reported"
+	TokenCountSourceEstimated     TokenCountSource = "estimated"
+	TokenCountSourceMissing       TokenCountSource = "missing"
+	TokenCountSourceNotApplicable TokenCountSource = "not_applicable"
+	TokenCountSourceLegacy        TokenCountSource = "legacy"
+)
+
 // AttemptStatus 尝试状态
 type AttemptStatus string
 
@@ -59,23 +71,25 @@ type RelayLog struct {
 	ChannelName          string              `json:"channel_name"`                             // 渠道名称
 	ActualModelName      string              `json:"actual_model_name"`                        // 实际使用模型名称
 	InputTokens          int                 `json:"input_tokens"`                             // 输入Token
-	TransportInputTokens *int                `json:"transport_input_tokens,omitempty"`         // 实际发送到上游请求体的 Token 估算
-	BillInputTokens      *int                `json:"bill_input_tokens,omitempty"`              // 按常规输入价格计费的 Token
-	CacheReadTokens      *int                `json:"cache_read_tokens,omitempty"`              // 从缓存读取的 Token
-	CacheWriteTokens     *int                `json:"cache_write_tokens,omitempty"`             // 写入缓存的 Token
-	OutputTokens         int                 `json:"output_tokens"`                            // 输出 Token
-	Ftut                 int                 `json:"ftut"`                                     // 首字时间(毫秒)
-	UseTime              int                 `json:"use_time"`                                 // 总用时(毫秒)
-	Cost                 float64             `json:"cost"`                                     // 消耗费用
-	RequestHeaders       string              `json:"request_headers" gorm:"type:text"`         // 请求头
-	RequestContent       string              `json:"request_content"`                          // 请求内容
-	ResponseContent      string              `json:"response_content"`                         // 响应内容
-	Error                string              `json:"error"`                                    // 错误信息
-	Success              bool                `json:"success" gorm:"not null;default:false"`    // 是否成功，便于状态筛选索引
-	Attempts             []ChannelAttempt    `json:"attempts" gorm:"serializer:json"`          // 所有尝试记录
-	TotalAttempts        int                 `json:"total_attempts"`                           // 总尝试次数
-	UsedWS               bool                `json:"used_ws" gorm:"default:false"`             // 是否使用了上游WebSocket
-	WSMode               *RelayLogWSMode     `json:"ws_mode,omitempty"`                        // 上游 WebSocket 会话模式
-	WSExecMode           *RelayLogWSExecMode `json:"ws_exec_mode,omitempty"`                   // 上游 WebSocket 事件处理方式
-	WSRecovery           *RelayLogWSRecovery `json:"ws_recovery,omitempty"`                    // 本次请求触发的恢复动作
+	InputTokenSource     TokenCountSource    `json:"input_token_source" gorm:"size:20;not null;default:legacy"`
+	TransportInputTokens *int                `json:"transport_input_tokens,omitempty"` // 实际发送到上游请求体的 Token 估算
+	BillInputTokens      *int                `json:"bill_input_tokens,omitempty"`      // 按常规输入价格计费的 Token
+	CacheReadTokens      *int                `json:"cache_read_tokens,omitempty"`      // 从缓存读取的 Token
+	CacheWriteTokens     *int                `json:"cache_write_tokens,omitempty"`     // 写入缓存的 Token
+	OutputTokens         int                 `json:"output_tokens"`                    // 输出 Token
+	OutputTokenSource    TokenCountSource    `json:"output_token_source" gorm:"size:20;not null;default:legacy"`
+	Ftut                 int                 `json:"ftut"`                                  // 首字时间(毫秒)
+	UseTime              int                 `json:"use_time"`                              // 总用时(毫秒)
+	Cost                 float64             `json:"cost"`                                  // 消耗费用
+	RequestHeaders       string              `json:"request_headers" gorm:"type:text"`      // 请求头
+	RequestContent       string              `json:"request_content"`                       // 请求内容
+	ResponseContent      string              `json:"response_content"`                      // 响应内容
+	Error                string              `json:"error"`                                 // 错误信息
+	Success              bool                `json:"success" gorm:"not null;default:false"` // 是否成功，便于状态筛选索引
+	Attempts             []ChannelAttempt    `json:"attempts" gorm:"serializer:json"`       // 所有尝试记录
+	TotalAttempts        int                 `json:"total_attempts"`                        // 总尝试次数
+	UsedWS               bool                `json:"used_ws" gorm:"default:false"`          // 是否使用了上游WebSocket
+	WSMode               *RelayLogWSMode     `json:"ws_mode,omitempty"`                     // 上游 WebSocket 会话模式
+	WSExecMode           *RelayLogWSExecMode `json:"ws_exec_mode,omitempty"`                // 上游 WebSocket 事件处理方式
+	WSRecovery           *RelayLogWSRecovery `json:"ws_recovery,omitempty"`                 // 本次请求触发的恢复动作
 }

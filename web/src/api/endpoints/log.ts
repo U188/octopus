@@ -15,6 +15,8 @@ export type RelayLogWSExecMode = 'passthrough' | 'transform';
 
 export type RelayLogWSRecovery = 'reconnect' | 'replay' | 'downgrade';
 
+export type TokenCountSource = 'reported' | 'estimated' | 'missing' | 'not_applicable' | 'legacy';
+
 /**
  * 单次渠道尝试信息
  */
@@ -62,11 +64,13 @@ export interface RelayLog {
     channel_name: string;        // 渠道名称
     actual_model_name: string;   // 实际使用模型名称
     input_tokens: number;        // 输入Token
+    input_token_source?: TokenCountSource;
     transport_input_tokens?: number | null; // 实际发送到上游请求体的 Token 估算
     bill_input_tokens?: number | null; // 按常规输入价格计费的 Token
     cache_read_tokens?: number | null; // 从缓存读取的 Token
     cache_write_tokens?: number | null; // 写入缓存的 Token
     output_tokens: number;       // 输出Token
+    output_token_source?: TokenCountSource;
     ftut: number;                // 首字时间(毫秒)
     use_time: number;            // 总用时(毫秒)
     cost: number;                // 消耗费用

@@ -321,6 +321,12 @@ func RelayLogAdd(ctx context.Context, relayLog model.RelayLog) error {
 	if err != nil {
 		return err
 	}
+	if relayLog.InputTokenSource == "" {
+		relayLog.InputTokenSource = model.TokenCountSourceLegacy
+	}
+	if relayLog.OutputTokenSource == "" {
+		relayLog.OutputTokenSource = model.TokenCountSourceLegacy
+	}
 	relayLog.ID = snowflake.GenerateID()
 	notifySubscribers(relayLog)
 	appendRelayLogRecent(relayLog)
@@ -717,11 +723,13 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 		"channel_name",
 		"actual_model_name",
 		"input_tokens",
+		"input_token_source",
 		"transport_input_tokens",
 		"bill_input_tokens",
 		"cache_read_tokens",
 		"cache_write_tokens",
 		"output_tokens",
+		"output_token_source",
 		"ftut",
 		"use_time",
 		"cost",

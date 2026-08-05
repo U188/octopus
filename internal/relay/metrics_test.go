@@ -6,13 +6,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/U188/octopus/internal/model"
 	transformerModel "github.com/U188/octopus/internal/transformer/model"
+	"github.com/U188/octopus/internal/utils/tokenizer"
 )
 
-// usage 完全缺失时，应使用 TransportInputTokens 兜底填充 input，output 保持 0。
+// usage 完全缺失时，应估算实际传输输入和已生成的文本输出。
 func TestSetInternalResponseFallbackWhenUsageMissing(t *testing.T) {
 	m := &RelayMetrics{TransportInputTokens: intPtr(123)}
-	m.SetInternalResponse(&transformerModel.InternalLLMResponse{}, "test-model")
+	text := "fallback output"
+	m.SetInternalResponse(&transformerModel.InternalLLMResponse{
+		Choices: []transformerModel.Choice{{
+			Message: &transformerModel.Message{Content: transformerModel.MessageContent{Content: &text}},
+		}},
+	}, "test-model")
 
 	if m.Stats.InputToken != 123 {
 		t.Fatalf("input token: got %d want 123 (fallback)", m.Stats.InputToken)
@@ -20,8 +27,12 @@ func TestSetInternalResponseFallbackWhenUsageMissing(t *testing.T) {
 	if m.BillInputTokens == nil || *m.BillInputTokens != 123 {
 		t.Fatalf("bill input tokens: got %v want 123", m.BillInputTokens)
 	}
-	if m.Stats.OutputToken != 0 {
-		t.Fatalf("output token: got %d want 0", m.Stats.OutputToken)
+	wantOutput := tokenizer.CountTokens(text+"\n", "test-model")
+	if m.Stats.OutputToken != int64(wantOutput) {
+		t.Fatalf("output token: got %d want %d (fallback)", m.Stats.OutputToken, wantOutput)
+	}
+	if m.InputTokenSource != model.TokenCountSourceEstimated || m.OutputTokenSource != model.TokenCountSourceEstimated {
+		t.Fatalf("unexpected token sources: input=%q output=%q", m.InputTokenSource, m.OutputTokenSource)
 	}
 }
 
@@ -38,6 +49,9 @@ func TestSetInternalResponseFallbackWhenInputZero(t *testing.T) {
 	if m.Stats.OutputToken != 30 {
 		t.Fatalf("output token: got %d want 30 (preserved)", m.Stats.OutputToken)
 	}
+	if m.InputTokenSource != model.TokenCountSourceEstimated || m.OutputTokenSource != model.TokenCountSourceReported {
+		t.Fatalf("unexpected token sources: input=%q output=%q", m.InputTokenSource, m.OutputTokenSource)
+	}
 }
 
 // 上游正常上报 input 时不触发兜底（保留真实值，而非估算值）。
@@ -53,6 +67,9 @@ func TestSetInternalResponseNoFallbackWhenInputReported(t *testing.T) {
 	if m.Stats.OutputToken != 7 {
 		t.Fatalf("output token: got %d want 7", m.Stats.OutputToken)
 	}
+	if m.InputTokenSource != model.TokenCountSourceReported || m.OutputTokenSource != model.TokenCountSourceReported {
+		t.Fatalf("unexpected token sources: input=%q output=%q", m.InputTokenSource, m.OutputTokenSource)
+	}
 }
 
 // 仅缓存命中（input_tokens=0 但 cache_read>0）属于已上报输入，不应被估算覆盖。
@@ -64,6 +81,59 @@ func TestSetInternalResponseNoFallbackWhenCacheOnly(t *testing.T) {
 
 	if m.Stats.InputToken != 0 {
 		t.Fatalf("input token: got %d want 0 (cache-only is reported input)", m.Stats.InputToken)
+	}
+	if m.InputTokenSource != model.TokenCountSourceReported {
+		t.Fatalf("input token source: got %q want reported", m.InputTokenSource)
+	}
+}
+
+func TestSetInternalResponseEstimatesZeroReportedOutputWhenContentExists(t *testing.T) {
+	text := "the upstream returned content but zero output usage"
+	m := &RelayMetrics{}
+	m.SetInternalResponse(&transformerModel.InternalLLMResponse{
+		Usage: &transformerModel.Usage{PromptTokens: 12},
+		Choices: []transformerModel.Choice{{
+			Message: &transformerModel.Message{Content: transformerModel.MessageContent{Content: &text}},
+		}},
+	}, "test-model")
+
+	if m.Stats.OutputToken <= 0 || m.OutputTokenSource != model.TokenCountSourceEstimated {
+		t.Fatalf("expected estimated output, got tokens=%d source=%q", m.Stats.OutputToken, m.OutputTokenSource)
+	}
+}
+
+func TestSetInternalResponseEmbeddingOutputNotApplicable(t *testing.T) {
+	m := &RelayMetrics{TransportInputTokens: intPtr(7)}
+	m.SetInternalResponse(&transformerModel.InternalLLMResponse{
+		EmbeddingData: []transformerModel.EmbeddingObject{{}},
+	}, "embedding-model")
+
+	if m.OutputTokenSource != model.TokenCountSourceNotApplicable || m.Stats.OutputToken != 0 {
+		t.Fatalf("unexpected embedding output: tokens=%d source=%q", m.Stats.OutputToken, m.OutputTokenSource)
+	}
+}
+
+func TestEstimateGeneratedOutputTokensCountsTextReasoningAndToolsOnly(t *testing.T) {
+	text := "answer"
+	reasoning := "reasoning"
+	imageURL := "data:image/png;base64," + strings.Repeat("A", 10000)
+	resp := &transformerModel.InternalLLMResponse{
+		Choices: []transformerModel.Choice{{
+			Message: &transformerModel.Message{
+				Content: transformerModel.MessageContent{MultipleContent: []transformerModel.MessageContentPart{
+					{Type: "text", Text: &text},
+					{Type: "image_url", ImageURL: &transformerModel.ImageURL{URL: imageURL}},
+				}},
+				ReasoningContent: &reasoning,
+				ToolCalls: []transformerModel.ToolCall{{
+					Function: transformerModel.FunctionCall{Name: "lookup", Arguments: `{"q":"octopus"}`},
+				}},
+			},
+		}},
+	}
+	want := tokenizer.CountTokens("answer\nreasoning\nlookup\n{\"q\":\"octopus\"}\n", "test-model")
+	if got := estimateGeneratedOutputTokens(resp, "test-model"); got != want {
+		t.Fatalf("estimated output tokens: got %d want %d", got, want)
 	}
 }
 

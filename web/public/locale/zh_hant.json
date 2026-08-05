@@ -936,7 +936,17 @@
             "transportInput": "傳輸輸入",
             "billInput": "計費輸入",
             "cacheRead": "快取讀取",
-            "cacheWrite": "快取寫入"
+            "cacheWrite": "快取寫入",
+            "tokenSourceReported": "上游",
+            "tokenSourceReportedHint": "由上游介面返回的 usage 精確值。",
+            "tokenSourceEstimated": "估算",
+            "tokenSourceEstimatedHint": "上游未提供可靠 usage，使用本地分詞器近似計算。",
+            "tokenSourceMissing": "缺失",
+            "tokenSourceMissingHint": "沒有足夠資訊計算該 Token 數量。",
+            "tokenSourceNotApplicable": "不適用",
+            "tokenSourceNotApplicableHint": "該請求類型沒有輸出 Token，例如 Embedding。",
+            "tokenSourceLegacy": "歷史",
+            "tokenSourceLegacyHint": "舊版日誌沒有記錄 Token 數值來源。"
         },
         "filters": {
             "keywordPlaceholder": "搜尋模型、API Key 或內容",

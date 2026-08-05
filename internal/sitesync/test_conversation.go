@@ -255,6 +255,8 @@ func recordTestConversationRelayLog(
 		ResponseContent:   string(responseContent),
 		Error:             errorText,
 		Success:           requestErr == nil,
+		InputTokenSource:  model.TokenCountSourceMissing,
+		OutputTokenSource: model.TokenCountSourceMissing,
 		Attempts: []model.ChannelAttempt{
 			{
 				ChannelName: channelName,

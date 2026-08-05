@@ -8,7 +8,7 @@ import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useTheme } from 'next-themes';
-import { getLogDetail, type RelayLog, type RelayLogWSMode, type RelayLogWSExecMode, type RelayLogWSRecovery, type ChannelAttempt, type AttemptStatus, type LogSiteActionTarget as ApiLogSiteActionTarget, type LogSiteActionTargets as ApiLogSiteActionTargets } from '@/api/endpoints/log';
+import { getLogDetail, type RelayLog, type RelayLogWSMode, type RelayLogWSExecMode, type RelayLogWSRecovery, type TokenCountSource, type ChannelAttempt, type AttemptStatus, type LogSiteActionTarget as ApiLogSiteActionTarget, type LogSiteActionTargets as ApiLogSiteActionTargets } from '@/api/endpoints/log';
 import { getModelIcon } from '@/lib/model-icons';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -187,6 +187,54 @@ function getHeadlineInputTokens(log: RelayLog) {
         ? log.input_tokens - cacheRead
         : log.input_tokens;
     return Math.max(0, dedupedInput + cacheWrite);
+}
+
+function tokenCountText(value: number, source: TokenCountSource | undefined) {
+    if (source === 'missing' || source === 'not_applicable') return '-';
+    return value.toLocaleString();
+}
+
+function TokenSourceBadge({ source }: { source: TokenCountSource | undefined }) {
+    const t = useTranslations('log.card');
+    const resolved = source ?? 'legacy';
+    const meta = {
+        reported: {
+            label: t('tokenSourceReported'),
+            hint: t('tokenSourceReportedHint'),
+            className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        },
+        estimated: {
+            label: t('tokenSourceEstimated'),
+            hint: t('tokenSourceEstimatedHint'),
+            className: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+        },
+        missing: {
+            label: t('tokenSourceMissing'),
+            hint: t('tokenSourceMissingHint'),
+            className: 'border-border bg-muted text-muted-foreground',
+        },
+        not_applicable: {
+            label: t('tokenSourceNotApplicable'),
+            hint: t('tokenSourceNotApplicableHint'),
+            className: 'border-border bg-muted text-muted-foreground',
+        },
+        legacy: {
+            label: t('tokenSourceLegacy'),
+            hint: t('tokenSourceLegacyHint'),
+            className: 'border-border bg-background text-muted-foreground',
+        },
+    }[resolved];
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Badge variant="outline" className={cn('h-5 shrink-0 px-1.5 py-0 text-[10px] font-medium', meta.className)}>
+                    {meta.label}
+                </Badge>
+            </TooltipTrigger>
+            <TooltipContent>{meta.hint}</TooltipContent>
+        </Tooltip>
+    );
 }
 
 function getWSBadgeMeta(mode: RelayLogWSMode | null | undefined, usedWS: boolean | undefined, t: ReturnType<typeof useTranslations<'log.card'>>) {
@@ -755,7 +803,8 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                     <ArrowDownToLine className={cn('size-3.5 shrink-0', hasCacheTokens(log) ? 'text-sky-500' : 'text-green-500')} />
                                     <span className="flex items-center gap-1">
                                         {t('input')}
-                                        <span className="tabular-nums">{getHeadlineInputTokens(log).toLocaleString()}</span>
+                                        <span className="tabular-nums">{tokenCountText(getHeadlineInputTokens(log), log.input_token_source)}</span>
+                                        <TokenSourceBadge source={log.input_token_source} />
                                         {hasCacheTokens(log) && log.cache_read_tokens != null && log.cache_read_tokens > 0 ? (
                                             <Badge
                                                 variant="secondary"
@@ -768,7 +817,10 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <ArrowUpFromLine className="size-3.5 shrink-0 text-purple-500" />
-                                    <span>{t('output')} {log.output_tokens.toLocaleString()}</span>
+                                    <span className="flex items-center gap-1">
+                                        {t('output')} <span className="tabular-nums">{tokenCountText(log.output_tokens, log.output_token_source)}</span>
+                                        <TokenSourceBadge source={log.output_token_source} />
+                                    </span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <DollarSign className="size-3.5 shrink-0 text-emerald-500" />
@@ -1024,9 +1076,12 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                             <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-border bg-muted/50 shrink-0">
                                                 <Send className="size-4 text-green-500" />
                                                 <span className="text-sm font-medium text-card-foreground">{t('requestContent')}</span>
-                                                <Badge variant="secondary" className="ml-auto text-xs">
-                                                    {getHeadlineInputTokens(displayLog).toLocaleString()} {t('tokens')}
-                                                </Badge>
+                                                <div className="ml-auto flex items-center gap-1">
+                                                    <Badge variant="secondary" className="text-xs">
+                                                        {tokenCountText(getHeadlineInputTokens(displayLog), displayLog.input_token_source)} {t('tokens')}
+                                                    </Badge>
+                                                    <TokenSourceBadge source={displayLog.input_token_source} />
+                                                </div>
                                             </div>
                                             <div className="flex-1 overflow-auto min-h-0">
                                                 <DeferredJsonContent content={displayLog.request_content} fallbackText={t('noRequestContent')} isLoading={detailLoading} />
@@ -1036,9 +1091,12 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                             <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-border bg-muted/50 shrink-0">
                                                 <MessageSquare className="size-4 text-purple-500" />
                                                 <span className="text-sm font-medium text-card-foreground">{t('responseContent')}</span>
-                                                <Badge variant="secondary" className="ml-auto text-xs">
-                                                    {displayLog.output_tokens.toLocaleString()} {t('tokens')}
-                                                </Badge>
+                                                <div className="ml-auto flex items-center gap-1">
+                                                    <Badge variant="secondary" className="text-xs">
+                                                        {tokenCountText(displayLog.output_tokens, displayLog.output_token_source)} {t('tokens')}
+                                                    </Badge>
+                                                    <TokenSourceBadge source={displayLog.output_token_source} />
+                                                </div>
                                             </div>
                                             <div className="flex-1 overflow-auto min-h-0">
                                                 <DeferredJsonContent content={displayLog.response_content} fallbackText={t('noResponseContent')} isLoading={detailLoading} />

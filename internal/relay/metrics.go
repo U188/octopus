@@ -44,6 +44,8 @@ type RelayMetrics struct {
 	BillInputTokens      *int
 	CacheReadTokens      *int
 	CacheWriteTokens     *int
+	InputTokenSource     model.TokenCountSource
+	OutputTokenSource    model.TokenCountSource
 }
 
 func NewRelayMetrics(apiKeyID int, requestModel string, rawBody []byte, req *transformerModel.InternalLLMRequest) *RelayMetrics {
@@ -127,6 +129,8 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 		m.CacheWriteTokens = intPtr(int(cacheWriteTokens))
 		m.Stats.InputToken = usage.PromptTokens
 		m.Stats.OutputToken = usage.CompletionTokens
+		m.InputTokenSource = model.TokenCountSourceReported
+		m.OutputTokenSource = model.TokenCountSourceReported
 		inputReported = usage.EffectiveInputTokens() > 0
 
 		if modelPrice := resolveModelPrice(actualModel); modelPrice != nil {
@@ -138,16 +142,75 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 	}
 
 	// 降级：上游未上报 input（usage 缺失，或 usage 中输入侧全为 0）时，用请求侧
-	// 估算的 TransportInputTokens 兜底，使 input token/费用不为 0；output 无法从
-	// 请求侧估算，保持 0。tiktoken 统一用 o200k_base，对 Claude/Gemini 为近似值。
+	// 估算的 TransportInputTokens 兜底。输入与下方的输出估算统一使用 o200k_base，
+	// 对 Claude/Gemini 等非 OpenAI tokenizer 仅为近似值。
 	if !inputReported && m.TransportInputTokens != nil && *m.TransportInputTokens > 0 {
 		estimated := int64(*m.TransportInputTokens)
 		m.Stats.InputToken = estimated
 		m.BillInputTokens = intPtr(int(estimated))
+		m.InputTokenSource = model.TokenCountSourceEstimated
 		if modelPrice := resolveModelPrice(actualModel); modelPrice != nil {
 			m.Stats.InputCost = float64(estimated) * modelPrice.Input * 1e-6
 		}
 	}
+
+	if resp.IsEmbeddingResponse() {
+		m.OutputTokenSource = model.TokenCountSourceNotApplicable
+		return
+	}
+
+	estimatedOutput := estimateGeneratedOutputTokens(resp, actualModel)
+	if estimatedOutput > 0 && (resp.Usage == nil || m.Stats.OutputToken == 0) {
+		m.Stats.OutputToken = int64(estimatedOutput)
+		m.OutputTokenSource = model.TokenCountSourceEstimated
+		if modelPrice := resolveModelPrice(actualModel); modelPrice != nil {
+			m.Stats.OutputCost = float64(estimatedOutput) * modelPrice.Output * 1e-6
+		}
+	}
+}
+
+func estimateGeneratedOutputTokens(resp *transformerModel.InternalLLMResponse, modelName string) int {
+	if resp == nil || resp.IsEmbeddingResponse() {
+		return 0
+	}
+	var generated strings.Builder
+	appendGenerated := func(value string) {
+		if value == "" {
+			return
+		}
+		generated.WriteString(value)
+		generated.WriteByte('\n')
+	}
+	for _, choice := range resp.Choices {
+		message := choice.Message
+		if message == nil {
+			message = choice.Delta
+		}
+		if message == nil {
+			continue
+		}
+		if message.Content.Content != nil {
+			appendGenerated(*message.Content.Content)
+		}
+		for _, part := range message.Content.MultipleContent {
+			if part.Text != nil {
+				appendGenerated(*part.Text)
+			}
+		}
+		appendGenerated(message.Refusal)
+		appendGenerated(message.GetReasoningContent())
+		for _, toolCall := range message.ToolCalls {
+			appendGenerated(toolCall.Function.Name)
+			appendGenerated(toolCall.Function.Arguments)
+		}
+		if message.Audio != nil {
+			appendGenerated(message.Audio.Transcript)
+		}
+	}
+	if generated.Len() == 0 {
+		return 0
+	}
+	return tokenizer.CountTokens(generated.String(), modelName)
 }
 
 func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attempts []model.ChannelAttempt) {
@@ -272,7 +335,9 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	// Usage：统一从 Stats 读取。Stats 在 SetInternalResponse 中已由上游 usage 填充，
 	// 或在 usage 缺失时由 TransportInputTokens 降级填充，确保降级值也写入日志。
 	relayLog.InputTokens = int(m.Stats.InputToken)
+	relayLog.InputTokenSource = normalizedTokenSource(m.InputTokenSource)
 	relayLog.OutputTokens = int(m.Stats.OutputToken)
+	relayLog.OutputTokenSource = normalizedTokenSource(m.OutputTokenSource)
 	relayLog.Cost = m.Stats.InputCost + m.Stats.OutputCost
 	relayLog.TransportInputTokens = m.TransportInputTokens
 	relayLog.BillInputTokens = m.BillInputTokens
@@ -308,6 +373,19 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 
 	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
 		log.Warnf("failed to save relay log: %v", logErr)
+	}
+}
+
+func normalizedTokenSource(source model.TokenCountSource) model.TokenCountSource {
+	switch source {
+	case model.TokenCountSourceReported,
+		model.TokenCountSourceEstimated,
+		model.TokenCountSourceMissing,
+		model.TokenCountSourceNotApplicable,
+		model.TokenCountSourceLegacy:
+		return source
+	default:
+		return model.TokenCountSourceMissing
 	}
 }
 

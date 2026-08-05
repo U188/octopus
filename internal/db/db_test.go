@@ -87,6 +87,9 @@ func TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate(t *testing.T) {
 	if err := gormDB.Exec(createSQL).Error; err != nil {
 		t.Fatalf("create legacy table: %v", err)
 	}
+	if err := gormDB.Exec("INSERT INTO relay_logs (id, time, request_model_name) VALUES (1, 1, 'legacy-model')").Error; err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
 
 	capture.reset()
 	if err := ensureRelayLogColumnsSQLite(gormDB); err != nil {
@@ -94,7 +97,7 @@ func TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate(t *testing.T) {
 	}
 
 	// 新增列被安全补齐。
-	for _, column := range []string{"success", "request_ip"} {
+	for _, column := range []string{"success", "request_ip", "input_token_source", "output_token_source"} {
 		var name string
 		if err := gormDB.Raw(
 			"SELECT name FROM pragma_table_info('relay_logs') WHERE name = ? LIMIT 1",
@@ -105,6 +108,16 @@ func TestEnsureRelayLogColumnsSQLite_AddsMissingWithoutRecreate(t *testing.T) {
 		if name != column {
 			t.Fatalf("%s column not added by ensureRelayLogColumnsSQLite", column)
 		}
+	}
+	var sources struct {
+		InputTokenSource  model.TokenCountSource
+		OutputTokenSource model.TokenCountSource
+	}
+	if err := gormDB.Table("relay_logs").Select("input_token_source", "output_token_source").Where("id = 1").Scan(&sources).Error; err != nil {
+		t.Fatalf("read legacy token sources: %v", err)
+	}
+	if sources.InputTokenSource != model.TokenCountSourceLegacy || sources.OutputTokenSource != model.TokenCountSourceLegacy {
+		t.Fatalf("legacy row token sources = %q/%q, want legacy/legacy", sources.InputTokenSource, sources.OutputTokenSource)
 	}
 
 	// 没发出过 recreateTable 特征 SQL。

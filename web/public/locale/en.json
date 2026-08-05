@@ -936,7 +936,17 @@
             "transportInput": "Transport Input",
             "billInput": "Billed Input",
             "cacheRead": "Cache Read",
-            "cacheWrite": "Cache Write"
+            "cacheWrite": "Cache Write",
+            "tokenSourceReported": "Upstream",
+            "tokenSourceReportedHint": "Exact usage reported by the upstream API.",
+            "tokenSourceEstimated": "Estimated",
+            "tokenSourceEstimatedHint": "The upstream did not provide reliable usage, so a local tokenizer estimated it.",
+            "tokenSourceMissing": "Missing",
+            "tokenSourceMissingHint": "There was not enough information to determine this token count.",
+            "tokenSourceNotApplicable": "N/A",
+            "tokenSourceNotApplicableHint": "This request type has no output tokens, such as embeddings.",
+            "tokenSourceLegacy": "Legacy",
+            "tokenSourceLegacyHint": "This older log did not record where its token count came from."
         },
         "filters": {
             "keywordPlaceholder": "Search model, API key or content",

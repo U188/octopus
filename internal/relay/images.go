@@ -248,7 +248,9 @@ type imagesRelayMetrics struct {
 	StartTime    time.Time
 	FirstToken   time.Time
 
-	Stats model.StatsMetrics
+	Stats             model.StatsMetrics
+	InputTokenSource  model.TokenCountSource
+	OutputTokenSource model.TokenCountSource
 
 	RequestContent  string
 	RequestHeaders  string
@@ -280,6 +282,8 @@ func (m *imagesRelayMetrics) SetUsageFromImages(actualModel string, u imagesUsag
 	m.ActualModel = actualModel
 	m.Stats.InputToken = int64(u.InputTokens)
 	m.Stats.OutputToken = int64(u.OutputTokens)
+	m.InputTokenSource = model.TokenCountSourceReported
+	m.OutputTokenSource = model.TokenCountSourceReported
 
 	modelPrice := price.GetLLMPrice(actualModel)
 	if modelPrice == nil {
@@ -355,18 +359,20 @@ func (m *imagesRelayMetrics) saveLog(ctx context.Context, success bool, err erro
 	}
 
 	relayLog := model.RelayLog{
-		Time:             m.StartTime.Unix(),
-		RequestIP:        m.RequestIP,
-		RequestModelName: m.RequestModel,
-		ChannelName:      channelName,
-		ChannelId:        channelID,
-		ActualModelName:  actualModel,
-		UseTime:          int(duration.Milliseconds()),
-		Attempts:         attempts,
-		TotalAttempts:    len(attempts),
-		RequestHeaders:   m.RequestHeaders,
-		RequestContent:   m.RequestContent,
-		ResponseContent:  m.ResponseContent,
+		Time:              m.StartTime.Unix(),
+		RequestIP:         m.RequestIP,
+		RequestModelName:  m.RequestModel,
+		ChannelName:       channelName,
+		ChannelId:         channelID,
+		ActualModelName:   actualModel,
+		UseTime:           int(duration.Milliseconds()),
+		Attempts:          attempts,
+		TotalAttempts:     len(attempts),
+		RequestHeaders:    m.RequestHeaders,
+		RequestContent:    m.RequestContent,
+		ResponseContent:   m.ResponseContent,
+		InputTokenSource:  normalizedTokenSource(m.InputTokenSource),
+		OutputTokenSource: normalizedTokenSource(m.OutputTokenSource),
 	}
 
 	if apiKey, getErr := op.APIKeyGet(m.APIKeyID, ctx); getErr == nil {
