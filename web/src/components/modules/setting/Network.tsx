@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, Download, Globe, Link, Network, Radio, Shield, ShieldCheck, X } from 'lucide-react';
+import { Activity, Download, FlaskConical, Globe, Link, Network, Radio, Shield, ShieldCheck, X } from 'lucide-react';
+import { useTestProxyConfiguration } from '@/api/endpoints/proxy-pool';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -84,6 +86,7 @@ export function SettingNetwork() {
     const t = useTranslations('setting');
 
     const proxyUrl = useSettingField(SettingKey.ProxyURL);
+    const testSystemProxy = useTestProxyConfiguration();
     const apiBaseUrl = useSettingField(SettingKey.ApiBaseUrl);
     const updateDownloadURL = useSettingField(SettingKey.UpdateDownloadURL);
     const cors = useSettingField(SettingKey.CORSAllowOrigins);
@@ -93,6 +96,27 @@ export function SettingNetwork() {
     const responsesWS = useResponsesWSMode();
 
     const [corsInputValue, setCorsInputValue] = useState('');
+
+    const handleTestSystemProxy = () => {
+        const currentProxyURL = proxyUrl.value.trim();
+        if (!proxyUrl.isMasked && !currentProxyURL) {
+            toast.error(t('proxyUrl.testRequired'));
+            return;
+        }
+        testSystemProxy.mutate(
+            proxyUrl.isMasked ? { use_system_proxy: true } : { proxy_url: currentProxyURL },
+            {
+                onSuccess: (result) => {
+                    if (result.success) {
+                        toast.success(t('proxyUrl.testSuccess', { statusCode: result.status_code, durationMs: result.duration_ms }));
+                        return;
+                    }
+                    toast.error(t('proxyUrl.testFailed'), { description: result.message });
+                },
+                onError: (error) => toast.error(t('proxyUrl.testFailed'), { description: (error as unknown as ApiError)?.message }),
+            },
+        );
+    };
 
     const corsAllowOriginsList = useMemo(() => {
         const value = cors.value.trim();
@@ -141,13 +165,27 @@ export function SettingNetwork() {
         <SettingCard icon={Network} title={t('network.title')}>
             {/* 代理地址 */}
             <SettingRow icon={Globe} label={t('proxyUrl.label')} tooltip={t('proxyUrl.description')}>
-                <Input
-                    value={proxyUrl.value}
-                    onChange={(e) => proxyUrl.setValue(e.target.value)}
-                    onBlur={proxyUrl.save}
-                    placeholder={t('proxyUrl.placeholder')}
-                    className="w-48 rounded-xl"
-                />
+                <div className="flex w-64 max-w-full items-center gap-2">
+                    <Input
+                        value={proxyUrl.value}
+                        onChange={(e) => proxyUrl.setValue(e.target.value)}
+                        onBlur={proxyUrl.save}
+                        placeholder={t('proxyUrl.placeholder')}
+                        className="min-w-0 flex-1 rounded-xl"
+                    />
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-9 shrink-0 rounded-xl"
+                        onClick={handleTestSystemProxy}
+                        disabled={testSystemProxy.isPending || (!proxyUrl.isMasked && !proxyUrl.value.trim())}
+                        title={testSystemProxy.isPending ? t('proxyUrl.testing') : t('proxyUrl.test')}
+                        aria-label={testSystemProxy.isPending ? t('proxyUrl.testing') : t('proxyUrl.test')}
+                    >
+                        <FlaskConical className={`size-4 ${testSystemProxy.isPending ? 'animate-pulse' : ''}`} />
+                    </Button>
+                </div>
             </SettingRow>
 
             {/* 对外服务基础地址 */}

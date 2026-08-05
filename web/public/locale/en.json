@@ -180,7 +180,12 @@
         "proxyUrl": {
             "label": "Forward Proxy URL",
             "placeholder": "http://127.0.0.1:7890",
-            "description": "Forward proxy used after direct system requests fail. Supports http, https, and socks5. Download accelerators such as https://proxyd.picpi.top/ belong in Update Download URL"
+            "description": "Forward proxy used after direct system requests fail. Supports http, https, and socks5. Download accelerators such as https://proxyd.picpi.top/ belong in Update Download URL",
+            "test": "Test system proxy",
+            "testing": "Testing system proxy",
+            "testRequired": "Enter a system proxy URL first",
+            "testSuccess": "System proxy reachable: HTTP {statusCode} · {durationMs}ms",
+            "testFailed": "System proxy test failed"
         },
         "apiBaseUrl": {
             "label": "API Base URL",

@@ -180,7 +180,12 @@
         "proxyUrl": {
             "label": "正向代理位址",
             "placeholder": "http://127.0.0.1:7890",
-            "description": "系統請求失敗後使用的正向代理，僅支援 http、https、socks5。下載加速站點如 https://proxyd.picpi.top/ 請填到「更新加速位址」"
+            "description": "系統請求失敗後使用的正向代理，僅支援 http、https、socks5。下載加速站點如 https://proxyd.picpi.top/ 請填到「更新加速位址」",
+            "test": "測試系統代理",
+            "testing": "正在測試系統代理",
+            "testRequired": "請先填寫系統代理位址",
+            "testSuccess": "系統代理可連通：HTTP {statusCode} · {durationMs}ms",
+            "testFailed": "系統代理測試失敗"
         },
         "apiBaseUrl": {
             "label": "API 位址",

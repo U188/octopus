@@ -390,6 +390,30 @@ func newProxyTestHTTPClient(proxyURLStr string) (*http.Client, error) {
 	}, nil
 }
 
+func resolveProxyTestURL(req model.ProxyTestRequest, ctx context.Context) (string, error) {
+	proxyURL := strings.TrimSpace(req.ProxyURL)
+	if req.ProxyConfigID != nil && *req.ProxyConfigID > 0 {
+		item, err := ProxyConfigurationGet(*req.ProxyConfigID, ctx)
+		if err != nil {
+			return "", fmt.Errorf("proxy configuration not found")
+		}
+		if !item.Enabled {
+			return "", fmt.Errorf("proxy configuration is disabled")
+		}
+		proxyURL = item.URL
+	} else if req.UseSystemProxy {
+		storedProxyURL, err := SettingGetString(model.SettingKeyProxyURL)
+		if err != nil {
+			return "", fmt.Errorf("system proxy setting not found")
+		}
+		proxyURL = storedProxyURL
+	}
+	if strings.TrimSpace(proxyURL) == "" {
+		return "", fmt.Errorf("proxy url is required")
+	}
+	return model.NormalizeProxyURL(proxyURL)
+}
+
 func ProxyConfigurationTest(req model.ProxyTestRequest, ctx context.Context) (model.ProxyTestResult, error) {
 	targetURL := strings.TrimSpace(req.URL)
 	if targetURL == "" {
@@ -403,21 +427,7 @@ func ProxyConfigurationTest(req model.ProxyTestRequest, ctx context.Context) (mo
 		return model.ProxyTestResult{Success: false, Message: err.Error()}, nil
 	}
 
-	proxyURL := strings.TrimSpace(req.ProxyURL)
-	if req.ProxyConfigID != nil && *req.ProxyConfigID > 0 {
-		item, getErr := ProxyConfigurationGet(*req.ProxyConfigID, ctx)
-		if getErr != nil {
-			return model.ProxyTestResult{Success: false, Message: "proxy configuration not found"}, nil
-		}
-		if !item.Enabled {
-			return model.ProxyTestResult{Success: false, Message: "proxy configuration is disabled"}, nil
-		}
-		proxyURL = item.URL
-	}
-	if proxyURL == "" {
-		return model.ProxyTestResult{Success: false, Message: "proxy url is required"}, nil
-	}
-	normalizedProxyURL, err := model.NormalizeProxyURL(proxyURL)
+	normalizedProxyURL, err := resolveProxyTestURL(req, ctx)
 	if err != nil {
 		return model.ProxyTestResult{Success: false, Message: err.Error()}, nil
 	}

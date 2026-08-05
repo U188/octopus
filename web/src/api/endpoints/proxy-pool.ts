@@ -33,6 +33,7 @@ export type ProxyConfigurationReference = {
 export type ProxyTestRequest = {
     proxy_config_id?: number | null;
     proxy_url?: string;
+    use_system_proxy?: boolean;
     url?: string;
 };
 

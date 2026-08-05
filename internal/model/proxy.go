@@ -36,9 +36,10 @@ type ProxyConfigurationUpdateRequest struct {
 }
 
 type ProxyTestRequest struct {
-	ProxyConfigID *int   `json:"proxy_config_id,omitempty"`
-	ProxyURL      string `json:"proxy_url,omitempty"`
-	URL           string `json:"url,omitempty"`
+	ProxyConfigID  *int   `json:"proxy_config_id,omitempty"`
+	ProxyURL       string `json:"proxy_url,omitempty"`
+	UseSystemProxy bool   `json:"use_system_proxy,omitempty"`
+	URL            string `json:"url,omitempty"`
 }
 
 type ProxyTestResult struct {
