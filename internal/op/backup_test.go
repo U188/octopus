@@ -65,6 +65,64 @@ func TestDBImportPreservesAllAccountsOnCleanDB(t *testing.T) {
 	}
 }
 
+func TestDBImportPreservesProxySubscriptionNodes(t *testing.T) {
+	ctx := setupBackupTestDB(t)
+	dump := &model.DBDump{
+		Version: dbDumpVersion,
+		ProxyConfigurations: []model.ProxyConfiguration{{
+			ID:                     41,
+			Name:                   "subscription",
+			URL:                    "https://example.com/proxies.txt",
+			Type:                   model.ProxyConfigurationTypeSubscription,
+			Enabled:                true,
+			RefreshIntervalMinutes: 30,
+		}},
+		ProxySubscriptionNodes: []model.ProxySubscriptionNode{
+			{
+				ID:                   91,
+				ProxyConfigurationID: 41,
+				URL:                  "socks5://127.0.0.1:1080",
+				Active:               true,
+				HealthStatus:         model.ProxyTestHealthHealthy,
+				LatencyMS:            15,
+			},
+			{
+				ID:                   92,
+				ProxyConfigurationID: 41,
+				URL:                  "socks5://127.0.0.1:1081",
+				Active:               false,
+				HealthStatus:         model.ProxyTestHealthFailed,
+			},
+		},
+	}
+	result, err := DBImportIncremental(ctx, dump)
+	if err != nil {
+		t.Fatalf("import proxy subscription: %v", err)
+	}
+	if result.RowsAffected["proxy_subscription_nodes"] != 2 {
+		t.Fatalf("imported proxy subscription nodes = %d", result.RowsAffected["proxy_subscription_nodes"])
+	}
+	var config model.ProxyConfiguration
+	if err := dbpkg.GetDB().Where("name = ?", "subscription").First(&config).Error; err != nil {
+		t.Fatalf("read imported proxy subscription: %v", err)
+	}
+	var nodes []model.ProxySubscriptionNode
+	if err := dbpkg.GetDB().Where("proxy_configuration_id = ?", config.ID).Order("url ASC").Find(&nodes).Error; err != nil {
+		t.Fatalf("read imported subscription nodes: %v", err)
+	}
+	if len(nodes) != 2 || !nodes[0].Active || nodes[1].Active || nodes[0].HealthStatus != model.ProxyTestHealthHealthy {
+		t.Fatalf("unexpected imported subscription nodes: %+v", nodes)
+	}
+
+	exported, err := DBExportAll(ctx, false, false)
+	if err != nil {
+		t.Fatalf("export proxy subscription: %v", err)
+	}
+	if len(exported.ProxySubscriptionNodes) != 2 {
+		t.Fatalf("exported proxy subscription nodes = %d", len(exported.ProxySubscriptionNodes))
+	}
+}
+
 func TestDBImportWithIDCollisionPreservesAllAccounts(t *testing.T) {
 	ctx := setupBackupTestDB(t)
 

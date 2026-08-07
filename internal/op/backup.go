@@ -46,6 +46,9 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 	if err := conn.Find(&d.ProxyConfigurations).Error; err != nil {
 		return nil, fmt.Errorf("export proxy_configurations: %w", err)
 	}
+	if err := conn.Find(&d.ProxySubscriptionNodes).Error; err != nil {
+		return nil, fmt.Errorf("export proxy_subscription_nodes: %w", err)
+	}
 	if err := conn.Find(&d.Sites).Error; err != nil {
 		return nil, fmt.Errorf("export sites: %w", err)
 	}
@@ -215,6 +218,32 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			}
 			proxyConfigIDMap[oldID] = proxyConfig.ID
 			res.RowsAffected["proxy_configurations"]++
+		}
+
+		for i := range dump.ProxySubscriptionNodes {
+			node := dump.ProxySubscriptionNodes[i]
+			newProxyConfigID, ok := proxyConfigIDMap[node.ProxyConfigurationID]
+			if !ok {
+				continue
+			}
+			normalizedURL, err := model.NormalizeProxyURL(node.URL)
+			if err != nil {
+				return fmt.Errorf("import proxy_subscription_nodes: %w", err)
+			}
+			node.ID = 0
+			node.ProxyConfigurationID = newProxyConfigID
+			node.URL = normalizedURL
+			result := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "proxy_configuration_id"}, {Name: "url"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"active", "health_status", "latency_ms", "last_checked_at", "last_error",
+					"runtime_failure_count", "quarantined_until", "last_runtime_failure_at", "last_runtime_error", "updated_at",
+				}),
+			}).Create(&node)
+			if result.Error != nil {
+				return fmt.Errorf("import proxy_subscription_nodes: %w", result.Error)
+			}
+			res.RowsAffected["proxy_subscription_nodes"] += result.RowsAffected
 		}
 
 		// 2. Channels (dedup by name)
@@ -851,6 +880,9 @@ func DBExportZip(ctx context.Context, w io.Writer, includeLogs, includeStats boo
 		return err
 	}
 	if err := writeZipTable(ctx, zw, conn, "proxy_configurations.json", &[]model.ProxyConfiguration{}); err != nil {
+		return err
+	}
+	if err := writeZipTable(ctx, zw, conn, "proxy_subscription_nodes.json", &[]model.ProxySubscriptionNode{}); err != nil {
 		return err
 	}
 	if err := writeZipTable(ctx, zw, conn, "sites.json", &[]model.Site{}); err != nil {

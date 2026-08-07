@@ -170,6 +170,96 @@ func TestInitDBSQLiteUsesMultiConnectionPool(t *testing.T) {
 	}
 }
 
+func TestInitDBMigratesLegacyProxyConfigurationsForSubscriptions(t *testing.T) {
+	if db != nil {
+		_ = Close()
+	}
+	path := filepath.Join(t.TempDir(), "legacy-proxy.db")
+	legacy, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("open legacy database: %v", err)
+	}
+	if err := legacy.Exec(`CREATE TABLE proxy_configurations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		url TEXT NOT NULL UNIQUE,
+		enabled NUMERIC DEFAULT 1,
+		remark TEXT,
+		created_at DATETIME,
+		updated_at DATETIME
+	)`).Error; err != nil {
+		t.Fatalf("create legacy proxy table: %v", err)
+	}
+	if err := legacy.Exec(`INSERT INTO proxy_configurations (name, url, enabled) VALUES (?, ?, ?)`, "legacy", "socks5://127.0.0.1:1080", true).Error; err != nil {
+		t.Fatalf("insert legacy proxy: %v", err)
+	}
+	if err := legacy.Exec(`CREATE TABLE proxy_subscription_nodes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		proxy_configuration_id INTEGER NOT NULL,
+		url TEXT NOT NULL,
+		active NUMERIC NOT NULL DEFAULT 1,
+		health_status varchar(16) NOT NULL DEFAULT 'failed',
+		latency_ms INTEGER,
+		last_checked_at DATETIME,
+		last_error TEXT,
+		created_at DATETIME,
+		updated_at DATETIME,
+		CONSTRAINT idx_proxy_subscription_node_url UNIQUE (proxy_configuration_id, url)
+	)`).Error; err != nil {
+		t.Fatalf("create legacy proxy subscription node table: %v", err)
+	}
+	legacySQL, err := legacy.DB()
+	if err != nil {
+		t.Fatalf("get legacy sql database: %v", err)
+	}
+	if err := legacySQL.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	if err := InitDB("sqlite", path, false); err != nil {
+		t.Fatalf("migrate legacy database: %v", err)
+	}
+	t.Cleanup(func() { _ = Close() })
+
+	var config model.ProxyConfiguration
+	if err := db.Where("name = ?", "legacy").First(&config).Error; err != nil {
+		t.Fatalf("read migrated proxy: %v", err)
+	}
+	if config.Type != model.ProxyConfigurationTypeSingle {
+		t.Fatalf("migrated proxy type = %q, want %q", config.Type, model.ProxyConfigurationTypeSingle)
+	}
+	if config.RefreshIntervalMinutes != model.DefaultProxySubscriptionRefreshMinutes {
+		t.Fatalf("migrated refresh interval = %d", config.RefreshIntervalMinutes)
+	}
+	if config.LastSyncStatus != model.ProxySubscriptionSyncIdle {
+		t.Fatalf("migrated sync status = %q, want idle", config.LastSyncStatus)
+	}
+	if !db.Migrator().HasTable(&model.ProxySubscriptionNode{}) {
+		t.Fatal("proxy subscription nodes table was not created")
+	}
+	for _, field := range []string{"runtime_failure_count", "quarantined_until", "last_runtime_failure_at", "last_runtime_error"} {
+		if !db.Migrator().HasColumn(&model.ProxySubscriptionNode{}, field) {
+			t.Fatalf("proxy subscription nodes column %s was not migrated", field)
+		}
+	}
+	inactiveNode := model.ProxySubscriptionNode{
+		ProxyConfigurationID: config.ID,
+		URL:                  "socks5://127.0.0.1:1081",
+		Active:               false,
+		HealthStatus:         model.ProxyTestHealthFailed,
+	}
+	if err := db.Create(&inactiveNode).Error; err != nil {
+		t.Fatalf("create inactive node after migration: %v", err)
+	}
+	var persistedNode model.ProxySubscriptionNode
+	if err := db.First(&persistedNode, inactiveNode.ID).Error; err != nil {
+		t.Fatalf("read inactive node after migration: %v", err)
+	}
+	if persistedNode.Active {
+		t.Fatal("inactive node became active after legacy schema migration")
+	}
+}
+
 func TestInitDBAdvancesRelayLogIDPastPersistedMaximum(t *testing.T) {
 	if db != nil {
 		_ = Close()

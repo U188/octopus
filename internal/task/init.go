@@ -22,6 +22,7 @@ const (
 	TaskSiteCheckin       = "site_checkin"
 	TaskTelegramOps       = "telegram_ops"
 	TaskWSAffinityCleanup = "ws_affinity_cleanup"
+	TaskProxySubscription = "proxy_subscription_sync"
 )
 
 func Init() {
@@ -82,6 +83,18 @@ func Init() {
 		}
 		if deleted > 0 {
 			log.Debugf("ws response affinity cleanup removed %d expired rows", deleted)
+		}
+	})
+
+	Register(TaskProxySubscription, 5*time.Minute, true, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		synced, err := op.ProxySubscriptionsSyncDue(ctx, time.Now())
+		if err != nil {
+			log.Warnf("proxy subscription sync completed with errors: %v", err)
+		}
+		if synced > 0 {
+			log.Infof("proxy subscription sync refreshed %d subscriptions", synced)
 		}
 	})
 

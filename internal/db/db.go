@@ -192,6 +192,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.Channel{},
 		&model.ChannelKey{},
 		&model.ProxyConfiguration{},
+		&model.ProxySubscriptionNode{},
 		&model.Site{},
 		&model.SiteAccount{},
 		&model.SiteCredential{},

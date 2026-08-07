@@ -109,8 +109,21 @@ export function SettingNetwork() {
                 : { use_system_proxy: true, proxy_url: currentProxyURL },
             {
                 onSuccess: (result) => {
-                    if (result.success) {
-                        toast.success(t('proxyUrl.testSuccess', { statusCode: result.status_code, durationMs: result.duration_ms }));
+                    if (result.health_status === 'healthy') {
+                        toast.success(t('proxyUrl.testHealthy', {
+                            successCount: result.success_count,
+                            attemptCount: result.attempt_count,
+                            statusCode: result.status_code,
+                            durationMs: result.average_duration_ms,
+                        }));
+                        return;
+                    }
+                    if (result.health_status === 'degraded') {
+                        toast.warning(t('proxyUrl.testDegraded', {
+                            successCount: result.success_count,
+                            attemptCount: result.attempt_count,
+                            durationMs: result.average_duration_ms,
+                        }), { description: result.message });
                         return;
                     }
                     toast.error(t('proxyUrl.testFailed'), { description: result.message });

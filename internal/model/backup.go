@@ -10,20 +10,21 @@ type DBDump struct {
 	IncludeLogs  bool      `json:"include_logs"`
 	IncludeStats bool      `json:"include_stats"`
 
-	Channels            []Channel            `json:"channels,omitempty"`
-	ChannelKeys         []ChannelKey         `json:"channel_keys,omitempty"`
-	ProxyConfigurations []ProxyConfiguration `json:"proxy_configurations,omitempty"`
-	Sites               []Site               `json:"sites,omitempty"`
-	SiteAccounts        []SiteAccount        `json:"site_accounts,omitempty"`
-	SiteCredentials     []SiteCredential     `json:"site_credentials,omitempty"`
-	SiteUserGroups      []SiteUserGroup      `json:"site_user_groups,omitempty"`
-	SiteModels          []SiteModel          `json:"site_models,omitempty"`
-	SiteChannelBindings []SiteChannelBinding `json:"site_channel_bindings,omitempty"`
-	Groups              []Group              `json:"groups,omitempty"`
-	GroupItems          []GroupItem          `json:"group_items,omitempty"`
-	LLMInfos            []LLMInfo            `json:"llm_infos,omitempty"`
-	APIKeys             []APIKey             `json:"api_keys,omitempty"`
-	Settings            []Setting            `json:"settings,omitempty"`
+	Channels               []Channel               `json:"channels,omitempty"`
+	ChannelKeys            []ChannelKey            `json:"channel_keys,omitempty"`
+	ProxyConfigurations    []ProxyConfiguration    `json:"proxy_configurations,omitempty"`
+	ProxySubscriptionNodes []ProxySubscriptionNode `json:"proxy_subscription_nodes,omitempty"`
+	Sites                  []Site                  `json:"sites,omitempty"`
+	SiteAccounts           []SiteAccount           `json:"site_accounts,omitempty"`
+	SiteCredentials        []SiteCredential        `json:"site_credentials,omitempty"`
+	SiteUserGroups         []SiteUserGroup         `json:"site_user_groups,omitempty"`
+	SiteModels             []SiteModel             `json:"site_models,omitempty"`
+	SiteChannelBindings    []SiteChannelBinding    `json:"site_channel_bindings,omitempty"`
+	Groups                 []Group                 `json:"groups,omitempty"`
+	GroupItems             []GroupItem             `json:"group_items,omitempty"`
+	LLMInfos               []LLMInfo               `json:"llm_infos,omitempty"`
+	APIKeys                []APIKey                `json:"api_keys,omitempty"`
+	Settings               []Setting               `json:"settings,omitempty"`
 
 	StatsTotal           []StatsTotal           `json:"stats_total,omitempty"`
 	StatsDaily           []StatsDaily           `json:"stats_daily,omitempty"`

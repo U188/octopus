@@ -1,16 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ChevronDown, ExternalLink, FlaskConical, Network, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ExternalLink, FlaskConical, List, Network, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
     useCreateProxyConfiguration,
     useDeleteProxyConfiguration,
     useProxyConfigurationList,
     useProxyConfigurationReferences,
+    useProxySubscriptionNodes,
+    useSyncProxySubscription,
     useTestProxyConfiguration,
     useUpdateProxyConfiguration,
     type ProxyConfiguration,
+    type ProxyConfigurationType,
     type ProxyConfigurationReference,
 } from '@/api/endpoints/proxy-pool';
 import { Button } from '@/components/ui/button';
@@ -29,6 +32,8 @@ type FormState = {
     url: string;
     enabled: boolean;
     remark: string;
+    type: ProxyConfigurationType;
+    refreshIntervalMinutes: number;
 };
 
 type ProxyPoolDialogTranslator = ReturnType<typeof useTranslations>;
@@ -44,6 +49,8 @@ const emptyForm: FormState = {
     url: '',
     enabled: true,
     remark: '',
+    type: 'single',
+    refreshIntervalMinutes: 30,
 };
 
 const DEFAULT_TEST_URL = 'https://www.google.com/generate_204';
@@ -56,6 +63,11 @@ function maskProxyURL(value: string) {
     } catch {
         return value;
     }
+}
+
+function isNodeQuarantined(until?: string) {
+    if (!until) return false;
+    return new Date(until).getTime() > Date.now();
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -74,6 +86,8 @@ function createFormFromProxy(proxy: ProxyConfiguration): FormState {
         url: proxy.url,
         enabled: proxy.enabled,
         remark: proxy.remark ?? '',
+        type: proxy.type,
+        refreshIntervalMinutes: proxy.refresh_interval_minutes || 30,
     };
 }
 
@@ -179,16 +193,22 @@ export function ProxyPoolDialog() {
     const updateProxy = useUpdateProxyConfiguration();
     const deleteProxy = useDeleteProxyConfiguration();
     const testProxy = useTestProxyConfiguration();
+    const syncProxy = useSyncProxySubscription();
     const [form, setForm] = useState<FormState>(emptyForm);
     const [query, setQuery] = useState('');
     const [testURL, setTestURL] = useState(DEFAULT_TEST_URL);
     const [testingKey, setTestingKey] = useState<string | null>(null);
     const [referencesProxy, setReferencesProxy] = useState<ProxyConfiguration | null>(null);
+    const [nodesProxy, setNodesProxy] = useState<ProxyConfiguration | null>(null);
     const [expandedReferenceKeys, setExpandedReferenceKeys] = useState<Set<string>>(() => new Set());
     const focusedProxyRefs = useRef<Map<number, HTMLElement>>(new Map());
     const { data: references = [], isLoading: referencesLoading, error: referencesError } = useProxyConfigurationReferences(
         referencesProxy?.id ?? null,
         isOpen && !!referencesProxy,
+    );
+    const { data: nodes = [], isLoading: nodesLoading, error: nodesError } = useProxySubscriptionNodes(
+        nodesProxy?.id ?? null,
+        isOpen && !!nodesProxy,
     );
 
     const referenceTree = useMemo(() => buildReferenceTree(references), [references]);
@@ -267,27 +287,48 @@ export function ProxyPoolDialog() {
             url: form.url.trim(),
             enabled: form.enabled,
             remark: form.remark.trim(),
+            type: form.type,
+            refresh_interval_minutes: form.refreshIntervalMinutes,
         };
         if (!payload.name || !payload.url) {
             toast.error(t('formRequired'));
             return;
         }
         if (editing && form.id) {
-            updateProxy.mutate({ id: form.id, ...payload }, {
-                onSuccess: () => {
-                    toast.success(t('updated'));
-                    resetForm();
-                },
+            updateProxy.mutate({
+                id: form.id,
+                name: payload.name,
+                url: payload.url,
+                enabled: payload.enabled,
+                remark: payload.remark,
+                refresh_interval_minutes: payload.refresh_interval_minutes,
+            }, {
+				onSuccess: (updated) => {
+					toast.success(t('updated'));
+					resetForm();
+					if (updated.type === 'subscription') handleSync(updated);
+				},
                 onError: (err) => toast.error(errorMessage(err, t('operationFailed'))),
             });
             return;
         }
         createProxy.mutate(payload, {
-            onSuccess: () => {
+            onSuccess: (created) => {
                 toast.success(t('created'));
                 resetForm();
+                if (created.type === 'subscription') handleSync(created);
             },
             onError: (err) => toast.error(errorMessage(err, t('operationFailed'))),
+        });
+    }
+
+    function handleSync(proxy: ProxyConfiguration) {
+        syncProxy.mutate(proxy.id, {
+            onSuccess: (result) => toast.success(t('syncSuccess', {
+                healthyCount: result.healthy_count,
+                fetchedCount: result.fetched_count,
+            })),
+            onError: (err) => toast.error(t('syncFailed'), { description: errorMessage(err, t('operationFailed')) }),
         });
     }
 
@@ -314,11 +355,24 @@ export function ProxyPoolDialog() {
                 : { proxy_url: proxy?.url ?? form.url.trim(), url: testURL.trim() || DEFAULT_TEST_URL },
             {
                 onSuccess: (result) => {
-                    if (result.success) {
-                        toast.success(t('testSuccess', { statusCode: result.status_code, durationMs: result.duration_ms }));
-                    } else {
-                        toast.error(t('testFailed'), { description: result.message });
+                    if (result.health_status === 'healthy') {
+                        toast.success(t('testHealthy', {
+                            successCount: result.success_count,
+                            attemptCount: result.attempt_count,
+                            statusCode: result.status_code,
+                            durationMs: result.average_duration_ms,
+                        }));
+                        return;
                     }
+                    if (result.health_status === 'degraded') {
+                        toast.warning(t('testDegraded', {
+                            successCount: result.success_count,
+                            attemptCount: result.attempt_count,
+                            durationMs: result.average_duration_ms,
+                        }), { description: result.message });
+                        return;
+                    }
+                    toast.error(t('testFailed'), { description: result.message });
                 },
                 onError: (err) => toast.error(errorMessage(err, t('operationFailed'))),
                 onSettled: () => setTestingKey(null),
@@ -380,6 +434,9 @@ export function ProxyPoolDialog() {
                                                 <Badge variant={proxy.enabled ? 'default' : 'secondary'}>
                                                     {proxy.enabled ? t('enabled') : t('disabled')}
                                                 </Badge>
+                                                <Badge variant="outline">
+                                                    {proxy.type === 'subscription' ? t('typeSubscription') : t('typeSingle')}
+                                                </Badge>
                                                 <button type="button" onClick={() => openReferences(proxy)} className="rounded-full" title={t('referencesTitle')}>
                                                     <Badge variant="outline" className="cursor-pointer hover:bg-accent hover:text-accent-foreground">
                                                         <ExternalLink className="size-3" />
@@ -390,9 +447,45 @@ export function ProxyPoolDialog() {
                                             <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={maskProxyURL(proxy.url)}>
                                                 {maskProxyURL(proxy.url)}
                                             </div>
+                                            {proxy.type === 'subscription' ? (
+                                                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                                    <button
+                                                        type="button"
+                                                        className="inline-flex items-center gap-1 hover:text-foreground"
+                                                        onClick={() => setNodesProxy(proxy)}
+                                                        title={t('viewNodes')}
+                                                    >
+                                                        <List className="size-3.5" />
+                                                        {t('availableNodes', {
+                                                            availableCount: proxy.available_node_count,
+                                                            healthyCount: proxy.healthy_node_count,
+                                                            nodeCount: proxy.node_count,
+                                                        })}
+                                                    </button>
+                                                    {proxy.quarantined_node_count > 0 ? (
+                                                        <span className="text-destructive">{t('quarantinedNodes', { count: proxy.quarantined_node_count })}</span>
+                                                    ) : null}
+                                                    <span>{t('refreshEvery', { minutes: proxy.refresh_interval_minutes })}</span>
+                                                    <span className={cn(proxy.last_sync_status === 'failed' && 'text-destructive')}>
+                                                        {proxy.last_sync_at
+                                                            ? t('lastSynced', { time: new Date(proxy.last_sync_at).toLocaleString() })
+                                                            : t('notSynced')}
+                                                    </span>
+                                                </div>
+                                            ) : null}
+                                            {proxy.type === 'subscription' && proxy.last_sync_message ? (
+                                                <p className={cn('mt-1 line-clamp-2 text-xs text-muted-foreground', proxy.last_sync_status === 'failed' && 'text-destructive')}>
+                                                    {proxy.last_sync_message}
+                                                </p>
+                                            ) : null}
                                             {proxy.remark ? <p className="mt-2 text-xs text-muted-foreground">{proxy.remark}</p> : null}
                                         </div>
                                         <div className="flex shrink-0 items-center gap-1">
+                                            {proxy.type === 'subscription' ? (
+                                                <Button type="button" variant="ghost" size="icon-sm" className="rounded-xl" onClick={() => handleSync(proxy)} disabled={syncProxy.isPending} title={t('syncNow')}>
+                                                    <RefreshCw className={cn('size-4', syncProxy.isPending && syncProxy.variables === proxy.id && 'animate-spin')} />
+                                                </Button>
+                                            ) : null}
                                             <Button type="button" variant="ghost" size="icon-sm" className="rounded-xl" onClick={() => handleTest(proxy)} disabled={testingKey === `saved-${proxy.id}` || !proxy.enabled} title={proxy.enabled ? t('test') : t('disabled')}>
                                                 <FlaskConical className={cn('size-4', testingKey === `saved-${proxy.id}` && 'animate-pulse')} />
                                             </Button>
@@ -423,13 +516,52 @@ export function ProxyPoolDialog() {
 
                         <form onSubmit={submitForm} className="space-y-4">
                             <div className="space-y-2">
+                                <label className="text-sm font-medium">{t('type')}</label>
+                                <div className="grid grid-cols-2 rounded-lg bg-muted p-1" role="group" aria-label={t('type')}>
+                                    {(['single', 'subscription'] as const).map((type) => (
+                                        <button
+                                            key={type}
+                                            type="button"
+                                            className={cn(
+                                                'h-9 rounded-md px-3 text-sm transition-colors',
+                                                form.type === type ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                                            )}
+                                            onClick={() => setForm({ ...form, type, url: '' })}
+                                            disabled={editing}
+                                        >
+                                            {type === 'single' ? t('typeSingle') : t('typeSubscription')}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="space-y-2">
                                 <label className="text-sm font-medium">{t('name')}</label>
                                 <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="rounded-xl" required />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">{t('url')}</label>
-                                <Input value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} placeholder="socks5://127.0.0.1:1080" className="rounded-xl" required />
+                                <label className="text-sm font-medium">{form.type === 'subscription' ? t('subscriptionUrl') : t('url')}</label>
+                                <Input
+                                    value={form.url}
+                                    onChange={(event) => setForm({ ...form, url: event.target.value })}
+                                    placeholder={form.type === 'subscription' ? 'https://example.com/SOCKS5.txt' : 'socks5://127.0.0.1:1080'}
+                                    className="rounded-xl"
+                                    required
+                                />
                             </div>
+                            {form.type === 'subscription' ? (
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">{t('refreshInterval')}</label>
+                                    <Input
+                                        type="number"
+                                        min={5}
+                                        max={10080}
+                                        value={form.refreshIntervalMinutes}
+                                        onChange={(event) => setForm({ ...form, refreshIntervalMinutes: Number(event.target.value) })}
+                                        className="rounded-xl"
+                                        required
+                                    />
+                                </div>
+                            ) : null}
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">{t('remark')}</label>
                                 <Input value={form.remark} onChange={(event) => setForm({ ...form, remark: event.target.value })} className="rounded-xl" />
@@ -439,14 +571,14 @@ export function ProxyPoolDialog() {
                                 <Switch checked={form.enabled} onCheckedChange={(enabled) => setForm({ ...form, enabled })} />
                             </label>
 
-                            <div className="space-y-2 rounded-2xl border bg-muted/20 p-4">
+                            {form.type === 'single' ? <div className="space-y-2 rounded-2xl border bg-muted/20 p-4">
                                 <label className="text-sm font-medium">{t('testUrl')}</label>
                                 <Input value={testURL} onChange={(event) => setTestURL(event.target.value)} className="rounded-xl" />
                                 <Button type="button" variant="outline" className="w-full rounded-xl" onClick={() => handleTest()} disabled={!form.url.trim() || testingKey === 'draft'}>
                                     <FlaskConical className={cn('size-4', testingKey === 'draft' && 'animate-pulse')} />
                                     {t('testDraft')}
                                 </Button>
-                            </div>
+                            </div> : null}
 
                             <Button type="submit" className="w-full rounded-2xl h-11" disabled={createProxy.isPending || updateProxy.isPending}>
                                 {editing ? t('submitEdit') : t('submitCreate')}
@@ -530,6 +662,50 @@ export function ProxyPoolDialog() {
                                 </div>
                             );
                         })}
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!nodesProxy} onOpenChange={(open) => !open && setNodesProxy(null)}>
+                <DialogContent className="max-h-[85vh] overflow-hidden rounded-3xl sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>{t('nodesTitle')}</DialogTitle>
+                        <DialogDescription>
+                            {nodesProxy ? t('nodesDescription', { name: nodesProxy.name }) : null}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="min-h-0 space-y-2 overflow-y-auto pr-1">
+                        {nodesLoading ? (
+                            <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">{t('loading')}</div>
+                        ) : nodesError ? (
+                            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                                {t('loadFailed', { message: errorMessage(nodesError, t('operationFailed')) })}
+                            </div>
+                        ) : nodes.length === 0 ? (
+                            <div className="rounded-xl border bg-muted/30 p-8 text-center text-sm text-muted-foreground">{t('nodesEmpty')}</div>
+                        ) : nodes.map((node) => (
+                            <div key={node.id} className="flex items-start justify-between gap-4 rounded-xl border px-3 py-2.5">
+                                <div className="min-w-0 flex-1">
+                                    <div className="truncate font-mono text-xs" title={maskProxyURL(node.url)}>{maskProxyURL(node.url)}</div>
+                                    {isNodeQuarantined(node.quarantined_until) && node.last_runtime_error ? (
+                                        <p className="mt-1 line-clamp-2 text-xs text-destructive">{node.last_runtime_error}</p>
+                                    ) : node.last_error && node.health_status !== 'healthy' ? (
+                                        <p className="mt-1 line-clamp-2 text-xs text-destructive">{node.last_error}</p>
+                                    ) : null}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">{node.latency_ms > 0 ? `${node.latency_ms} ms` : '-'}</span>
+                                    <Badge variant={node.health_status === 'healthy' ? 'default' : node.health_status === 'degraded' ? 'secondary' : 'destructive'}>
+                                        {t(`nodeStatus.${node.health_status}`)}
+                                    </Badge>
+                                    {isNodeQuarantined(node.quarantined_until) ? (
+                                        <Badge variant="destructive" title={node.quarantined_until ? new Date(node.quarantined_until).toLocaleString() : undefined}>
+                                            {t('nodeQuarantined')}
+                                        </Badge>
+                                    ) : null}
+                                    {!node.active ? <Badge variant="outline">{t('nodeInactive')}</Badge> : null}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </DialogContent>
             </Dialog>

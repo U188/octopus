@@ -29,11 +29,13 @@ func siteHTTPClient(ctx context.Context, siteRecord *model.Site, accounts ...*mo
 		if proxyConfigID == nil || *proxyConfigID <= 0 {
 			return nil, fmt.Errorf("proxy config id is required when proxy mode is pool")
 		}
-		proxyURL, err := op.ProxyURLForConfig(*proxyConfigID, ctx)
+		proxyURLs, err := op.ProxyURLsForConfig(*proxyConfigID, ctx)
 		if err != nil {
 			return nil, err
 		}
-		return client.GetHTTPClientCustomProxy(proxyURL)
+		return client.GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs, func(proxyURL string, failure error) {
+			_ = op.ProxySubscriptionNodeReportFailure(*proxyConfigID, proxyURL, failure, ctx)
+		})
 	default:
 		return nil, fmt.Errorf("unsupported proxy mode: %s", proxyMode)
 	}
