@@ -72,15 +72,16 @@ func TestSetInternalResponseNoFallbackWhenInputReported(t *testing.T) {
 	}
 }
 
-// 仅缓存命中（input_tokens=0 但 cache_read>0）属于已上报输入，不应被估算覆盖。
+// 仅缓存命中（input_tokens=0 但 cache_read>0）属于已上报输入，不应被估算覆盖，
+// 聚合口径应计入缓存读取 Token。
 func TestSetInternalResponseNoFallbackWhenCacheOnly(t *testing.T) {
 	m := &RelayMetrics{TransportInputTokens: intPtr(999)}
 	m.SetInternalResponse(&transformerModel.InternalLLMResponse{
 		Usage: &transformerModel.Usage{PromptTokens: 0, CacheReadInputTokens: 40, CompletionTokens: 5},
 	}, "test-model")
 
-	if m.Stats.InputToken != 0 {
-		t.Fatalf("input token: got %d want 0 (cache-only is reported input)", m.Stats.InputToken)
+	if m.Stats.InputToken != 40 {
+		t.Fatalf("input token: got %d want 40 (cache-only is reported input)", m.Stats.InputToken)
 	}
 	if m.InputTokenSource != model.TokenCountSourceReported {
 		t.Fatalf("input token source: got %q want reported", m.InputTokenSource)

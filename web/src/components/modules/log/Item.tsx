@@ -180,6 +180,15 @@ function getHeadlineInputTokens(log: RelayLog) {
     if (!hasCacheTokens(log)) return log.input_tokens;
     const cacheRead = log.cache_read_tokens ?? 0;
     const cacheWrite = log.cache_write_tokens ?? 0;
+
+    // Prefer the provider-normalized non-cached input when it is available.
+    // Cache creation is displayed as input work, while cache reads are shown
+    // separately in the cache badge.
+    if (log.bill_input_tokens != null) {
+        return Math.max(0, log.bill_input_tokens + cacheWrite);
+    }
+
+    // Compatibility for legacy logs that predate bill_input_tokens.
     // OpenAI 等语义：input 已含 cache_read（必然 input ≥ cache_read），减去命中得新输入；
     // Anthropic：input 不含 cache_read，绝不减（含恢复对话等 input ≥ cache_read 的情况）；
     // 数值兜底：input < cache_read 时即便误判为含缓存语义也不减，避免畸形上游归零。

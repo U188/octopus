@@ -127,7 +127,10 @@ func (m *RelayMetrics) SetInternalResponse(resp *transformerModel.InternalLLMRes
 		m.BillInputTokens = intPtr(int(nonCachedInput))
 		m.CacheReadTokens = intPtr(int(cacheReadTokens))
 		m.CacheWriteTokens = intPtr(int(cacheWriteTokens))
-		m.Stats.InputToken = usage.PromptTokens
+		// Normalize input tokens across provider conventions. OpenAI/Gemini
+		// PromptTokens already includes cache reads, while Anthropic reports
+		// cache reads and cache creation separately.
+		m.Stats.InputToken = usage.EffectiveInputTokens()
 		m.Stats.OutputToken = usage.CompletionTokens
 		m.InputTokenSource = model.TokenCountSourceReported
 		m.OutputTokenSource = model.TokenCountSourceReported

@@ -1309,6 +1309,9 @@ func TestRelayMetricsCapturesOpenAICompatibleInputBreakdown(t *testing.T) {
 	if metrics.CacheWriteTokens == nil || *metrics.CacheWriteTokens != 0 {
 		t.Fatalf("expected cache write tokens to default to zero, got %#v", metrics.CacheWriteTokens)
 	}
+	if metrics.Stats.InputToken != 1200 {
+		t.Fatalf("expected OpenAI input total to include cache reads once, got %d", metrics.Stats.InputToken)
+	}
 }
 
 func TestRelayMetricsCapturesAnthropicInputBreakdown(t *testing.T) {
@@ -1334,6 +1337,9 @@ func TestRelayMetricsCapturesAnthropicInputBreakdown(t *testing.T) {
 	}
 	if metrics.CacheWriteTokens == nil || *metrics.CacheWriteTokens != 250 {
 		t.Fatalf("expected anthropic cache write tokens to be captured, got %#v", metrics.CacheWriteTokens)
+	}
+	if metrics.Stats.InputToken != 1850 {
+		t.Fatalf("expected Anthropic input total to include input, cache read, and cache write, got %d", metrics.Stats.InputToken)
 	}
 }
 
