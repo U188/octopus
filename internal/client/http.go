@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/outboundurl"
-	"golang.org/x/net/proxy"
 )
 
 var (
@@ -234,7 +232,7 @@ func isTLSHandshakeFailure(err error) bool {
 // processed. Retrying ambiguous read/write failures can duplicate billable
 // model requests.
 func isSafeProxyFailoverError(err error) bool {
-	if isTLSHandshakeFailure(err) || hasDialFailure(err) {
+	if isTLSHandshakeFailure(err) || errors.Is(err, outboundurl.ErrProxyDialTimeout) || hasDialFailure(err) {
 		return true
 	}
 	message := strings.ToLower(err.Error())
@@ -249,6 +247,9 @@ func isSafeProxyFailoverError(err error) bool {
 func isProxyNodeFailure(err error, proxyURL string) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, outboundurl.ErrProxyDialTimeout) {
+		return true
 	}
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "proxyconnect tcp:") &&
@@ -337,24 +338,8 @@ func newHTTPClientCustomProxyWithMode(proxyURLStr string, http1Only bool) (*http
 		return nil, fmt.Errorf("invalid proxy url: %w", err)
 	}
 
-	switch proxyURL.Scheme {
-	case "http", "https":
-		cloned.Proxy = http.ProxyURL(proxyURL)
-	case "socks", "socks5":
-		socksDialer, err := proxy.FromURL(proxyURL, proxy.Direct)
-		if err != nil {
-			return nil, fmt.Errorf("invalid socks proxy: %w", err)
-		}
-		cloned.Proxy = nil
-		cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return socksDialer.Dial(network, addr)
-		}
-		// Resolve and validate the destination locally before handing an IP to
-		// the SOCKS proxy, so proxy-side DNS cannot redirect a public hostname
-		// to a private address.
-		outboundurl.ConfigureTransport(cloned)
-	default:
-		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
+	if err := outboundurl.ConfigureProxyTransport(cloned, proxyURL); err != nil {
+		return nil, err
 	}
 	if http1Only {
 		protocols := new(http.Protocols)

@@ -14,7 +14,6 @@ import (
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/outboundurl"
 	"github.com/U188/octopus/internal/utils/cache"
-	"golang.org/x/net/proxy"
 	"gorm.io/gorm"
 )
 
@@ -96,6 +95,9 @@ func ProxyConfigurationCreate(item *model.ProxyConfiguration, ctx context.Contex
 	if err := db.GetDB().WithContext(ctx).Create(item).Error; err != nil {
 		return err
 	}
+	// A freshly created configuration can reuse an ID after an import or a
+	// test-database reset. Drop any stale round-robin state before first use.
+	forgetProxySubscriptionState(item.ID)
 	proxyConfigurationCache.Set(item.ID, *item)
 	return nil
 }
@@ -468,20 +470,8 @@ func newProxyTestHTTPClient(proxyURLStr string) (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid proxy url: %w", err)
 	}
-	switch proxyURL.Scheme {
-	case "http", "https":
-		cloned.Proxy = http.ProxyURL(proxyURL)
-	case "socks", "socks5":
-		socksDialer, err := proxy.FromURL(proxyURL, proxy.Direct)
-		if err != nil {
-			return nil, fmt.Errorf("invalid socks proxy: %w", err)
-		}
-		cloned.Proxy = nil
-		cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return socksDialer.Dial(network, addr)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
+	if err := outboundurl.ConfigureProxyTransport(cloned, proxyURL); err != nil {
+		return nil, err
 	}
 	return &http.Client{
 		Transport:     outboundurl.WrapTransport(cloned),
@@ -553,36 +543,40 @@ func waitProxyTestAttempt(ctx context.Context) bool {
 	}
 }
 
-func resolveProxyTestURL(req model.ProxyTestRequest, ctx context.Context) (string, error) {
+func resolveProxyTestURLs(req model.ProxyTestRequest, ctx context.Context) ([]string, error) {
 	proxyURL := strings.TrimSpace(req.ProxyURL)
 	if req.ProxyConfigID != nil && *req.ProxyConfigID > 0 {
 		item, err := ProxyConfigurationGet(*req.ProxyConfigID, ctx)
 		if err != nil {
-			return "", fmt.Errorf("proxy configuration not found")
+			return nil, fmt.Errorf("proxy configuration not found")
 		}
 		if !item.Enabled {
-			return "", fmt.Errorf("proxy configuration is disabled")
+			return nil, fmt.Errorf("proxy configuration is disabled")
 		}
 		if item.Type == model.ProxyConfigurationTypeSubscription {
 			urls, resolveErr := ProxyURLsForConfig(item.ID, ctx)
 			if resolveErr != nil {
-				return "", resolveErr
+				return nil, resolveErr
 			}
-			proxyURL = urls[0]
+			return urls, nil
 		} else {
 			proxyURL = item.URL
 		}
 	} else if req.UseSystemProxy && proxyURL == "" {
 		storedProxyURL, err := SettingGetString(model.SettingKeyProxyURL)
 		if err != nil {
-			return "", fmt.Errorf("system proxy setting not found")
+			return nil, fmt.Errorf("system proxy setting not found")
 		}
 		proxyURL = storedProxyURL
 	}
 	if strings.TrimSpace(proxyURL) == "" {
-		return "", fmt.Errorf("proxy url is required")
+		return nil, fmt.Errorf("proxy url is required")
 	}
-	return model.NormalizeProxyURL(proxyURL)
+	normalized, err := model.NormalizeProxyURL(proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	return []string{normalized}, nil
 }
 
 func ProxyConfigurationTest(req model.ProxyTestRequest, ctx context.Context) (model.ProxyTestResult, error) {
@@ -598,44 +592,66 @@ func ProxyConfigurationTest(req model.ProxyTestRequest, ctx context.Context) (mo
 		return model.ProxyTestResult{HealthStatus: model.ProxyTestHealthFailed, Message: err.Error()}, nil
 	}
 
-	normalizedProxyURL, err := resolveProxyTestURL(req, ctx)
+	normalizedProxyURLs, err := resolveProxyTestURLs(req, ctx)
 	if err != nil {
 		return model.ProxyTestResult{HealthStatus: model.ProxyTestHealthFailed, Message: err.Error()}, nil
 	}
-
-	return testNormalizedProxyURL(ctx, normalizedProxyURL, targetURL), nil
+	if len(normalizedProxyURLs) == 1 {
+		return testNormalizedProxyURL(ctx, normalizedProxyURLs[0], targetURL), nil
+	}
+	return testNormalizedProxyURLs(ctx, normalizedProxyURLs, targetURL), nil
 }
 
 func testNormalizedProxyURL(ctx context.Context, normalizedProxyURL string, targetURL string) model.ProxyTestResult {
 	startedAt := time.Now()
 	attempts := make([]model.ProxyTestAttemptResult, 0, proxyTestAttemptCount)
-	successCount := 0
-	statusCode := 0
-	var attemptDurationTotal int64
-	lastFailure := ""
 	parsedTarget, _ := url.Parse(targetURL)
 	expectedStatus := proxyTestExpectedStatus(parsedTarget)
 	for attempt := 1; attempt <= proxyTestAttemptCount; attempt++ {
 		attemptResult := runProxyTestAttempt(ctx, normalizedProxyURL, targetURL, expectedStatus, attempt)
 		attempts = append(attempts, attemptResult)
-		attemptDurationTotal += attemptResult.DurationMS
-		if attemptResult.Success {
-			successCount++
-			statusCode = attemptResult.StatusCode
-		} else {
-			lastFailure = attemptResult.Message
-			if statusCode == 0 && attemptResult.StatusCode != 0 {
-				statusCode = attemptResult.StatusCode
-			}
-		}
 		if attempt < proxyTestAttemptCount && !waitProxyTestAttempt(ctx) {
 			break
+		}
+	}
+	return summarizeProxyTestResult(startedAt, attempts, proxyTestAttemptCount)
+}
+
+func testNormalizedProxyURLs(ctx context.Context, normalizedProxyURLs []string, targetURL string) model.ProxyTestResult {
+	startedAt := time.Now()
+	attempts := make([]model.ProxyTestAttemptResult, 0, len(normalizedProxyURLs))
+	parsedTarget, _ := url.Parse(targetURL)
+	expectedStatus := proxyTestExpectedStatus(parsedTarget)
+	for index, proxyURL := range normalizedProxyURLs {
+		attempts = append(attempts, runProxyTestAttempt(ctx, proxyURL, targetURL, expectedStatus, index+1))
+		if index+1 < len(normalizedProxyURLs) && !waitProxyTestAttempt(ctx) {
+			break
+		}
+	}
+	return summarizeProxyTestResult(startedAt, attempts, len(normalizedProxyURLs))
+}
+
+func summarizeProxyTestResult(startedAt time.Time, attempts []model.ProxyTestAttemptResult, expectedAttempts int) model.ProxyTestResult {
+	successCount := 0
+	statusCode := 0
+	var attemptDurationTotal int64
+	lastFailure := ""
+	for _, attempt := range attempts {
+		attemptDurationTotal += attempt.DurationMS
+		if attempt.Success {
+			successCount++
+			statusCode = attempt.StatusCode
+			continue
+		}
+		lastFailure = attempt.Message
+		if statusCode == 0 && attempt.StatusCode != 0 {
+			statusCode = attempt.StatusCode
 		}
 	}
 
 	healthStatus := model.ProxyTestHealthFailed
 	message := fmt.Sprintf("proxy check failed: %d/%d checks succeeded", successCount, len(attempts))
-	if successCount == proxyTestAttemptCount && len(attempts) == proxyTestAttemptCount {
+	if successCount == expectedAttempts && len(attempts) == expectedAttempts {
 		healthStatus = model.ProxyTestHealthHealthy
 		message = fmt.Sprintf("proxy is healthy: %d/%d checks succeeded", successCount, len(attempts))
 	} else if successCount > 0 {

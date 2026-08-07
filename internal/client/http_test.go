@@ -3,12 +3,15 @@ package client
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/U188/octopus/internal/outboundurl"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -57,6 +60,39 @@ func TestProxyFailoverTransportRetriesReplayableRequest(t *testing.T) {
 	}
 	if reported.Load() != 1 {
 		t.Fatalf("failure reporter called %d times", reported.Load())
+	}
+}
+
+func TestProxyFailoverTransportRetriesAndReportsProxyDialTimeout(t *testing.T) {
+	var secondCalls atomic.Int64
+	var reported atomic.Int64
+	transport := &proxyFailoverTransport{
+		endpoints: []proxyTransportEndpoint{
+			{proxyURL: "socks5://proxy-1.example:1080", primary: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("connect SOCKS proxy: %w", outboundurl.ErrProxyDialTimeout)
+			})},
+			{proxyURL: "socks5://proxy-2.example:1080", primary: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				secondCalls.Add(1)
+				return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Request: req}, nil
+			})},
+		},
+		reportFailure: func(proxyURL string, failure error) {
+			if proxyURL != "socks5://proxy-1.example:1080" || !errors.Is(failure, outboundurl.ErrProxyDialTimeout) {
+				t.Fatalf("unexpected failure report: proxy=%q error=%v", proxyURL, failure)
+			}
+			reported.Add(1)
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("round trip with SOCKS timeout failover: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent || secondCalls.Load() != 1 || reported.Load() != 1 {
+		t.Fatalf("unexpected timeout failover result: status=%d second=%d reported=%d", resp.StatusCode, secondCalls.Load(), reported.Load())
 	}
 }
 

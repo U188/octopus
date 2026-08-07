@@ -32,7 +32,7 @@ func newSequencedTestProxy(t *testing.T, statusCodes []int) (*httptest.Server, *
 	return server, &requestCount
 }
 
-func TestResolveProxyTestURLUsesStoredSystemProxy(t *testing.T) {
+func TestResolveProxyTestURLsUsesStoredSystemProxy(t *testing.T) {
 	previous, existed := settingCache.Get(model.SettingKeyProxyURL)
 	settingCache.Set(model.SettingKeyProxyURL, "SOCKS5://User:Pass@Proxy.Example:1080")
 	defer func() {
@@ -43,22 +43,22 @@ func TestResolveProxyTestURLUsesStoredSystemProxy(t *testing.T) {
 		settingCache.Del(model.SettingKeyProxyURL)
 	}()
 
-	actual, err := resolveProxyTestURL(model.ProxyTestRequest{UseSystemProxy: true}, context.Background())
+	actual, err := resolveProxyTestURLs(model.ProxyTestRequest{UseSystemProxy: true}, context.Background())
 	if err != nil {
 		t.Fatalf("resolve stored system proxy: %v", err)
 	}
-	if actual != "socks5://User:Pass@proxy.example:1080" {
-		t.Fatalf("expected normalized stored system proxy, got %q", actual)
+	if len(actual) != 1 || actual[0] != "socks5://User:Pass@proxy.example:1080" {
+		t.Fatalf("expected normalized stored system proxy, got %#v", actual)
 	}
 }
 
-func TestResolveProxyTestURLUsesDraftURL(t *testing.T) {
-	actual, err := resolveProxyTestURL(model.ProxyTestRequest{ProxyURL: " http://Proxy.Example:8080 "}, context.Background())
+func TestResolveProxyTestURLsUsesDraftURL(t *testing.T) {
+	actual, err := resolveProxyTestURLs(model.ProxyTestRequest{ProxyURL: " http://Proxy.Example:8080 "}, context.Background())
 	if err != nil {
 		t.Fatalf("resolve draft proxy: %v", err)
 	}
-	if actual != "http://proxy.example:8080" {
-		t.Fatalf("expected normalized draft proxy, got %q", actual)
+	if len(actual) != 1 || actual[0] != "http://proxy.example:8080" {
+		t.Fatalf("expected normalized draft proxy, got %#v", actual)
 	}
 }
 
@@ -116,6 +116,43 @@ func TestProxyConfigurationTestRejectsNon2xxResponses(t *testing.T) {
 	}
 	if result.SuccessCount != 0 || result.AttemptCount != proxyTestAttemptCount {
 		t.Fatalf("expected 0/3 successful attempts, got %+v", result)
+	}
+}
+
+func TestProxyConfigurationTestChecksEverySubscriptionCandidate(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	workingProxy, workingRequests := newSequencedTestProxy(t, []int{http.StatusNoContent})
+	failingProxy, failingRequests := newSequencedTestProxy(t, []int{http.StatusBadGateway})
+	config := model.ProxyConfiguration{
+		Name:                   "testable subscription",
+		URL:                    "https://example.com/proxies.txt",
+		Type:                   model.ProxyConfigurationTypeSubscription,
+		Enabled:                true,
+		RefreshIntervalMinutes: 30,
+	}
+	if err := ProxyConfigurationCreate(&config, context.Background()); err != nil {
+		t.Fatalf("create proxy subscription: %v", err)
+	}
+	nodes := []model.ProxySubscriptionNode{
+		{ProxyConfigurationID: config.ID, URL: workingProxy.URL, Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 10},
+		{ProxyConfigurationID: config.ID, URL: failingProxy.URL, Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 20},
+	}
+	if err := dbpkg.GetDB().Create(&nodes).Error; err != nil {
+		t.Fatalf("create proxy subscription nodes: %v", err)
+	}
+
+	result, err := ProxyConfigurationTest(model.ProxyTestRequest{
+		ProxyConfigID: &config.ID,
+		URL:           "http://example.com/health",
+	}, context.Background())
+	if err != nil {
+		t.Fatalf("test proxy subscription: %v", err)
+	}
+	if result.HealthStatus != model.ProxyTestHealthDegraded || result.AttemptCount != 2 || result.SuccessCount != 1 {
+		t.Fatalf("unexpected subscription test result: %+v", result)
+	}
+	if workingRequests.Load() != 1 || failingRequests.Load() != 1 {
+		t.Fatalf("subscription candidates were not each tested once: working=%d failing=%d", workingRequests.Load(), failingRequests.Load())
 	}
 }
 
@@ -261,7 +298,9 @@ func TestProxyURLsForConfigLimitsPerRequestCandidates(t *testing.T) {
 func TestProxySubscriptionRuntimeFailureQuarantinesAndAutomaticallyRestoresNode(t *testing.T) {
 	initProxySubscriptionTestDB(t)
 	previousQuarantine := proxyRuntimeQuarantine
-	proxyRuntimeQuarantine = 25 * time.Millisecond
+	// Leave enough room for the race detector and SQLite scheduling before the
+	// first assertion; the expiry check below still waits only as long as needed.
+	proxyRuntimeQuarantine = 2 * time.Second
 	t.Cleanup(func() { proxyRuntimeQuarantine = previousQuarantine })
 	ctx := context.Background()
 	config := model.ProxyConfiguration{
@@ -314,7 +353,12 @@ func TestProxySubscriptionRuntimeFailureQuarantinesAndAutomaticallyRestoresNode(
 		t.Fatalf("unexpected quarantine list counts: %+v", configs)
 	}
 
-	time.Sleep(35 * time.Millisecond)
+	if quarantined.QuarantinedUntil == nil {
+		t.Fatal("quarantined node has no expiry")
+	}
+	if remaining := time.Until(*quarantined.QuarantinedUntil); remaining > 0 {
+		time.Sleep(remaining + 20*time.Millisecond)
+	}
 	restored, err := ProxyURLsForConfig(config.ID, ctx)
 	if err != nil {
 		t.Fatalf("resolve candidates after quarantine: %v", err)
