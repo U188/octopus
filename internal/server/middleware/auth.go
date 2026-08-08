@@ -13,9 +13,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const octopusAuthorizationHeader = "X-Octopus-Authorization"
+
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
+		// Some hosting gateways reserve or replace Authorization. Prefer the
+		// Octopus-specific header while retaining compatibility with existing clients.
+		token := strings.TrimSpace(c.GetHeader(octopusAuthorizationHeader))
+		if token == "" {
+			token = strings.TrimSpace(c.GetHeader("Authorization"))
+		}
 		if token == "" {
 			resp.Unauthorized(c)
 			c.Abort()

@@ -12,8 +12,68 @@ import (
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
+	authpkg "github.com/U188/octopus/internal/server/auth"
 	"github.com/gin-gonic/gin"
 )
+
+func TestAuthAcceptsOctopusAndLegacyAuthorizationHeaders(t *testing.T) {
+	if err := dbpkg.InitDB("sqlite", filepath.Join(t.TempDir(), "admin-auth-test.db"), false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = dbpkg.Close()
+	})
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("init cache: %v", err)
+	}
+	token, _, err := authpkg.GenerateJWTToken(10)
+	if err != nil {
+		t.Fatalf("generate JWT: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(Auth())
+	router.GET("/ok", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	tests := []struct {
+		name          string
+		authorization string
+		octopusAuth   string
+	}{
+		{
+			name:          "legacy authorization",
+			authorization: "Bearer " + token,
+		},
+		{
+			name:        "octopus authorization",
+			octopusAuth: "Bearer " + token,
+		},
+		{
+			name:          "octopus authorization takes precedence",
+			authorization: "Bearer platform-managed-token",
+			octopusAuth:   "Bearer " + token,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			if tt.octopusAuth != "" {
+				req.Header.Set(octopusAuthorizationHeader, tt.octopusAuth)
+			}
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected authorization to pass, status=%d body=%s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
 
 func TestAPIKeyAuthAcceptsCustomKeyWithoutGeneratedPrefix(t *testing.T) {
 	router := setupAPIKeyAuthTest(t, "custom-local-test-key")

@@ -55,12 +55,16 @@ func TestDebugRequestBodySkipsLargeBodyWithoutConsuming(t *testing.T) {
 func TestRedactHeaders(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer secret")
+	headers.Set("X-Octopus-Authorization", "Bearer admin-secret")
 	headers.Set("X-Api-Key", "sk-secret")
 	headers.Set("Content-Type", "application/json")
 
 	redacted := redactHeaders(headers)
 	if got := redacted["Authorization"]; len(got) != 1 || got[0] != "[REDACTED]" {
 		t.Fatalf("Authorization not redacted: %#v", got)
+	}
+	if got := redacted["X-Octopus-Authorization"]; len(got) != 1 || got[0] != "[REDACTED]" {
+		t.Fatalf("X-Octopus-Authorization not redacted: %#v", got)
 	}
 	if got := redacted["X-Api-Key"]; len(got) != 1 || got[0] != "[REDACTED]" {
 		t.Fatalf("X-Api-Key not redacted: %#v", got)

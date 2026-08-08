@@ -3,6 +3,7 @@ import type { ApiError, ApiErrorParams } from './types';
 import { HttpStatus } from './types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '.';
+export const OCTOPUS_AUTHORIZATION_HEADER = 'X-Octopus-Authorization';
 
 /**
  * 获取认证 Store（延迟导入以避免循环依赖）
@@ -118,15 +119,15 @@ async function request<T>(
         headers.set('Content-Type', 'application/json');
     }
 
-    // 添加 Authorization - 从 zustand store 获取 token
+    // Use an application-specific header because some hosting gateways reserve Authorization.
     if (options?.authToken !== undefined) {
         if (options.authToken) {
-            headers.set('Authorization', `Bearer ${options.authToken}`);
+            headers.set(OCTOPUS_AUTHORIZATION_HEADER, `Bearer ${options.authToken}`);
         }
     } else if (typeof window !== 'undefined' && getAuthStore) {
         const store = getAuthStore();
         if (store.token) {
-            headers.set('Authorization', `Bearer ${store.token}`);
+            headers.set(OCTOPUS_AUTHORIZATION_HEADER, `Bearer ${store.token}`);
         }
     }
 

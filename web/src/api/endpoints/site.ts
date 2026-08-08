@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiClient, API_BASE_URL } from "../client";
+import {
+  apiClient,
+  API_BASE_URL,
+  OCTOPUS_AUTHORIZATION_HEADER,
+} from "../client";
 import { logger } from "@/lib/logger";
 import { useAuthStore } from "./user";
 import type { ProxyMode } from "./proxy-pool";
@@ -568,7 +572,9 @@ export async function streamTestSiteConversation(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(token
+        ? { [OCTOPUS_AUTHORIZATION_HEADER]: `Bearer ${token}` }
+        : {}),
     },
     body: JSON.stringify(data),
     signal,
@@ -684,7 +690,7 @@ export function useImportAllAPIHub() {
       }
 
       const headers: HeadersInit = {
-        Authorization: getAuthHeader(),
+        [OCTOPUS_AUTHORIZATION_HEADER]: getAuthHeader(),
       };
       let body: BodyInit;
 
@@ -743,7 +749,7 @@ export function useImportMetAPI() {
       }
 
       const headers: HeadersInit = {
-        Authorization: getAuthHeader(),
+        [OCTOPUS_AUTHORIZATION_HEADER]: getAuthHeader(),
       };
       let body: BodyInit;
 

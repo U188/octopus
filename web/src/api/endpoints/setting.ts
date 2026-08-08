@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, API_BASE_URL } from '../client';
+import { apiClient, API_BASE_URL, OCTOPUS_AUTHORIZATION_HEADER } from '../client';
 import { logger } from '@/lib/logger';
 import { useAuthStore } from './user';
 
@@ -248,7 +248,7 @@ export function useExportDB() {
             const res = await fetch(`${API_BASE_URL}/api/v1/setting/export?${params.toString()}`, {
                 method: 'GET',
                 headers: {
-                    Authorization: getAuthHeader(),
+                    [OCTOPUS_AUTHORIZATION_HEADER]: getAuthHeader(),
                 },
             });
 
@@ -280,7 +280,7 @@ export function useImportDB() {
             const res = await fetch(`${API_BASE_URL}/api/v1/setting/import`, {
                 method: 'POST',
                 headers: {
-                    Authorization: getAuthHeader(),
+                    [OCTOPUS_AUTHORIZATION_HEADER]: getAuthHeader(),
                 },
                 body: form,
             });

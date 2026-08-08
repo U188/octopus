@@ -22,6 +22,7 @@ func Cors() gin.HandlerFunc {
 		"Accept",
 		"Accept-Encoding",
 		"Authorization",
+		octopusAuthorizationHeader,
 		"X-Requested-With",
 		"X-Api-Key",
 		"Anthropic-Version",
