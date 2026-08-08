@@ -233,6 +233,10 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 		}
 		selectFields = append(selectFields, "proxy_config_id")
 	}
+	if req.ProxyPoolRoundRobin != nil {
+		merged.ProxyPoolRoundRobin = *req.ProxyPoolRoundRobin
+		selectFields = append(selectFields, "proxy_pool_round_robin")
+	}
 	if req.ExternalCheckinSet {
 		merged.ExternalCheckinURL = req.ExternalCheckinURL
 		selectFields = append(selectFields, "external_checkin_url")
@@ -300,6 +304,9 @@ func SiteUpdate(req *model.SiteUpdateRequest, ctx context.Context) (*model.Site,
 	}
 	if req.ProxyConfigIDSet || (req.ProxyMode != nil && *req.ProxyMode != model.ProxyUsageModePool) {
 		updates.ProxyConfigID = merged.ProxyConfigID
+	}
+	if req.ProxyPoolRoundRobin != nil {
+		updates.ProxyPoolRoundRobin = merged.ProxyPoolRoundRobin
 	}
 	if req.ExternalCheckinSet {
 		updates.ExternalCheckinURL = merged.ExternalCheckinURL

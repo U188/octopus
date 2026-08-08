@@ -29,13 +29,7 @@ func ChannelHTTPClientWithContext(ctx context.Context, channel *model.Channel) (
 		if channel.ProxyConfigID == nil || *channel.ProxyConfigID <= 0 {
 			return nil, fmt.Errorf("proxy config id is required when proxy mode is pool")
 		}
-		proxyURLs, err := op.ProxyURLsForConfig(*channel.ProxyConfigID, ctx)
-		if err != nil {
-			return nil, err
-		}
-		return client.GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs, func(proxyURL string, failure error) {
-			_ = op.ProxySubscriptionNodeReportFailure(*channel.ProxyConfigID, proxyURL, failure, ctx)
-		})
+		return client.GetHTTPClientProxyPool(ctx, *channel.ProxyConfigID, channel.ProxyPoolRoundRobin)
 	default:
 		return nil, fmt.Errorf("unsupported proxy mode: %s", channel.ProxyMode)
 	}

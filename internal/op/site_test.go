@@ -149,6 +149,63 @@ func TestSiteCreateAndAccountCreatePersistExplicitFalseValues(t *testing.T) {
 	}
 }
 
+func TestSiteProxyPoolRoundRobinIsScopedPerSite(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+
+	rotatingSite := &model.Site{
+		Name:                "rotating-site",
+		Platform:            model.SitePlatformNewAPI,
+		BaseURL:             "https://rotating.example.com",
+		Enabled:             true,
+		ProxyPoolRoundRobin: true,
+	}
+	staticSite := &model.Site{
+		Name:     "static-site",
+		Platform: model.SitePlatformNewAPI,
+		BaseURL:  "https://static.example.com",
+		Enabled:  true,
+	}
+	if err := SiteCreate(rotatingSite, ctx); err != nil {
+		t.Fatalf("create rotating site failed: %v", err)
+	}
+	if err := SiteCreate(staticSite, ctx); err != nil {
+		t.Fatalf("create static site failed: %v", err)
+	}
+
+	reloadedRotating, err := SiteGet(rotatingSite.ID, ctx)
+	if err != nil {
+		t.Fatalf("load rotating site failed: %v", err)
+	}
+	reloadedStatic, err := SiteGet(staticSite.ID, ctx)
+	if err != nil {
+		t.Fatalf("load static site failed: %v", err)
+	}
+	if !reloadedRotating.ProxyPoolRoundRobin || reloadedStatic.ProxyPoolRoundRobin {
+		t.Fatalf("unexpected initial per-site switches: rotating=%v static=%v", reloadedRotating.ProxyPoolRoundRobin, reloadedStatic.ProxyPoolRoundRobin)
+	}
+
+	disabled := false
+	enabled := true
+	if _, err := SiteUpdate(&model.SiteUpdateRequest{ID: rotatingSite.ID, ProxyPoolRoundRobin: &disabled}, ctx); err != nil {
+		t.Fatalf("disable rotating site round robin failed: %v", err)
+	}
+	if _, err := SiteUpdate(&model.SiteUpdateRequest{ID: staticSite.ID, ProxyPoolRoundRobin: &enabled}, ctx); err != nil {
+		t.Fatalf("enable static site round robin failed: %v", err)
+	}
+
+	reloadedRotating, err = SiteGet(rotatingSite.ID, ctx)
+	if err != nil {
+		t.Fatalf("reload rotating site failed: %v", err)
+	}
+	reloadedStatic, err = SiteGet(staticSite.ID, ctx)
+	if err != nil {
+		t.Fatalf("reload static site failed: %v", err)
+	}
+	if reloadedRotating.ProxyPoolRoundRobin || !reloadedStatic.ProxyPoolRoundRobin {
+		t.Fatalf("unexpected updated per-site switches: rotating=%v static=%v", reloadedRotating.ProxyPoolRoundRobin, reloadedStatic.ProxyPoolRoundRobin)
+	}
+}
+
 func TestSiteUpdateCanClearNullableFields(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)
 

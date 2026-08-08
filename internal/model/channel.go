@@ -70,6 +70,7 @@ type Channel struct {
 	CustomModel               string                  `json:"custom_model"`
 	ProxyMode                 ProxyUsageMode          `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
 	ProxyConfigID             *int                    `json:"proxy_config_id"`
+	ProxyPoolRoundRobin       bool                    `json:"proxy_pool_round_robin" gorm:"default:false"`
 	Proxy                     bool                    `json:"-" gorm:"default:false"`
 	AutoSync                  bool                    `json:"auto_sync" gorm:"default:false"`
 	AutoGroup                 AutoGroupType           `json:"auto_group" gorm:"default:0"`
@@ -191,6 +192,7 @@ type ChannelUpdateRequest struct {
 	CustomModel           *string                `json:"custom_model,omitempty"`
 	ProxyMode             *ProxyUsageMode        `json:"proxy_mode,omitempty"`
 	ProxyConfigID         *int                   `json:"proxy_config_id,omitempty"`
+	ProxyPoolRoundRobin   *bool                  `json:"proxy_pool_round_robin,omitempty"`
 	Proxy                 *bool                  `json:"-"`
 	AutoSync              *bool                  `json:"auto_sync,omitempty"`
 	AutoGroup             *AutoGroupType         `json:"auto_group,omitempty"`

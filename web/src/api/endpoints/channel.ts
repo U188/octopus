@@ -79,6 +79,7 @@ export type Channel = {
     custom_model: string;
     proxy_mode: Exclude<ProxyMode, 'inherit'>;
     proxy_config_id?: number | null;
+    proxy_pool_round_robin: boolean;
     auto_sync: boolean;
     auto_group: AutoGroupType;
     custom_header: CustomHeader[];
@@ -200,6 +201,7 @@ export function useChannelList() {
                 keys: item.keys ?? [],
                 proxy_mode: item.proxy_mode ?? 'direct',
                 proxy_config_id: item.proxy_config_id ?? null,
+                proxy_pool_round_robin: item.proxy_pool_round_robin ?? false,
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),

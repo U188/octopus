@@ -148,22 +148,23 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			modelNames := extractSiteModelNames(bucketModels)
 			bindingKey := compositeBindingKey(groupKey, routeType, shouldSplit)
 			channelPayload := model.Channel{
-				Name:               buildManagedChannelName(siteRecord, account, group, routeType),
-				Type:               obType,
-				Enabled:            enabled,
-				BaseUrls:           baseUrls,
-				Keys:               buildChannelKeys(groupTokens, siteRecord.Platform),
-				Model:              strings.Join(modelNames, ","),
-				CustomModel:        "",
-				ProxyMode:          proxyMode,
-				ProxyConfigID:      proxyConfigID,
-				Proxy:              proxyMode != model.ProxyUsageModeDirect,
-				AutoSync:           false,
-				AutoGroup:          model.AutoGroupTypeNone,
-				CustomHeader:       siteRecord.CustomHeader,
-				CodexMode:          siteRecord.CodexMode,
-				CodexHeaderProfile: siteRecord.CodexHeaderProfile,
-				ClaudeMode:         siteRecord.ClaudeMode,
+				Name:                buildManagedChannelName(siteRecord, account, group, routeType),
+				Type:                obType,
+				Enabled:             enabled,
+				BaseUrls:            baseUrls,
+				Keys:                buildChannelKeys(groupTokens, siteRecord.Platform),
+				Model:               strings.Join(modelNames, ","),
+				CustomModel:         "",
+				ProxyMode:           proxyMode,
+				ProxyConfigID:       proxyConfigID,
+				ProxyPoolRoundRobin: siteRecord.ProxyPoolRoundRobin,
+				Proxy:               proxyMode != model.ProxyUsageModeDirect,
+				AutoSync:            false,
+				AutoGroup:           model.AutoGroupTypeNone,
+				CustomHeader:        siteRecord.CustomHeader,
+				CodexMode:           siteRecord.CodexMode,
+				CodexHeaderProfile:  siteRecord.CodexHeaderProfile,
+				ClaudeMode:          siteRecord.ClaudeMode,
 			}
 
 			binding, exists := bindingMap[bindingKey]
@@ -230,7 +231,7 @@ func ProjectAccount(ctx context.Context, accountID int) ([]int, error) {
 			if err != nil {
 				return nil, err
 			}
-			updateReq := &model.ChannelUpdateRequest{ID: existingChannel.ID, Name: &channelPayload.Name, Type: &channelPayload.Type, Enabled: &channelPayload.Enabled, BaseUrls: &channelPayload.BaseUrls, Model: &channelPayload.Model, CustomModel: &channelPayload.CustomModel, ProxyMode: &channelPayload.ProxyMode, ProxyConfigID: channelPayload.ProxyConfigID, AutoSync: &channelPayload.AutoSync, CustomHeader: &channelPayload.CustomHeader, CodexMode: &channelPayload.CodexMode, CodexHeaderProfile: &channelPayload.CodexHeaderProfile, ClaudeMode: &channelPayload.ClaudeMode, BypassManagedCheck: true}
+			updateReq := &model.ChannelUpdateRequest{ID: existingChannel.ID, Name: &channelPayload.Name, Type: &channelPayload.Type, Enabled: &channelPayload.Enabled, BaseUrls: &channelPayload.BaseUrls, Model: &channelPayload.Model, CustomModel: &channelPayload.CustomModel, ProxyMode: &channelPayload.ProxyMode, ProxyConfigID: channelPayload.ProxyConfigID, ProxyPoolRoundRobin: &channelPayload.ProxyPoolRoundRobin, AutoSync: &channelPayload.AutoSync, CustomHeader: &channelPayload.CustomHeader, CodexMode: &channelPayload.CodexMode, CodexHeaderProfile: &channelPayload.CodexHeaderProfile, ClaudeMode: &channelPayload.ClaudeMode, BypassManagedCheck: true}
 			updateReq.KeysToAdd, updateReq.KeysToUpdate, updateReq.KeysToDelete = diffManagedChannelKeys(existingChannel.Keys, channelPayload.Keys)
 			if _, err := op.ChannelUpdate(updateReq, ctx); err != nil {
 				return nil, fmt.Errorf("failed to update managed channel: %w", err)

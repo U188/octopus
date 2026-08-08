@@ -2,15 +2,21 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
+	dbpkg "github.com/U188/octopus/internal/db"
+	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/outboundurl"
 )
 
@@ -209,6 +215,182 @@ func TestProxyFailoverTransportDoesNotRetryNonReplayableBody(t *testing.T) {
 	}
 	if secondCalls.Load() != 0 {
 		t.Fatalf("non-replayable request retried %d times", secondCalls.Load())
+	}
+}
+
+func TestProxyFailoverTransportResolvesCandidatesForEveryRequest(t *testing.T) {
+	endpoint := func(name string) proxyTransportEndpoint {
+		return proxyTransportEndpoint{
+			proxyURL: "http://" + name + ".example:8080",
+			primary: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusNoContent,
+					Header:     http.Header{"X-Test-Proxy": []string{name}},
+					Body:       http.NoBody,
+					Request:    req,
+				}, nil
+			}),
+		}
+	}
+	first := endpoint("proxy-1")
+	second := endpoint("proxy-2")
+	var resolverCalls atomic.Int64
+	transport := &proxyFailoverTransport{
+		resolveEndpoints: func(context.Context) ([]proxyTransportEndpoint, error) {
+			if resolverCalls.Add(1)%2 == 1 {
+				return []proxyTransportEndpoint{first, second}, nil
+			}
+			return []proxyTransportEndpoint{second, first}, nil
+		},
+	}
+
+	for index, want := range []string{"proxy-1", "proxy-2", "proxy-1", "proxy-2"} {
+		req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+		if err != nil {
+			t.Fatalf("create request %d: %v", index, err)
+		}
+		resp, err := transport.RoundTrip(req)
+		if err != nil {
+			t.Fatalf("round trip %d: %v", index, err)
+		}
+		if got := resp.Header.Get("X-Test-Proxy"); got != want {
+			t.Fatalf("request %d used proxy %q, want %q", index, got, want)
+		}
+	}
+	if resolverCalls.Load() != 4 {
+		t.Fatalf("candidate resolver called %d times, want 4", resolverCalls.Load())
+	}
+}
+
+func TestProxyFailoverTransportDynamicCandidatesAreConcurrentSafe(t *testing.T) {
+	var firstCalls atomic.Int64
+	var secondCalls atomic.Int64
+	first := proxyTransportEndpoint{
+		proxyURL: "http://proxy-1.example:8080",
+		primary: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			firstCalls.Add(1)
+			return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Request: req}, nil
+		}),
+	}
+	second := proxyTransportEndpoint{
+		proxyURL: "http://proxy-2.example:8080",
+		primary: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			secondCalls.Add(1)
+			return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Request: req}, nil
+		}),
+	}
+	var resolverCalls atomic.Int64
+	transport := &proxyFailoverTransport{
+		resolveEndpoints: func(context.Context) ([]proxyTransportEndpoint, error) {
+			if resolverCalls.Add(1)%2 == 1 {
+				return []proxyTransportEndpoint{first, second}, nil
+			}
+			return []proxyTransportEndpoint{second, first}, nil
+		},
+	}
+
+	const requestCount = 64
+	var wg sync.WaitGroup
+	errs := make(chan error, requestCount)
+	for index := 0; index < requestCount; index++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+			if err != nil {
+				errs <- err
+				return
+			}
+			resp, err := transport.RoundTrip(req)
+			if err != nil {
+				errs <- err
+				return
+			}
+			_ = resp.Body.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent round trip: %v", err)
+		}
+	}
+	if resolverCalls.Load() != requestCount {
+		t.Fatalf("candidate resolver called %d times, want %d", resolverCalls.Load(), requestCount)
+	}
+	if firstCalls.Load() != requestCount/2 || secondCalls.Load() != requestCount/2 {
+		t.Fatalf("unexpected proxy distribution: first=%d second=%d", firstCalls.Load(), secondCalls.Load())
+	}
+}
+
+func TestDynamicProxyPoolUsesInitialCandidatesThenRefreshes(t *testing.T) {
+	var resolverCalls atomic.Int64
+	httpClient, err := newHTTPClientDynamicProxyPoolWithFailureReporter(
+		[]string{"http://proxy-1.example:8080"},
+		func(context.Context) ([]string, error) {
+			resolverCalls.Add(1)
+			return []string{"http://proxy-2.example:8080"}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create dynamic proxy pool: %v", err)
+	}
+	transport, ok := httpClient.Transport.(*proxyFailoverTransport)
+	if !ok {
+		t.Fatalf("dynamic transport type = %T", httpClient.Transport)
+	}
+	first, err := transport.endpointsForRequest(context.Background())
+	if err != nil {
+		t.Fatalf("resolve initial candidates: %v", err)
+	}
+	if resolverCalls.Load() != 0 || len(first) != 1 || first[0].proxyURL != "http://proxy-1.example:8080" {
+		t.Fatalf("unexpected initial candidates: calls=%d endpoints=%#v", resolverCalls.Load(), first)
+	}
+	second, err := transport.endpointsForRequest(context.Background())
+	if err != nil {
+		t.Fatalf("refresh candidates: %v", err)
+	}
+	if resolverCalls.Load() != 1 || len(second) != 1 || second[0].proxyURL != "http://proxy-2.example:8080" {
+		t.Fatalf("unexpected refreshed candidates: calls=%d endpoints=%#v", resolverCalls.Load(), second)
+	}
+}
+
+func TestGetHTTPClientProxyPoolHonorsPerRequestOption(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "proxy-round-robin.db")
+	if err := dbpkg.InitDB("sqlite", dbPath, false); err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	t.Cleanup(func() { _ = dbpkg.Close() })
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("InitCache failed: %v", err)
+	}
+	proxyConfig := model.ProxyConfiguration{
+		Name:    "round-robin-option-test",
+		URL:     "http://proxy.example:8080",
+		Enabled: true,
+	}
+	if err := op.ProxyConfigurationCreate(&proxyConfig, context.Background()); err != nil {
+		t.Fatalf("create proxy configuration: %v", err)
+	}
+
+	dynamicClient, err := GetHTTPClientProxyPool(context.Background(), proxyConfig.ID, true)
+	if err != nil {
+		t.Fatalf("create dynamic proxy pool client: %v", err)
+	}
+	dynamicTransport, ok := dynamicClient.Transport.(*proxyFailoverTransport)
+	if !ok || dynamicTransport.resolveEndpoints == nil {
+		t.Fatalf("expected dynamic proxy transport, got %T", dynamicClient.Transport)
+	}
+
+	staticClient, err := GetHTTPClientProxyPool(context.Background(), proxyConfig.ID, false)
+	if err != nil {
+		t.Fatalf("create static proxy pool client: %v", err)
+	}
+	staticTransport, ok := staticClient.Transport.(*proxyFailoverTransport)
+	if !ok || staticTransport.resolveEndpoints != nil {
+		t.Fatalf("expected static proxy transport, got %T", staticClient.Transport)
 	}
 }
 

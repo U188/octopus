@@ -163,31 +163,32 @@ func ValidateSiteRouteBaseURLs(items []SiteRouteBaseURL) error {
 }
 
 type Site struct {
-	ID                 int                `json:"id" gorm:"primaryKey"`
-	Name               string             `json:"name" gorm:"unique;not null"`
-	Platform           SitePlatform       `json:"platform" gorm:"type:varchar(32);not null"`
-	BaseURL            string             `json:"base_url" gorm:"not null"`
-	Enabled            bool               `json:"enabled" gorm:"default:true"`
-	EnabledSet         bool               `json:"-" gorm:"-"`
-	ProxyMode          ProxyUsageMode     `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
-	ProxyConfigID      *int               `json:"proxy_config_id"`
-	Proxy              bool               `json:"-" gorm:"default:false"`
-	SiteProxy          *string            `json:"-" gorm:"column:site_proxy"`
-	UseSystemProxy     bool               `json:"-" gorm:"default:false"`
-	ExternalCheckinURL *string            `json:"external_checkin_url"`
-	IsPinned           bool               `json:"is_pinned" gorm:"default:false"`
-	SortOrder          int                `json:"sort_order" gorm:"default:0"`
-	GlobalWeight       float64            `json:"global_weight" gorm:"default:1"`
-	CustomHeader       []CustomHeader     `json:"custom_header" gorm:"serializer:json"`
-	RouteBaseURLs      []SiteRouteBaseURL `json:"route_base_urls" gorm:"serializer:json"`
-	DefaultRouteType   SiteModelRouteType `json:"default_route_type" gorm:"type:varchar(32);not null;default:''"`
-	CodexMode          bool               `json:"codex_mode" gorm:"default:false"`
-	CodexHeaderProfile CodexHeaderProfile `json:"codex_header_profile" gorm:"type:varchar(32);not null;default:'windows'"`
-	ClaudeMode         bool               `json:"claude_mode" gorm:"default:false"`
-	Tags               []string           `json:"tags" gorm:"serializer:json"`
-	Archived           bool               `json:"archived" gorm:"default:false;index"`
-	ArchivedAt         *time.Time         `json:"archived_at"`
-	Accounts           []SiteAccount      `json:"accounts,omitempty" gorm:"foreignKey:SiteID"`
+	ID                  int                `json:"id" gorm:"primaryKey"`
+	Name                string             `json:"name" gorm:"unique;not null"`
+	Platform            SitePlatform       `json:"platform" gorm:"type:varchar(32);not null"`
+	BaseURL             string             `json:"base_url" gorm:"not null"`
+	Enabled             bool               `json:"enabled" gorm:"default:true"`
+	EnabledSet          bool               `json:"-" gorm:"-"`
+	ProxyMode           ProxyUsageMode     `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
+	ProxyConfigID       *int               `json:"proxy_config_id"`
+	ProxyPoolRoundRobin bool               `json:"proxy_pool_round_robin" gorm:"default:false"`
+	Proxy               bool               `json:"-" gorm:"default:false"`
+	SiteProxy           *string            `json:"-" gorm:"column:site_proxy"`
+	UseSystemProxy      bool               `json:"-" gorm:"default:false"`
+	ExternalCheckinURL  *string            `json:"external_checkin_url"`
+	IsPinned            bool               `json:"is_pinned" gorm:"default:false"`
+	SortOrder           int                `json:"sort_order" gorm:"default:0"`
+	GlobalWeight        float64            `json:"global_weight" gorm:"default:1"`
+	CustomHeader        []CustomHeader     `json:"custom_header" gorm:"serializer:json"`
+	RouteBaseURLs       []SiteRouteBaseURL `json:"route_base_urls" gorm:"serializer:json"`
+	DefaultRouteType    SiteModelRouteType `json:"default_route_type" gorm:"type:varchar(32);not null;default:''"`
+	CodexMode           bool               `json:"codex_mode" gorm:"default:false"`
+	CodexHeaderProfile  CodexHeaderProfile `json:"codex_header_profile" gorm:"type:varchar(32);not null;default:'windows'"`
+	ClaudeMode          bool               `json:"claude_mode" gorm:"default:false"`
+	Tags                []string           `json:"tags" gorm:"serializer:json"`
+	Archived            bool               `json:"archived" gorm:"default:false;index"`
+	ArchivedAt          *time.Time         `json:"archived_at"`
+	Accounts            []SiteAccount      `json:"accounts,omitempty" gorm:"foreignKey:SiteID"`
 }
 
 func (s *Site) UnmarshalJSON(data []byte) error {
@@ -452,28 +453,29 @@ type SiteChannelBinding struct {
 }
 
 type SiteUpdateRequest struct {
-	ID                 int                 `json:"id" binding:"required"`
-	Name               *string             `json:"name,omitempty"`
-	Platform           *SitePlatform       `json:"platform,omitempty"`
-	BaseURL            *string             `json:"base_url,omitempty"`
-	Enabled            *bool               `json:"enabled,omitempty"`
-	ProxyMode          *ProxyUsageMode     `json:"proxy_mode,omitempty"`
-	ProxyConfigID      *int                `json:"proxy_config_id,omitempty"`
-	ProxyConfigIDSet   bool                `json:"-"`
-	Proxy              *bool               `json:"-"`
-	SiteProxy          *string             `json:"-"`
-	UseSystemProxy     *bool               `json:"-"`
-	ExternalCheckinURL *string             `json:"external_checkin_url,omitempty"`
-	ExternalCheckinSet bool                `json:"-"`
-	IsPinned           *bool               `json:"is_pinned,omitempty"`
-	SortOrder          *int                `json:"sort_order,omitempty"`
-	GlobalWeight       *float64            `json:"global_weight,omitempty"`
-	CustomHeader       *[]CustomHeader     `json:"custom_header,omitempty"`
-	RouteBaseURLs      *[]SiteRouteBaseURL `json:"route_base_urls,omitempty"`
-	CodexMode          *bool               `json:"codex_mode,omitempty"`
-	CodexHeaderProfile *CodexHeaderProfile `json:"codex_header_profile,omitempty"`
-	ClaudeMode         *bool               `json:"claude_mode,omitempty"`
-	Tags               *[]string           `json:"tags,omitempty"`
+	ID                  int                 `json:"id" binding:"required"`
+	Name                *string             `json:"name,omitempty"`
+	Platform            *SitePlatform       `json:"platform,omitempty"`
+	BaseURL             *string             `json:"base_url,omitempty"`
+	Enabled             *bool               `json:"enabled,omitempty"`
+	ProxyMode           *ProxyUsageMode     `json:"proxy_mode,omitempty"`
+	ProxyConfigID       *int                `json:"proxy_config_id,omitempty"`
+	ProxyConfigIDSet    bool                `json:"-"`
+	ProxyPoolRoundRobin *bool               `json:"proxy_pool_round_robin,omitempty"`
+	Proxy               *bool               `json:"-"`
+	SiteProxy           *string             `json:"-"`
+	UseSystemProxy      *bool               `json:"-"`
+	ExternalCheckinURL  *string             `json:"external_checkin_url,omitempty"`
+	ExternalCheckinSet  bool                `json:"-"`
+	IsPinned            *bool               `json:"is_pinned,omitempty"`
+	SortOrder           *int                `json:"sort_order,omitempty"`
+	GlobalWeight        *float64            `json:"global_weight,omitempty"`
+	CustomHeader        *[]CustomHeader     `json:"custom_header,omitempty"`
+	RouteBaseURLs       *[]SiteRouteBaseURL `json:"route_base_urls,omitempty"`
+	CodexMode           *bool               `json:"codex_mode,omitempty"`
+	CodexHeaderProfile  *CodexHeaderProfile `json:"codex_header_profile,omitempty"`
+	ClaudeMode          *bool               `json:"claude_mode,omitempty"`
+	Tags                *[]string           `json:"tags,omitempty"`
 }
 
 func (r *SiteUpdateRequest) UnmarshalJSON(data []byte) error {

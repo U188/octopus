@@ -12,7 +12,6 @@ import (
 
 	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/model"
-	"github.com/U188/octopus/internal/op"
 )
 
 func siteHTTPClient(ctx context.Context, siteRecord *model.Site, accounts ...*model.SiteAccount) (*http.Client, error) {
@@ -29,13 +28,7 @@ func siteHTTPClient(ctx context.Context, siteRecord *model.Site, accounts ...*mo
 		if proxyConfigID == nil || *proxyConfigID <= 0 {
 			return nil, fmt.Errorf("proxy config id is required when proxy mode is pool")
 		}
-		proxyURLs, err := op.ProxyURLsForConfig(*proxyConfigID, ctx)
-		if err != nil {
-			return nil, err
-		}
-		return client.GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs, func(proxyURL string, failure error) {
-			_ = op.ProxySubscriptionNodeReportFailure(*proxyConfigID, proxyURL, failure, ctx)
-		})
+		return client.GetHTTPClientProxyPool(ctx, *proxyConfigID, siteRecord != nil && siteRecord.ProxyPoolRoundRobin)
 	default:
 		return nil, fmt.Errorf("unsupported proxy mode: %s", proxyMode)
 	}

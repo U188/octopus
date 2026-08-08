@@ -140,6 +140,7 @@ export type Site = {
   enabled: boolean;
   proxy_mode: Exclude<ProxyMode, "inherit">;
   proxy_config_id?: number | null;
+  proxy_pool_round_robin: boolean;
   external_checkin_url?: string | null;
   is_pinned: boolean;
   sort_order: number;
@@ -306,6 +307,7 @@ function normalizeSiteServerList(data: SiteServer[]): Site[] {
     claude_mode: site.claude_mode ?? false,
     proxy_mode: site.proxy_mode ?? "direct",
     proxy_config_id: site.proxy_config_id ?? null,
+    proxy_pool_round_robin: site.proxy_pool_round_robin ?? false,
     external_checkin_url: site.external_checkin_url ?? null,
     is_pinned: site.is_pinned ?? false,
     sort_order: typeof site.sort_order === "number" ? site.sort_order : 0,

@@ -173,7 +173,7 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 		t.Fatalf("create anthropic site model failed: %v", err)
 	}
 
-	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.Site{}).Where("id = ?", site.ID).Updates(map[string]any{"codex_mode": true, "codex_header_profile": model.CodexHeaderProfileLocal, "claude_mode": true}).Error; err != nil {
+	if err := dbpkg.GetDB().WithContext(ctx).Model(&model.Site{}).Where("id = ?", site.ID).Updates(map[string]any{"codex_mode": true, "codex_header_profile": model.CodexHeaderProfileLocal, "claude_mode": true, "proxy_pool_round_robin": true}).Error; err != nil {
 		t.Fatalf("enable site client modes failed: %v", err)
 	}
 	if _, err := ProjectAccount(ctx, account.ID); err != nil {
@@ -198,6 +198,9 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 		if !channel.ClaudeMode {
 			t.Fatalf("expected projected channel %q to inherit claude mode", channel.Name)
 		}
+		if !channel.ProxyPoolRoundRobin {
+			t.Fatalf("expected projected channel %q to inherit proxy pool round robin", channel.Name)
+		}
 	}
 	if !foundResponsesChannel {
 		t.Fatalf("expected a projected OpenAI Responses channel")
@@ -208,7 +211,7 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 
 	disabled := false
 	windowsProfile := model.CodexHeaderProfileWindows
-	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CodexMode: &disabled, CodexHeaderProfile: &windowsProfile, ClaudeMode: &disabled}, ctx); err != nil {
+	if _, err := op.SiteUpdate(&model.SiteUpdateRequest{ID: site.ID, CodexMode: &disabled, CodexHeaderProfile: &windowsProfile, ClaudeMode: &disabled, ProxyPoolRoundRobin: &disabled}, ctx); err != nil {
 		t.Fatalf("SiteUpdate disable failed: %v", err)
 	}
 	if _, err := ProjectAccount(ctx, account.ID); err != nil {
@@ -224,6 +227,9 @@ func TestProjectAccountSyncsClientModesToManagedChannels(t *testing.T) {
 		}
 		if channel.ClaudeMode {
 			t.Fatalf("expected projected channel %q to clear claude mode", channel.Name)
+		}
+		if channel.ProxyPoolRoundRobin {
+			t.Fatalf("expected projected channel %q to clear proxy pool round robin", channel.Name)
 		}
 	}
 }

@@ -360,6 +360,10 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 			}
 		}
 	}
+	if req.ProxyPoolRoundRobin != nil {
+		selectFields = append(selectFields, "proxy_pool_round_robin")
+		updates.ProxyPoolRoundRobin = *req.ProxyPoolRoundRobin
+	}
 	if req.AutoSync != nil {
 		selectFields = append(selectFields, "auto_sync")
 		updates.AutoSync = *req.AutoSync

@@ -481,6 +481,8 @@ Each log entry can be expanded to see: error message, **request IP**, **time to 
 
 In Settings you can enable a **Proxy Pool** to centrally manage reusable proxy configurations (supports `http / https / socks / socks5`). Sites, site accounts, and manual channels can all select the same proxy from the pool, avoiding redundant configuration. Proxy modes: Inherit / Direct / System Proxy / Proxy Pool. Proxies from older versions are automatically migrated to the pool.
 
+Subscription proxy pools refresh automatically and only select healthy nodes. By default, the preferred node rotates when a proxy client is created. To rotate nodes for **every upstream HTTP request**, enable **Per-request proxy pool rotation** in that site's edit dialog. The switch is stored per site, defaults to off, and applies to the site's sync, paginated fetches, model fetches, test requests, and projected managed channels whenever their effective proxy mode is Proxy Pool. Safe pre-send failover and failed-node quarantine remain active. The public IP observed by a site may still stay the same when only one node is healthy or multiple nodes share one exit IP.
+
 ---
 
 ## XIII. Frequently Asked Questions

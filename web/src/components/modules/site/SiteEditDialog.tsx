@@ -52,6 +52,7 @@ type SiteFormState = {
     enabled: boolean;
     proxy_mode: Exclude<ProxyMode, 'inherit'>;
     proxy_config_id: number | null;
+    proxy_pool_round_robin: boolean;
     external_checkin_url: string;
     is_pinned: boolean;
     sort_order: number;
@@ -110,6 +111,7 @@ function createEmptySiteForm(): SiteFormState {
         enabled: true,
         proxy_mode: 'direct',
         proxy_config_id: null,
+        proxy_pool_round_robin: false,
         external_checkin_url: '',
         is_pinned: false,
         sort_order: 0,
@@ -132,6 +134,7 @@ function createSiteForm(site: SiteRecord): SiteFormState {
         enabled: site.enabled,
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
+        proxy_pool_round_robin: site.proxy_pool_round_robin ?? false,
         external_checkin_url: site.external_checkin_url ?? '',
         is_pinned: site.is_pinned,
         sort_order: site.sort_order,
@@ -156,6 +159,7 @@ function normalizeSiteRecord(site: SiteRecord): SiteRecord {
         tags: site.tags ?? [],
         proxy_mode: site.proxy_mode ?? 'direct',
         proxy_config_id: site.proxy_config_id ?? null,
+        proxy_pool_round_robin: site.proxy_pool_round_robin ?? false,
         external_checkin_url: site.external_checkin_url ?? null,
         is_pinned: site.is_pinned ?? false,
         sort_order: typeof site.sort_order === 'number' ? site.sort_order : 0,
@@ -307,6 +311,7 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                 proxy_mode: siteForm.proxy_mode,
                 proxy_config_id:
                     siteForm.proxy_mode === 'pool' ? siteForm.proxy_config_id : null,
+                proxy_pool_round_robin: siteForm.proxy_pool_round_robin,
                 external_checkin_url: siteForm.external_checkin_url.trim() || null,
                 is_pinned: siteForm.is_pinned,
                 sort_order: siteForm.sort_order,
@@ -589,6 +594,24 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
                                 proxy_config_id: next.proxy_config_id ?? null,
                             }))}
                         />
+
+                        <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                            <div className="min-w-0">
+                                <div className="text-sm font-medium">代理池逐请求轮询</div>
+                                <div className="text-xs text-muted-foreground">
+                                    仅对本站点及其账号最终使用代理池的请求生效；每次请求轮换首选健康节点，投影托管渠道也会继承。
+                                </div>
+                            </div>
+                            <Switch
+                                checked={siteForm.proxy_pool_round_robin}
+                                onCheckedChange={(checked) =>
+                                    setSiteForm((current) => ({
+                                        ...current,
+                                        proxy_pool_round_robin: checked,
+                                    }))
+                                }
+                            />
+                        </div>
 
                         <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
                             <div>
