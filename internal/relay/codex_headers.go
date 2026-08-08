@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/U188/octopus/internal/codexmode"
@@ -20,6 +21,16 @@ func (ra *relayAttempt) shouldUseCodexResponseHeaders() bool {
 }
 
 func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
+	ra.applyCodexResponseHeadersMode(req, true)
+}
+
+// applyCodexResponseHeadersPreservingBody adds Codex headers to the compact
+// endpoint without injecting ordinary turn fields into its request body.
+func (ra *relayAttempt) applyCodexResponseHeadersPreservingBody(req *http.Request) {
+	ra.applyCodexResponseHeadersMode(req, false)
+}
+
+func (ra *relayAttempt) applyCodexResponseHeadersMode(req *http.Request, normalizeBody bool) {
 	if req == nil || !ra.shouldUseCodexResponseHeaders() {
 		return
 	}
@@ -27,27 +38,56 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	req.Header = http.Header{}
 	headers := codexmode.HeadersForProfile(ra.channel.CodexHeaderProfile)
 
-	sessionID := uuid.Must(uuid.NewV7()).String()
-	threadID := sessionID
-	windowID := sessionID + ":0"
-	turnID := uuid.Must(uuid.NewV7()).String()
-	clientRequestID := sessionID
-	installationID := uuid.NewString()
-	turnMetadata := map[string]any{
-		"installation_id":         installationID,
-		"session_id":              sessionID,
-		"thread_id":               threadID,
-		"turn_id":                 turnID,
-		"window_id":               windowID,
-		"request_kind":            "turn",
-		"thread_source":           "user",
-		"sandbox":                 codexmode.Sandbox,
-		"turn_started_at_unix_ms": time.Now().UnixMilli(),
+	sourceHeaders := ra.clientRequestHeaders()
+	sessionID := strings.TrimSpace(sourceHeaders.Get("Session-Id"))
+	threadID := strings.TrimSpace(sourceHeaders.Get("Thread-Id"))
+	windowID := strings.TrimSpace(sourceHeaders.Get("X-Codex-Window-Id"))
+	clientRequestID := strings.TrimSpace(sourceHeaders.Get("X-Client-Request-Id"))
+	turnMetadataString := strings.TrimSpace(sourceHeaders.Get("X-Codex-Turn-Metadata"))
+	turnMetadataValues := parseCodexTurnMetadata(turnMetadataString)
+	turnID := strings.TrimSpace(turnMetadataValues["turn_id"])
+	installationID := strings.TrimSpace(turnMetadataValues["installation_id"])
+	if installationID == "" {
+		installationID = strings.TrimSpace(sourceHeaders.Get("X-Codex-Installation-Id"))
 	}
-	turnMetadataJSON, _ := json.Marshal(turnMetadata)
-	turnMetadataString := string(turnMetadataJSON)
+	if sessionID == "" {
+		sessionID = uuid.Must(uuid.NewV7()).String()
+	}
+	if threadID == "" {
+		threadID = sessionID
+	}
+	if windowID == "" {
+		windowID = sessionID + ":0"
+	}
+	if clientRequestID == "" {
+		clientRequestID = sessionID
+	}
+	if turnID == "" {
+		turnID = uuid.Must(uuid.NewV7()).String()
+	}
+	if installationID == "" {
+		installationID = uuid.NewString()
+	}
+	if turnMetadataString == "" {
+		turnMetadata := map[string]any{
+			"installation_id":         installationID,
+			"session_id":              sessionID,
+			"thread_id":               threadID,
+			"turn_id":                 turnID,
+			"window_id":               windowID,
+			"request_kind":            "turn",
+			"thread_source":           "user",
+			"sandbox":                 codexmode.Sandbox,
+			"turn_started_at_unix_ms": time.Now().UnixMilli(),
+		}
+		turnMetadataJSON, _ := json.Marshal(turnMetadata)
+		turnMetadataString = string(turnMetadataJSON)
+	}
 
-	ra.normalizeCodexResponsesBody(req, sessionID, threadID, turnID, windowID, installationID, turnMetadataString)
+	if normalizeBody {
+		ra.normalizeCodexResponsesBody(req, sessionID, threadID, turnID, windowID, installationID, turnMetadataString)
+		ra.applyKnownCodexCompactionCompatibility(req)
+	}
 
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
@@ -61,6 +101,48 @@ func (ra *relayAttempt) applyCodexResponseHeaders(req *http.Request) {
 	req.Header.Set("X-Client-Request-Id", clientRequestID)
 	req.Header.Set("X-Codex-Turn-Metadata", turnMetadataString)
 	req.Header.Set("Authorization", "Bearer "+ra.usedKey.ChannelKey)
+}
+
+func (ra *relayAttempt) applyKnownCodexCompactionCompatibility(req *http.Request) {
+	if req == nil || req.URL == nil || !isKnownCodexCompactionIncompatibleHost(req.URL.Hostname()) {
+		return
+	}
+	body, err := readOutboundRequestBody(req)
+	if err != nil {
+		return
+	}
+	compatibleBody, changed, err := stripCodexCompactionItems(body)
+	if err != nil || !changed {
+		return
+	}
+	resetRequestBody(req, compatibleBody)
+}
+
+func isKnownCodexCompactionIncompatibleHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	for _, domain := range []string{"anyrouter.top", "agentrouter.org"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseCodexTurnMetadata(raw string) map[string]string {
+	values := make(map[string]string)
+	if strings.TrimSpace(raw) == "" {
+		return values
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return values
+	}
+	for _, key := range []string{"installation_id", "session_id", "thread_id", "turn_id", "window_id"} {
+		if value, ok := metadata[key].(string); ok {
+			values[key] = strings.TrimSpace(value)
+		}
+	}
+	return values
 }
 
 func (ra *relayAttempt) normalizeCodexResponsesBody(req *http.Request, sessionID, threadID, turnID, windowID, installationID, turnMetadata string) {
@@ -176,6 +258,43 @@ func normalizeCodexResponsesInput(payload map[string]any) {
 		return
 	}
 	payload["input"] = normalizeCodexResponsesInputValue(input)
+}
+
+// stripCodexCompactionItems removes opaque remote-compaction markers from a
+// Responses request. Some Codex-compatible upstreams reject the marker even
+// though they accept the surrounding Responses items. The caller only uses
+// this after that exact upstream validation error, so compatible providers
+// retain the normal remote-compaction path.
+func stripCodexCompactionItems(body []byte) ([]byte, bool, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, false, err
+	}
+	input, ok := payload["input"].([]any)
+	if !ok || len(input) == 0 {
+		return nil, false, nil
+	}
+	filtered := make([]any, 0, len(input))
+	removed := false
+	for _, value := range input {
+		item, ok := value.(map[string]any)
+		if ok {
+			if itemType, _ := item["type"].(string); itemType == "compaction" {
+				removed = true
+				continue
+			}
+		}
+		filtered = append(filtered, value)
+	}
+	if !removed {
+		return nil, false, nil
+	}
+	payload["input"] = filtered
+	withoutCompaction, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	return withoutCompaction, true, nil
 }
 
 // Codex 0.144.5 represents developer instructions and tool declarations as

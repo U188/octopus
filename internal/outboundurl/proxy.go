@@ -2,6 +2,7 @@ package outboundurl
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -68,6 +69,33 @@ func ConfigureProxyTransport(transport *http.Transport, proxyURL *url.URL) error
 	default:
 		return fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}
+}
+
+func ConfigureHTTP1Transport(transport *http.Transport) {
+	if transport == nil {
+		return
+	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	transport.Protocols = protocols
+	transport.ForceAttemptHTTP2 = false
+	tlsConfig := transport.TLSClientConfig
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{}
+	} else {
+		tlsConfig = tlsConfig.Clone()
+	}
+	tlsConfig.NextProtos = []string{"http/1.1"}
+	transport.TLSClientConfig = tlsConfig
+	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+}
+
+func IsTLSHandshakeFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "tls") && strings.Contains(message, "handshake")
 }
 
 // normalizeProxyDialError keeps the original SOCKS error for diagnostics while

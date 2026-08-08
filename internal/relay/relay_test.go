@@ -1909,6 +1909,72 @@ func TestForwardViaHTTPCodexModeNormalizesResponsesBody(t *testing.T) {
 	}
 }
 
+func TestForwardViaHTTPCodexModeRetriesWithoutRemoteCompaction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	var requests atomic.Int32
+	seenFallbackBody := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if requests.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_responses_request","message":"compaction unsupported"}}`))
+			return
+		}
+		seenFallbackBody <- body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_compaction_retry","object":"response","created":1,"model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name:      "relay-http-codex-compaction-retry",
+		Type:      outbound.OutboundTypeOpenAIResponse,
+		Enabled:   true,
+		BaseUrls:  []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:     "gpt-5.5",
+		CodexMode: true,
+		Keys:      []model.ChannelKey{{Enabled: true, ChannelKey: "upstream-key"}},
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatalf("ChannelCreate failed: %v", err)
+	}
+
+	rawBody := []byte(`{"model":"gpt","stream":false,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"before"}]},{"type":"compaction","id":"cmp_1","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"after"}]}]}`)
+	writer := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(writer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
+	internalReq := &transformerModel.InternalLLMRequest{Model: "gpt-5.5", Stream: boolPtr(false), RawAPIFormat: transformerModel.APIFormatOpenAIResponse}
+	req := &relayRequest{c: c, inAdapter: inbound.Get(inbound.InboundTypeOpenAIResponse), internalRequest: internalReq, metrics: NewRelayMetrics(1, "gpt", rawBody, internalReq), apiKeyID: 1, requestModel: "gpt", rawBody: rawBody}
+	ra := &relayAttempt{relayRequest: req, outAdapter: outbound.Get(channel.Type), channel: channel, usedKey: channel.Keys[0]}
+
+	statusCode, err := ra.forwardViaHTTP(context.Background())
+	if err != nil || statusCode != http.StatusOK {
+		t.Fatalf("expected compaction compatibility retry to succeed status=%d err=%v", statusCode, err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("expected one validation request plus one fallback request, got %d", got)
+	}
+	var fallback map[string]any
+	if err := json.Unmarshal(<-seenFallbackBody, &fallback); err != nil {
+		t.Fatalf("decode fallback body: %v", err)
+	}
+	items, ok := fallback["input"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected normalized fallback input without compaction, got %#v", fallback["input"])
+	}
+	for _, item := range items {
+		if object, ok := item.(map[string]any); ok && object["type"] == "compaction" {
+			t.Fatalf("fallback request still contains compaction item: %#v", object)
+		}
+	}
+}
+
 func TestForwardViaHTTPClaudeModeNormalizesAnthropicRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)

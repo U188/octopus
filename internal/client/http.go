@@ -1,7 +1,6 @@
 package client
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -162,7 +161,7 @@ func (t *proxyFailoverTransport) RoundTrip(req *http.Request) (*http.Response, e
 			return nil, err
 		}
 
-		if isTLSHandshakeFailure(err) && endpoint.http1 != nil {
+		if outboundurl.IsTLSHandshakeFailure(err) && endpoint.http1 != nil {
 			attempt++
 			fallbackReq, canFallback, replayErr := proxyRequestForAttempt(req, attempt)
 			if replayErr != nil {
@@ -220,19 +219,11 @@ func closeProxyFailureResponse(resp *http.Response) {
 	}
 }
 
-func isTLSHandshakeFailure(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "tls") && strings.Contains(message, "handshake")
-}
-
 // Safe failover errors happen before the upstream HTTP request can be
 // processed. Retrying ambiguous read/write failures can duplicate billable
 // model requests.
 func isSafeProxyFailoverError(err error) bool {
-	if isTLSHandshakeFailure(err) || errors.Is(err, outboundurl.ErrProxyDialTimeout) || hasDialFailure(err) {
+	if outboundurl.IsTLSHandshakeFailure(err) || errors.Is(err, outboundurl.ErrProxyDialTimeout) || hasDialFailure(err) {
 		return true
 	}
 	message := strings.ToLower(err.Error())
@@ -342,19 +333,7 @@ func newHTTPClientCustomProxyWithMode(proxyURLStr string, http1Only bool) (*http
 		return nil, err
 	}
 	if http1Only {
-		protocols := new(http.Protocols)
-		protocols.SetHTTP1(true)
-		cloned.Protocols = protocols
-		cloned.ForceAttemptHTTP2 = false
-		tlsConfig := cloned.TLSClientConfig
-		if tlsConfig == nil {
-			tlsConfig = &tls.Config{}
-		} else {
-			tlsConfig = tlsConfig.Clone()
-		}
-		tlsConfig.NextProtos = []string{"http/1.1"}
-		cloned.TLSClientConfig = tlsConfig
-		cloned.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+		outboundurl.ConfigureHTTP1Transport(cloned)
 	}
 
 	return &http.Client{

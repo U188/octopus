@@ -1070,6 +1070,48 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
+	// AnyRouter currently rejects the remote-compaction item with a generic
+	// invalid_responses_request response. Retry once without only that opaque
+	// marker; all ordinary messages, tool calls, and outputs remain intact.
+	if ra.shouldUseCodexResponseHeaders() && response.StatusCode == http.StatusBadRequest &&
+		!strings.HasSuffix(strings.TrimRight(req.URL.Path, "/"), "/responses/compact") {
+		errorBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxRelayErrorBodyBytes))
+		_ = response.Body.Close()
+		fallbackSucceeded := false
+		if readErr == nil && bytes.Contains(errorBody, []byte("invalid_responses_request")) {
+			originalBody, bodyErr := readOutboundRequestBody(req)
+			if bodyErr != nil {
+				log.Warnf("failed to read Codex request body for compaction compatibility retry on channel %s: %v", ra.channel.Name, bodyErr)
+			} else {
+				fallbackBody, changed, stripErr := stripCodexCompactionItems(originalBody)
+				if stripErr != nil {
+					log.Warnf("failed to inspect Codex request body for compaction compatibility retry on channel %s: %v", ra.channel.Name, stripErr)
+				} else if changed {
+					fallbackReq := req.Clone(req.Context())
+					resetRequestBody(fallbackReq, fallbackBody)
+					fallbackResponse, fallbackErr := httpClient.Do(fallbackReq)
+					if fallbackErr == nil {
+						log.Infof("retrying Codex request without remote compaction item for channel %s", ra.channel.Name)
+						response = fallbackResponse
+						fallbackSucceeded = true
+					} else {
+						log.Warnf("Codex compaction compatibility retry failed for channel %s: %v", ra.channel.Name, fallbackErr)
+					}
+				} else {
+					log.Debugf("Codex invalid request on channel %s did not contain a remote compaction item", ra.channel.Name)
+				}
+			}
+		}
+		if !fallbackSucceeded {
+			if response == nil {
+				response = &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header)}
+			}
+			// Preserve the original validation body when the compatibility retry
+			// could not be sent, so normal relay error handling remains unchanged.
+			response.Body = io.NopCloser(bytes.NewReader(errorBody))
+		}
+	}
+
 	if response != nil && response.Body != nil && ra.firstTokenBudget != nil {
 		response.Body = &closeWithFuncReadCloser{
 			ReadCloser: response.Body,

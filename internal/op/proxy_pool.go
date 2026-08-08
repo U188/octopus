@@ -461,6 +461,10 @@ func proxyTestIPDisallowed(ip net.IP) bool {
 }
 
 func newProxyTestHTTPClient(proxyURLStr string) (*http.Client, error) {
+	return newProxyTestHTTPClientWithMode(proxyURLStr, false)
+}
+
+func newProxyTestHTTPClientWithMode(proxyURLStr string, http1Only bool) (*http.Client, error) {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("default transport is not *http.Transport")
@@ -472,6 +476,9 @@ func newProxyTestHTTPClient(proxyURLStr string) (*http.Client, error) {
 	}
 	if err := outboundurl.ConfigureProxyTransport(cloned, proxyURL); err != nil {
 		return nil, err
+	}
+	if http1Only {
+		outboundurl.ConfigureHTTP1Transport(cloned)
 	}
 	return &http.Client{
 		Transport:     outboundurl.WrapTransport(cloned),
@@ -511,6 +518,14 @@ func runProxyTestAttempt(ctx context.Context, proxyURL string, targetURL string,
 	httpReq.Close = true
 	httpReq.Header.Set("User-Agent", "Octopus Proxy Pool Tester")
 	resp, err := httpClient.Do(httpReq)
+	if err != nil && outboundurl.IsTLSHandshakeFailure(err) {
+		if http1Client, clientErr := newProxyTestHTTPClientWithMode(proxyURL, true); clientErr == nil {
+			http1Client.Timeout = proxyTestAttemptTimeout
+			fallbackReq := httpReq.Clone(ctx)
+			fallbackReq.Close = true
+			resp, err = http1Client.Do(fallbackReq)
+		}
+	}
 	result.DurationMS = time.Since(start).Milliseconds()
 	if err != nil {
 		result.Message = err.Error()

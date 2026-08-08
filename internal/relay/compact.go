@@ -237,6 +237,8 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	}
 	metrics.SetTransportRequestPayload(requestBody, metrics.RequestModel)
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
+	compactRelay := &relayAttempt{relayRequest: &relayRequest{c: c}, channel: channel, usedKey: usedKey}
+	compactRelay.applyCodexResponseHeadersPreservingBody(request)
 	metrics.SetRequestHeadersFromHTTP(request.Header)
 
 	response, err := sendCompactRequest(channel, request)
