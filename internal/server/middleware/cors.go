@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/U188/octopus/internal/model"
@@ -33,7 +34,10 @@ func Cors() gin.HandlerFunc {
 	// - 为空: 不允许跨域
 	// - "*": 允许所有来源
 	// - 逗号分隔的域名列表: 只允许指定的域名 (如 "https://example.com,https://example2.com")
-	config.AllowOriginFunc = func(origin string) bool {
+	config.AllowOriginWithContextFunc = func(c *gin.Context, origin string) bool {
+		if isForwardedSameOriginRequest(c, origin) {
+			return true
+		}
 		allowed, err := op.SettingGetString(model.SettingKeyCORSAllowOrigins)
 		if err != nil {
 			return false
@@ -72,4 +76,32 @@ func Cors() gin.HandlerFunc {
 		return false
 	}
 	return cors.New(config)
+}
+
+func isForwardedSameOriginRequest(c *gin.Context, origin string) bool {
+	// Fetch Metadata is controlled by the browser. A cross-site page cannot forge
+	// same-origin, so it remains reliable when a reverse proxy rewrites Host.
+	if strings.EqualFold(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")), "same-origin") {
+		return true
+	}
+
+	originURL, err := url.Parse(origin)
+	if err != nil || originURL.Host == "" || (originURL.Scheme != "http" && originURL.Scheme != "https") {
+		return false
+	}
+	forwardedProto := firstForwardedValue(c.GetHeader("X-Forwarded-Proto"))
+	if forwardedProto != "" && !strings.EqualFold(forwardedProto, originURL.Scheme) {
+		return false
+	}
+	for _, header := range []string{"X-Forwarded-Host", "X-Original-Host"} {
+		if host := firstForwardedValue(c.GetHeader(header)); strings.EqualFold(host, originURL.Host) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstForwardedValue(value string) string {
+	value, _, _ = strings.Cut(value, ",")
+	return strings.TrimSpace(value)
 }

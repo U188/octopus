@@ -52,7 +52,11 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
       toast.success(mode === 'user' ? t('success.user') : t('success.apikey'))
       onLoginSuccess?.()
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : t('error.generic')
+      const errorMessage = err instanceof Error
+        ? err.message
+        : err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : t('error.generic')
       setError(errorMessage)
       toast.error(t('error.title'), { description: errorMessage })
     }
