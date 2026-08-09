@@ -1,0 +1,10 @@
+# Keep the build context small while retaining every input used by the
+# repository release Dockerfiles and the root ModelScope wrapper.
+**
+!Dockerfile
+!build/
+!build/docker/
+!build/docker/**
+!scripts/
+!scripts/dockerfiles/
+!scripts/dockerfiles/**
