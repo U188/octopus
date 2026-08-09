@@ -322,8 +322,12 @@ create_archives() {
     # Copy documentation files to archives directory
     cp README.md LICENSE "${archives_dir}/" 2>/dev/null || log_info "Documentation files not found, skipping"
 
+    local binary_count=0
+    local archive_count=0
+
     # Archive all binaries (zip format for all platforms)
     while IFS= read -r -d '' file; do
+        binary_count=$((binary_count + 1))
         local basename_file
         basename_file=$(basename "$file")
         local extension=""
@@ -340,6 +344,7 @@ create_archives() {
 
         if (cd "${archives_dir}" && zip -q "${basename_file}.zip" "${APP_NAME}${extension}" README.md LICENSE 2>/dev/null); then
             rm -f "${archives_dir}/${APP_NAME}${extension}"
+            archive_count=$((archive_count + 1))
             log_success "Archived: archives/${basename_file}.zip"
         else
             log_error "Failed to create archive: ${basename_file}.zip"
@@ -349,6 +354,15 @@ create_archives() {
 
     # Cleanup documentation files from archives directory
     rm -f "${archives_dir}/README.md" "${archives_dir}/LICENSE"
+
+    if [ "${binary_count}" -eq 0 ]; then
+        log_error "No release binaries found in ${OUTPUT_DIR}/bin/"
+        return 1
+    fi
+    if [ "${archive_count}" -ne "${binary_count}" ]; then
+        log_error "Created ${archive_count} archives for ${binary_count} binaries"
+        return 1
+    fi
 
     log_success "Created archives in ${archives_dir}/"
 }
@@ -365,9 +379,9 @@ generate_checksums() {
 
     local archives=("${APP_NAME}"-*.zip)
     if [ ! -e "${archives[0]}" ]; then
-        log_info "No archive artifacts found, skipping checksums"
+        log_error "No archive artifacts found"
         cd ../.. 2>/dev/null || true
-        return 0
+        return 1
     fi
 
     # Use appropriate checksum command based on OS.
@@ -444,11 +458,12 @@ prepare_docker_binaries() {
         fi
     done
 
-    if [ $copied_count -gt 0 ]; then
-        log_success "Prepared ${copied_count} Docker binaries in ${docker_dir}/"
-    else
-        log_warning "No Docker binaries prepared"
+    if [ "${copied_count}" -ne "${#platforms[@]}" ]; then
+        log_error "Prepared ${copied_count} of ${#platforms[@]} required Docker binaries"
+        return 1
     fi
+
+    log_success "Prepared ${copied_count} Docker binaries in ${docker_dir}/"
 }
 
 # =============================================================================
@@ -579,43 +594,42 @@ main() {
         # Build for different platforms
         log_step "Building binaries"
 
-        # Standard builds (pure Go, static binaries)
-        if ! build_standard linux x86_64; then
-            log_error "Failed to build Linux x86_64"
-        fi
-        if ! build_standard linux arm64; then
-            log_error "Failed to build Linux arm64"
-        fi
-        if ! build_standard linux armv7; then
-            log_error "Failed to build Linux armv7"
-        fi
-        if ! build_standard linux x86; then
-            log_error "Failed to build Linux x86"
-        fi
-        if ! build_standard windows x86_64; then
-            log_error "Failed to build Windows x86_64"
-        fi
-        if ! build_standard windows x86; then
-            log_error "Failed to build Windows x86"
-        fi
-        if ! build_standard darwin arm64; then
-            log_error "Failed to build Darwin arm64"
-        fi
-        if ! build_standard darwin x86_64; then
-            log_error "Failed to build Darwin arm64"
-        fi
+        # Standard builds (pure Go, static binaries). A release must contain
+        # every supported platform, so fail fast instead of publishing a
+        # partial or empty artifact set.
+        local targets=(
+            "linux x86_64"
+            "linux arm64"
+            "linux armv7"
+            "linux x86"
+            "windows x86_64"
+            "windows x86"
+            "darwin arm64"
+            "darwin x86_64"
+        )
+        local target os arch
+        for target in "${targets[@]}"; do
+            read -r os arch <<<"${target}"
+            if ! build_standard "${os}" "${arch}"; then
+                log_error "Release build stopped at ${os}/${arch}"
+                exit 1
+            fi
+        done
 
         # Post-processing
         if ! prepare_docker_binaries; then
-            log_warning "Failed to prepare Docker binaries, but continuing..."
+            log_error "Failed to prepare Docker binaries"
+            exit 1
         fi
 
         if ! create_archives; then
-            log_warning "Failed to create archives, but continuing..."
+            log_error "Failed to create archives"
+            exit 1
         fi
 
         if ! generate_checksums; then
-            log_warning "Failed to generate checksums, but continuing..."
+            log_error "Failed to generate checksums"
+            exit 1
         fi
 
         log_step "Build completed"

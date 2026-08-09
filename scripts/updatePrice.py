@@ -9,6 +9,7 @@ import re
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 LLM_PRICE_URL = "https://models.dev/api.json"
 
@@ -146,65 +147,101 @@ def generate_entry(model_id: str, cost: dict) -> str:
     return f'\t"{model_id}": {{Input: {input_price}, Output: {output_price}, CacheRead: {cache_read}, CacheWrite: {cache_write}}},'
 
 
+def collect_price_entries(raw_price: dict) -> tuple[dict[str, dict], dict[str, int], list[str]]:
+    """收集并去重价格条目。
+
+    models.dev 可能在多个 provider 下返回相同模型 ID。运行时价格更新按
+    PROVIDERS 顺序覆盖，因此生成静态 Go map 时保持相同语义：同为真实模型时
+    后面的 provider 覆盖前面的 provider；真实模型始终优先于自动别名。
+    """
+    entries: dict[str, dict] = {}
+    sources: dict[str, tuple[str, bool]] = {}
+    provider_counts: dict[str, int] = {}
+    duplicate_messages: list[str] = []
+
+    def add_entry(model_id: str, cost: dict[str, Any], source: str, is_alias: bool) -> None:
+        normalized_id = model_id.lower()
+        previous = sources.get(normalized_id)
+        if previous is not None:
+            previous_source, previous_is_alias = previous
+            if not previous_is_alias and is_alias:
+                duplicate_messages.append(
+                    f"  Duplicate '{normalized_id}': kept model from {previous_source}, skipped alias from {source}"
+                )
+                return
+            duplicate_messages.append(
+                f"  Duplicate '{normalized_id}': replaced {previous_source} with {source}"
+            )
+
+        entries[normalized_id] = cost
+        sources[normalized_id] = (source, is_alias)
+
+    for provider in PROVIDERS:
+        if provider not in raw_price:
+            provider_counts[provider] = 0
+            continue
+
+        models = raw_price[provider].get("models", {})
+        provider_count = 0
+
+        for model_data in models.values():
+            model_id = model_data.get("id", "").lower()
+            cost = model_data.get("cost") or {}
+
+            if not model_id:
+                continue
+
+            # 添加原始模型
+            add_entry(model_id, cost, f"{provider} model", False)
+            provider_count += 1
+
+            # 收集所有别名
+            aliases = []
+
+            # 1. Claude 模型自动生成别名
+            aliases.extend(generate_claude_aliases(model_id))
+
+            # 2. 静态别名映射
+            if model_id in MODEL_ALIASES:
+                aliases.extend(MODEL_ALIASES[model_id])
+
+            # 添加别名 (去重)
+            for alias in dict.fromkeys(aliases):
+                add_entry(alias, cost, f"{provider} alias for {model_id}", True)
+                provider_count += 1
+
+        provider_counts[provider] = provider_count
+
+    return entries, provider_counts, duplicate_messages
+
+
 def main():
     print(f"Fetching price data from {LLM_PRICE_URL}...")
     raw_price = fetch_price_data()
-    
-    entries = []
-    model_count = 0
-    
+    entries, provider_counts, duplicate_messages = collect_price_entries(raw_price)
+
     for provider in PROVIDERS:
         if provider not in raw_price:
             print(f"  Provider '{provider}' not found, skipping...")
             continue
-            
-        models = raw_price[provider].get("models", {})
-        provider_count = 0
-        
-        for model_data in models.values():
-            model_id = model_data.get("id", "").lower()
-            cost = model_data.get("cost", {})
-            
-            if not model_id:
-                continue
-            
-            # 添加原始模型
-            entries.append(generate_entry(model_id, cost))
-            provider_count += 1
-            
-            # 收集所有别名
-            aliases = []
-            
-            # 1. Claude 模型自动生成别名
-            aliases.extend(generate_claude_aliases(model_id))
-            
-            # 2. 静态别名映射
-            if model_id in MODEL_ALIASES:
-                aliases.extend(MODEL_ALIASES[model_id])
-            
-            # 添加别名 (去重)
-            for alias in set(aliases):
-                entries.append(generate_entry(alias.lower(), cost))
-                provider_count += 1
-            
-        print(f"  {provider}: {provider_count} models")
-        model_count += provider_count
-    
+        print(f"  {provider}: {provider_counts[provider]} models")
+    for message in duplicate_messages:
+        print(message)
+
     # 生成 Go 文件内容
     update_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     content = PRESETS_GO_TEMPLATE.format(
         update_time=update_time,
-        entries="\n".join(entries),
+        entries="\n".join(generate_entry(model_id, cost) for model_id, cost in entries.items()),
     )
-    
+
     # 写入文件
     script_dir = Path(__file__).parent
     output_path = script_dir.parent / "internal" / "price" / "presets.go"
-    
+
     output_path.write_text(content, encoding="utf-8")
-    print(f"\nGenerated {output_path} with {model_count} models")
+    print(f"\nGenerated {output_path} with {len(entries)} unique models")
 
 
 if __name__ == "__main__":
     main()
-

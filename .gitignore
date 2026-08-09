@@ -13,6 +13,8 @@ octopus.exe
 *.sqlite
 *.sqlite3
 *.tmp
+__pycache__/
+*.py[cod]
 
 web/node_modules/
 web/.next/
