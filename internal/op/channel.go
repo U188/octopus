@@ -56,6 +56,11 @@ func prepareChannelCreate(channel *model.Channel, ctx context.Context) error {
 	if channel == nil {
 		return fmt.Errorf("channel is nil")
 	}
+	// Managed/ManagedSource are runtime-only annotations populated from the
+	// durable site_channel_bindings row. Never trust or retain values supplied
+	// on a manually-created channel.
+	channel.Managed = false
+	channel.ManagedSource = nil
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -79,6 +84,29 @@ func prepareChannelCreate(channel *model.Channel, ctx context.Context) error {
 		channel.ProxyConfigID = nil
 	}
 	return nil
+}
+
+func applyManagedChannelBindingMetadata(channel *model.Channel, binding *model.SiteChannelBinding) {
+	if channel == nil {
+		return
+	}
+	channel.Managed = false
+	channel.ManagedSource = nil
+	if binding == nil || binding.SiteID <= 0 {
+		return
+	}
+	var siteUserGroupID *int
+	if binding.SiteUserGroupID != nil {
+		value := *binding.SiteUserGroupID
+		siteUserGroupID = &value
+	}
+	channel.Managed = true
+	channel.ManagedSource = &model.ManagedChannelSource{
+		SiteID:          binding.SiteID,
+		SiteAccountID:   binding.SiteAccountID,
+		SiteUserGroupID: siteUserGroupID,
+		GroupKey:        binding.GroupKey,
+	}
 }
 
 func cacheCreatedChannel(channel *model.Channel) {
@@ -140,6 +168,7 @@ func ChannelCreateManaged(channel *model.Channel, binding *model.SiteChannelBind
 		return err
 	}
 	*binding = newBinding
+	applyManagedChannelBindingMetadata(channel, &newBinding)
 	cacheCreatedChannel(channel)
 	return nil
 }
@@ -904,6 +933,13 @@ func ChannelGetByName(name string, ctx context.Context) (*model.Channel, error) 
 	}
 
 	normalizeChannelProxyFields(&channel)
+	binding, managed, bindingErr := ChannelManagedBinding(channel.ID, ctx)
+	if bindingErr != nil {
+		return nil, bindingErr
+	}
+	if managed {
+		applyManagedChannelBindingMetadata(&channel, binding)
+	}
 	channel.Stats = nil
 	channelCache.Set(channel.ID, channel)
 	for _, k := range channel.Keys {
@@ -923,12 +959,23 @@ func channelRefreshCache(ctx context.Context) error {
 		log.Warnf("failed to get channels: %v", err)
 		return err
 	}
+	channelIDs := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		channelIDs = append(channelIDs, channel.ID)
+	}
+	bindingMap, err := SiteChannelBindingMapByChannelIDs(channelIDs, ctx)
+	if err != nil {
+		return err
+	}
 	channelKeyCache.Clear()
 	channelKeyCacheNeedUpdateLock.Lock()
 	channelKeyCacheNeedUpdate = make(map[int]struct{})
 	channelKeyCacheNeedUpdateLock.Unlock()
 	for _, channel := range channels {
 		normalizeChannelProxyFields(&channel)
+		if binding, ok := bindingMap[channel.ID]; ok {
+			applyManagedChannelBindingMetadata(&channel, &binding)
+		}
 		channelCache.Set(channel.ID, channel)
 		for _, k := range channel.Keys {
 			if k.ID != 0 {
@@ -948,6 +995,10 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 		First(&channel, id).Error; err != nil {
 		return err
 	}
+	binding, managed, err := ChannelManagedBinding(id, ctx)
+	if err != nil {
+		return err
+	}
 	newKeyIDs := make(map[int]struct{}, len(channel.Keys))
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
@@ -964,6 +1015,9 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 		}
 	}
 	normalizeChannelProxyFields(&channel)
+	if managed {
+		applyManagedChannelBindingMetadata(&channel, binding)
+	}
 	channel.Stats = nil
 	channelCache.Set(channel.ID, channel)
 	for _, k := range channel.Keys {

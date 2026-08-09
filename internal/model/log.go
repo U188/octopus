@@ -28,6 +28,8 @@ type ChannelAttempt struct {
 	ChannelKeyID int           `json:"channel_key_id,omitempty"`
 	ChannelName  string        `json:"channel_name"`
 	ModelName    string        `json:"model_name"`
+	ProxyNode    string        `json:"proxy_node,omitempty"` // 实际选中的代理节点（已移除凭据）
+	ProxyIP      string        `json:"proxy_ip,omitempty"`   // 与代理节点建立连接的服务器 IP，不等同公网出口 IP
 	AttemptNum   int           `json:"attempt_num"`
 	Status       AttemptStatus `json:"status"`
 	Duration     int           `json:"duration"`

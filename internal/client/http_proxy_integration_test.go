@@ -2,6 +2,7 @@ package client
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -93,6 +94,85 @@ func TestHTTPProxyCONNECTToTLSUpstream(t *testing.T) {
 	}
 }
 
+func TestProxyPoolTraceRecordsConnectedProxyIP(t *testing.T) {
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(target.Close)
+
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodConnect {
+			http.Error(w, "CONNECT required", http.StatusMethodNotAllowed)
+			return
+		}
+		upstream, err := net.Dial("tcp", req.Host)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer upstream.Close()
+		clientConn, buffered, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack CONNECT: %v", err)
+			return
+		}
+		defer clientConn.Close()
+		if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+			t.Errorf("write CONNECT response: %v", err)
+			return
+		}
+		if err := buffered.Flush(); err != nil {
+			t.Errorf("flush CONNECT response: %v", err)
+			return
+		}
+		copyDone := make(chan struct{}, 1)
+		go func() {
+			_, _ = io.Copy(upstream, clientConn)
+			copyDone <- struct{}{}
+		}()
+		_, _ = io.Copy(clientConn, upstream)
+		<-copyDone
+	}))
+	t.Cleanup(proxyServer.Close)
+
+	proxyClient, err := GetHTTPClientCustomProxyPool([]string{proxyServer.URL})
+	if err != nil {
+		t.Fatalf("create proxy pool client: %v", err)
+	}
+	poolTransport, ok := proxyClient.Transport.(*proxyFailoverTransport)
+	if !ok || len(poolTransport.endpoints) != 1 {
+		t.Fatalf("proxy pool transport = %T endpoints=%d", proxyClient.Transport, len(poolTransport.endpoints))
+	}
+	primary, ok := poolTransport.endpoints[0].primary.(*http.Transport)
+	if !ok {
+		t.Fatalf("primary proxy transport = %T", poolTransport.endpoints[0].primary)
+	}
+	primary.TLSClientConfig = target.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	t.Cleanup(proxyClient.CloseIdleConnections)
+
+	trace := NewProxyTrace()
+	req, err := http.NewRequestWithContext(WithProxyTrace(context.Background(), trace), http.MethodGet, target.URL, nil)
+	if err != nil {
+		t.Fatalf("create target request: %v", err)
+	}
+	req.Close = true
+	resp, err := proxyClient.Do(req)
+	if err != nil {
+		t.Fatalf("request through traced proxy pool: %v", err)
+	}
+	resp.Body.Close()
+
+	proxyURL, err := url.Parse(proxyServer.URL)
+	if err != nil {
+		t.Fatalf("parse proxy URL: %v", err)
+	}
+	wantIP := net.ParseIP(proxyURL.Hostname()).String()
+	route := trace.Snapshot()
+	if route.ProxyNode != proxyServer.URL || route.ProxyIP != wantIP {
+		t.Fatalf("traced proxy route = %#v, want node=%q ip=%q", route, proxyServer.URL, wantIP)
+	}
+}
+
 func TestSOCKSProxyConnectsAndSupportsAlias(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -100,17 +180,31 @@ func TestSOCKSProxyConnectsAndSupportsAlias(t *testing.T) {
 	t.Cleanup(target.Close)
 	proxyAddress := startSOCKS5Forwarder(t)
 
-	proxyClient, err := GetHTTPClientCustomProxy("socks://" + proxyAddress)
+	proxyClient, err := GetHTTPClientCustomProxyPool([]string{"socks://" + proxyAddress})
 	if err != nil {
 		t.Fatalf("create SOCKS proxy client: %v", err)
 	}
-	resp, err := proxyClient.Get(target.URL)
+	trace := NewProxyTrace()
+	req, err := http.NewRequestWithContext(WithProxyTrace(context.Background(), trace), http.MethodGet, target.URL, nil)
+	if err != nil {
+		t.Fatalf("create SOCKS target request: %v", err)
+	}
+	resp, err := proxyClient.Do(req)
 	if err != nil {
 		t.Fatalf("request through SOCKS proxy: %v", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("target status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	proxyHost, _, err := net.SplitHostPort(proxyAddress)
+	if err != nil {
+		t.Fatalf("split SOCKS proxy address: %v", err)
+	}
+	wantProxyIP := net.ParseIP(proxyHost).String()
+	route := trace.Snapshot()
+	if route.ProxyNode != "socks://"+proxyAddress || route.ProxyIP != wantProxyIP {
+		t.Fatalf("traced SOCKS route = %#v, want node=%q ip=%q", route, "socks://"+proxyAddress, wantProxyIP)
 	}
 	proxyClient.CloseIdleConnections()
 }

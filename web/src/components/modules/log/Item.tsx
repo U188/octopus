@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, Zap, AlertCircle, ArrowDownToLine, ArrowUpFromLine, DollarSign, ArrowRight, ArrowDown, Send, MessageSquare, Loader2, RotateCw, ChevronDown, ChevronUp, Pin, KeyRound, CircleOff, Link, Globe2 } from 'lucide-react';
+import { Clock, Zap, AlertCircle, ArrowDownToLine, ArrowUpFromLine, DollarSign, ArrowRight, ArrowDown, Send, MessageSquare, Loader2, RotateCw, ChevronDown, ChevronUp, Pin, KeyRound, CircleOff, Link, Globe2, Route } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'motion/react';
 import JsonView from '@uiw/react-json-view';
@@ -107,6 +107,8 @@ function mergeAdjacentAttempts(attempts: ChannelAttempt[]): MergedAttempt[] {
             && last.channel_key_id === a.channel_key_id
             && last.model_name === a.model_name
             && last.status === a.status
+            && (last.proxy_node ?? '') === (a.proxy_node ?? '')
+            && (last.proxy_ip ?? '') === (a.proxy_ip ?? '')
             && (last.msg ?? '') === (a.msg ?? '')
         ) {
             last.repeat += 1;
@@ -155,6 +157,28 @@ function finalRoutedAttempt(log: RelayLog): ChannelAttempt | null {
         if (attempts[i].status === 'failed') return attempts[i];
     }
     return attempts[attempts.length - 1] ?? null;
+}
+
+// A final bookkeeping attempt can be a skipped/circuit-break entry without a
+// transport route. Prefer the latest attempt that actually reached the proxy
+// layer so the compact log summary still shows the node/IP used by the
+// request, while keeping the existing success/failed preference as fallback
+// for legacy logs that have no route metadata.
+function latestProxyAttempt(log: RelayLog): ChannelAttempt | null {
+    const attempts = log.attempts ?? [];
+    for (let i = attempts.length - 1; i >= 0; i--) {
+        const attempt = attempts[i];
+        if (attempt.proxy_node?.trim() || attempt.proxy_ip?.trim()) return attempt;
+    }
+    return finalRoutedAttempt(log);
+}
+
+function proxyRouteLabel(attempt: ChannelAttempt | null | undefined): string {
+    const node = attempt?.proxy_node?.trim() ?? '';
+    const ip = attempt?.proxy_ip?.trim() ?? '';
+    if (!node) return ip;
+    if (!ip || node.includes(ip)) return node;
+    return `${node} · ${ip}`;
 }
 
 function routedModelName(log: RelayLog): string {
@@ -394,6 +418,11 @@ function RetryBadgeWithTooltip({ channelName, brandColor, attempts }: RetryBadge
                                     <span className="text-[10px] text-muted-foreground">
                                         {attempt.model_name} • {formatDuration(attempt.totalDuration)}
                                     </span>
+                                    {proxyRouteLabel(attempt) ? (
+                                        <span className="truncate text-[10px] text-cyan-600 dark:text-cyan-400" title={proxyRouteLabel(attempt)}>
+                                            {t('proxyNode')} {proxyRouteLabel(attempt)}
+                                        </span>
+                                    ) : null}
                                 </div>
                                 {attempt.repeat > 1 ? (
                                     <Badge variant="outline" className="shrink-0 h-5 px-1.5 text-[10px] font-semibold tabular-nums">
@@ -650,6 +679,10 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
     const diagnosticIcon = hasAttempts ? RotateCw : AlertCircle;
     const DiagnosticIcon = diagnosticIcon;
     const displayLog = detailLog ?? log;
+    const summaryProxyRoute = proxyRouteLabel(latestProxyAttempt(log));
+    const detailProxyAttempt = latestProxyAttempt(displayLog);
+    const detailProxyNode = detailProxyAttempt?.proxy_node?.trim() ?? '';
+    const detailProxyIP = detailProxyAttempt?.proxy_ip?.trim() ?? '';
     const requestHeadersContent = useMemo(
         () => extractRequestHeadersContent(displayLog.request_headers, displayLog.request_content),
         [displayLog.request_headers, displayLog.request_content],
@@ -786,7 +819,7 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 </div>
                                 <WSModeBadge log={log} />
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)]">
                                 <div className="flex items-center gap-1.5">
                                     <Clock className="size-3.5 shrink-0" style={{ color: brandColor }} />
                                     <span>{formatTime(log.time)}</span>
@@ -801,9 +834,16 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 ) : null}
                                 <div className="col-span-2 flex min-w-0 items-center gap-1.5 md:col-span-1">
                                     <Globe2 className="size-3.5 shrink-0 text-sky-500" />
-                                    <span className="shrink-0 font-medium text-foreground/70">IP</span>
-                                    <span className="truncate" title={log.request_ip || undefined}>{log.request_ip || '-'}</span>
+                                    <span className="shrink-0 font-medium text-foreground/70">{t('entryIP')}</span>
+                                    <span className="truncate" title={log.request_ip ? `${t('entryIPHint')}\n${log.request_ip}` : t('entryIPHint')}>{log.request_ip || '-'}</span>
                                 </div>
+                                {summaryProxyRoute ? (
+                                    <div className="col-span-2 flex min-w-0 items-center gap-1.5 md:col-span-1">
+                                        <Route className="size-3.5 shrink-0 text-cyan-500" />
+                                        <span className="shrink-0 font-medium text-foreground/70">{t('proxyNode')}</span>
+                                        <span className="truncate" title={`${t('proxyNodeHint')}\n${summaryProxyRoute}`}>{summaryProxyRoute}</span>
+                                    </div>
+                                ) : null}
                                 <div className="flex items-center gap-1.5">
                                     <Zap className="size-3.5 shrink-0 text-amber-500" />
                                     <span>{t('duration')} {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>
@@ -980,6 +1020,8 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                                                             && last.channel_key_id === a.channel_key_id
                                                                             && last.model_name === a.model_name
                                                                             && last.status === a.status
+                                                                            && (last.proxy_node ?? '') === (a.proxy_node ?? '')
+                                                                            && (last.proxy_ip ?? '') === (a.proxy_ip ?? '')
                                                                             && (last.msg ?? '') === (a.msg ?? '')
                                                                         ) {
                                                                             last.repeat += 1;
@@ -1049,6 +1091,15 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                                                                         ) : null}
                                                                                     </div>
                                                                                 </div>
+                                                                                {proxyRouteLabel(attempt) ? (
+                                                                                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-cyan-700 dark:text-cyan-300">
+                                                                                        <Route className="size-3.5 shrink-0" />
+                                                                                        <span className="shrink-0 font-medium">{t('proxyNode')}</span>
+                                                                                        <span className="truncate font-mono" title={`${t('proxyNodeHint')}\n${proxyRouteLabel(attempt)}`}>
+                                                                                            {proxyRouteLabel(attempt)}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                ) : null}
                                                                                 {sanitizedMsg ? (
                                                                                     <div className={cn('pl-2 border-l-2 text-[11px] leading-relaxed whitespace-pre-wrap wrap-break-word', statusMeta.messageClassName)}>
                                                                                         {sanitizedMsg}
@@ -1132,9 +1183,28 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                             ) : null}
                             <div className="flex min-w-0 items-center gap-1.5">
                                 <Globe2 className="size-3.5 shrink-0 text-sky-500" />
-                                <span className="shrink-0 font-medium text-foreground/70">IP</span>
-                                <span className="truncate" title={displayLog.request_ip || undefined}>{displayLog.request_ip || '-'}</span>
+                                <span className="shrink-0 font-medium text-foreground/70">{t('entryIP')}</span>
+                                <span className="truncate" title={displayLog.request_ip ? `${t('entryIPHint')}\n${displayLog.request_ip}` : t('entryIPHint')}>{displayLog.request_ip || '-'}</span>
                             </div>
+                            {detailProxyNode || detailProxyIP ? (
+                                <>
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        <Route className="size-3.5 shrink-0 text-cyan-500" />
+                                        <span className="shrink-0 font-medium text-foreground/70">{t('proxyNode')}</span>
+                                        <span className="truncate font-mono" title={t('proxyNodeHint')}>{detailProxyNode || '-'}</span>
+                                    </div>
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        <Route className="size-3.5 shrink-0 text-teal-500" />
+                                        <span className="shrink-0 font-medium text-foreground/70">{t('proxyIP')}</span>
+                                        <span className="truncate font-mono" title={t('proxyIPHint')}>{detailProxyIP || '-'}</span>
+                                    </div>
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        <Globe2 className="size-3.5 shrink-0 text-violet-500" />
+                                        <span className="shrink-0 font-medium text-foreground/70">{t('egressIP')}</span>
+                                        <span className="truncate" title={t('egressIPHint')}>{t('egressIPUnknown')}</span>
+                                    </div>
+                                </>
+                            ) : null}
                             <div className="flex items-center gap-1.5">
                                 <Zap className="size-3.5 text-amber-500" />
                                 <span>{t('duration')}: {formatDurationCompact(log.ftut)} / {formatDurationCompact(log.use_time)}</span>

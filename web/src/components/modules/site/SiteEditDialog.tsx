@@ -597,10 +597,8 @@ export function SiteEditDialog({ open, onOpenChange, site, onCreated, allTags }:
 
                         <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
                             <div className="min-w-0">
-                                <div className="text-sm font-medium">代理池逐请求轮询</div>
-                                <div className="text-xs text-muted-foreground">
-                                    仅对本站点及其账号最终使用代理池的请求生效；每次请求轮换首选健康节点，投影托管渠道也会继承。
-                                </div>
+                                <div className="text-sm font-medium">{tProxy('site.roundRobinTitle')}</div>
+                                <div className="text-xs text-muted-foreground">{tProxy('site.roundRobinDescription')}</div>
                             </div>
                             <Switch
                                 checked={siteForm.proxy_pool_round_robin}

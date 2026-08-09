@@ -44,6 +44,11 @@ var (
 	proxySubscriptionHealthURL = defaultProxyTestURL
 )
 
+type proxySubscriptionCounterKey struct {
+	ConfigID int
+	Scope    string
+}
+
 func ProxySubscriptionNodes(configID int, ctx context.Context) ([]model.ProxySubscriptionNode, error) {
 	var nodes []model.ProxySubscriptionNode
 	err := db.GetDB().WithContext(ctx).
@@ -54,6 +59,24 @@ func ProxySubscriptionNodes(configID int, ctx context.Context) ([]model.ProxySub
 }
 
 func ProxyURLsForConfig(id int, ctx context.Context) ([]string, error) {
+	return ProxyURLsForConfigScoped(id, "", ctx)
+}
+
+// ProxyURLsForConfigScoped returns latency-ordered healthy proxy candidates
+// with a round-robin cursor isolated to the supplied request scope. Callers
+// that share one proxy configuration can therefore rotate independently.
+func ProxyURLsForConfigScoped(id int, scope string, ctx context.Context) ([]string, error) {
+	return proxyURLsForConfig(id, strings.TrimSpace(scope), true, ctx)
+}
+
+// ProxyURLsForConfigStable returns the current latency-ordered healthy
+// candidates without advancing a round-robin cursor. Subscription refreshes,
+// health changes, or quarantine may still change which node is preferred.
+func ProxyURLsForConfigStable(id int, ctx context.Context) ([]string, error) {
+	return proxyURLsForConfig(id, "", false, ctx)
+}
+
+func proxyURLsForConfig(id int, scope string, rotate bool, ctx context.Context) ([]string, error) {
 	item, err := proxyConfigurationForUse(id, ctx)
 	if err != nil {
 		return nil, err
@@ -68,9 +91,22 @@ func ProxyURLsForConfig(id int, ctx context.Context) ([]string, error) {
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("proxy subscription has no available healthy nodes")
 	}
-	counterValue, _ := proxySubscriptionCounters.LoadOrStore(id, &atomic.Uint64{})
-	counter := counterValue.(*atomic.Uint64)
-	start := int(counter.Add(1)-1) % len(urls)
+	start := 0
+	// A one-node subscription cannot rotate. Avoid allocating a permanent
+	// cursor for it; this matters for installations that define many small
+	// per-site subscriptions and also keeps invalidation work proportional to
+	// actual rotation state.
+	if rotate && len(urls) > 1 {
+		counterKey := proxySubscriptionCounterKey{ConfigID: id, Scope: scope}
+		counterValue, _ := proxySubscriptionCounters.LoadOrStore(counterKey, &atomic.Uint64{})
+		counter := counterValue.(*atomic.Uint64)
+		// Apply the modulo while the value is still uint64. Converting the
+		// unbounded request counter to int first can produce a negative index
+		// after the counter exceeds MaxInt on 32-bit (and eventually 64-bit)
+		// builds.
+		sequence := counter.Add(1)
+		start = int((sequence - 1) % uint64(len(urls)))
+	}
 	limit := len(urls)
 	if limit > proxyRequestCandidateLimit {
 		limit = proxyRequestCandidateLimit
@@ -97,17 +133,41 @@ func healthyProxySubscriptionURLs(id int, ctx context.Context) ([]string, error)
 	now := time.Now()
 	urls := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
+		candidateURL := strings.TrimSpace(candidate.URL)
+		if candidateURL == "" {
+			continue
+		}
 		if candidate.QuarantinedUntil != nil && candidate.QuarantinedUntil.After(now) {
 			continue
 		}
-		urls = append(urls, candidate.URL)
+		urls = append(urls, candidateURL)
 	}
 	return urls, nil
 }
 
 func invalidateProxySubscriptionCache(id int) {
 	proxySubscriptionNodeCache.Del(id)
-	proxySubscriptionCounters.Delete(id)
+	clearProxySubscriptionCounters(id)
+}
+
+func clearProxySubscriptionCounters(id int) {
+	if id <= 0 {
+		return
+	}
+	proxySubscriptionCounters.Range(func(key, _ any) bool {
+		counterKey, ok := key.(proxySubscriptionCounterKey)
+		if ok && counterKey.ConfigID == id {
+			proxySubscriptionCounters.Delete(key)
+		}
+		return true
+	})
+}
+
+func clearAllProxySubscriptionCounters() {
+	proxySubscriptionCounters.Range(func(key, _ any) bool {
+		proxySubscriptionCounters.Delete(key)
+		return true
+	})
 }
 
 func forgetProxySubscriptionState(id int) {

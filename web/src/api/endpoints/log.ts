@@ -25,6 +25,8 @@ export interface ChannelAttempt {
     channel_key_id?: number;
     channel_name: string;
     model_name: string;
+    proxy_node?: string;      // 实际选中的代理节点（不含凭据）
+    proxy_ip?: string;        // 实际连接的代理服务器 IP，不等同公网出口 IP
     attempt_num: number;    // 第几次尝试
     status: AttemptStatus;
     duration: number;       // 耗时(毫秒)

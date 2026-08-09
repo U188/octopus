@@ -180,6 +180,17 @@ type AttemptSpan struct {
 	ended     bool
 }
 
+// SetProxyRoute records the credential-free proxy endpoint selected during
+// this attempt. It must be called before End so the snapshot is persisted in
+// the attempt JSON together with the final status.
+func (s *AttemptSpan) SetProxyRoute(proxyNode, proxyIP string) {
+	if s == nil || s.ended {
+		return
+	}
+	s.attempt.ProxyNode = proxyNode
+	s.attempt.ProxyIP = proxyIP
+}
+
 // End 结束尝试：设置状态，自动计算耗时，追加到 Iterator
 func (s *AttemptSpan) End(status model.AttemptStatus, statusCode int, msg string) {
 	if s.ended {

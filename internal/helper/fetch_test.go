@@ -47,3 +47,14 @@ func TestFetchModelsUsesBrowserHeadersAndSummarizesHTMLError(t *testing.T) {
 		t.Fatalf("expected Accept-Language header to be set")
 	}
 }
+
+func TestChannelProxyRotationScopeUsesManagedSite(t *testing.T) {
+	managed := &model.Channel{ID: 11, ManagedSource: &model.ManagedChannelSource{SiteID: 7}}
+	if got := channelProxyRotationScope(managed); got != "site:7" {
+		t.Fatalf("managed rotation scope = %q, want site:7", got)
+	}
+	manual := &model.Channel{ID: 11}
+	if got := channelProxyRotationScope(manual); got != "channel:11" {
+		t.Fatalf("manual rotation scope = %q, want channel:11", got)
+	}
+}

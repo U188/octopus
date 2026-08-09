@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/helper"
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/utils/log"
@@ -44,13 +45,14 @@ type wsPoolKey struct {
 }
 
 type pooledConn struct {
-	id        string
-	conn      *websocket.Conn
-	createdAt time.Time
-	lastUsed  time.Time
-	busy      bool
-	queue     int
-	poolKey   wsPoolKey
+	id         string
+	conn       *websocket.Conn
+	proxyRoute client.ProxyRoute
+	createdAt  time.Time
+	lastUsed   time.Time
+	busy       bool
+	queue      int
+	poolKey    wsPoolKey
 }
 
 type wsPoolEntry struct {
@@ -391,6 +393,8 @@ func wsFailureBackoff(failures int) time.Duration {
 // is converted into a pooled entry atomically so concurrent dials see the new
 // connection in pooledConnCount. On failure the reservation is released.
 func (p *wsPool) Dial(ctx context.Context, key wsPoolKey, channel *dbmodel.Channel, baseUrl string, headers http.Header) (*pooledConn, bool, error) {
+	ctx, proxyTrace := client.EnsureProxyTrace(ctx)
+
 	// Build WS URL
 	wsURL, err := buildWSURL(baseUrl)
 	if err != nil {
@@ -432,6 +436,7 @@ func (p *wsPool) Dial(ctx context.Context, key wsPoolKey, channel *dbmodel.Chann
 		queue:     1,
 		poolKey:   key,
 	}
+	pc.proxyRoute = proxyTrace.Snapshot()
 
 	// Atomically convert the in-flight reservation into a pooled entry so
 	// pooledConnCount stays consistent across concurrent dials. The pc is
@@ -760,6 +765,7 @@ func TryUpstreamWSWithPreference(ctx context.Context, channel *dbmodel.Channel, 
 	for {
 		if !redial {
 			if pc := wsUpstreamPool.GetPreferred(poolKey, preferredConnID); pc != nil {
+				client.RecordProxyRoute(ctx, pc.proxyRoute)
 				return pc
 			}
 		}
@@ -776,6 +782,7 @@ func TryUpstreamWSWithPreference(ctx context.Context, channel *dbmodel.Channel, 
 				}
 				return nil
 			}
+			client.RecordProxyRoute(ctx, pc.proxyRoute)
 			return pc
 		}
 		if preferredConnID == "" || time.Now().After(deadline) || ctx.Err() != nil {

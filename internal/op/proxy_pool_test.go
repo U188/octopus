@@ -182,9 +182,17 @@ func initProxySubscriptionTestDB(t *testing.T) {
 	}
 	proxyConfigurationCache.Clear()
 	proxySubscriptionNodeCache.Clear()
+	proxySubscriptionCounters.Range(func(key, _ any) bool {
+		proxySubscriptionCounters.Delete(key)
+		return true
+	})
 	t.Cleanup(func() {
 		proxyConfigurationCache.Clear()
 		proxySubscriptionNodeCache.Clear()
+		proxySubscriptionCounters.Range(func(key, _ any) bool {
+			proxySubscriptionCounters.Delete(key)
+			return true
+		})
 		_ = dbpkg.Close()
 	})
 }
@@ -250,6 +258,131 @@ func TestProxyURLsForConfigRotatesHealthyActiveNodes(t *testing.T) {
 	}
 	if first[0] != "socks5://127.0.0.1:1002" || second[0] != "socks5://127.0.0.1:1001" {
 		t.Fatalf("expected latency-ordered round robin, first=%#v second=%#v", first, second)
+	}
+}
+
+func TestProxyURLsForConfigStableAndScopedRotation(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{
+		Name:                   "stable scoped subscription",
+		URL:                    "https://example.com/scoped.txt",
+		Type:                   model.ProxyConfigurationTypeSubscription,
+		Enabled:                true,
+		RefreshIntervalMinutes: 30,
+	}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create proxy subscription: %v", err)
+	}
+	nodes := []model.ProxySubscriptionNode{
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1101", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 10},
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1102", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 20},
+	}
+	if err := dbpkg.GetDB().Create(&nodes).Error; err != nil {
+		t.Fatalf("create subscription nodes: %v", err)
+	}
+
+	stableFirst, err := ProxyURLsForConfigStable(config.ID, ctx)
+	if err != nil {
+		t.Fatalf("resolve first stable candidates: %v", err)
+	}
+	stableSecond, err := ProxyURLsForConfigStable(config.ID, ctx)
+	if err != nil {
+		t.Fatalf("resolve second stable candidates: %v", err)
+	}
+	if stableFirst[0] != nodes[0].URL || stableSecond[0] != nodes[0].URL {
+		t.Fatalf("stable candidates moved: first=%#v second=%#v", stableFirst, stableSecond)
+	}
+
+	siteFirst, err := ProxyURLsForConfigScoped(config.ID, "site:1", ctx)
+	if err != nil {
+		t.Fatalf("resolve first site candidates: %v", err)
+	}
+	otherSiteFirst, err := ProxyURLsForConfigScoped(config.ID, "site:2", ctx)
+	if err != nil {
+		t.Fatalf("resolve other site candidates: %v", err)
+	}
+	siteSecond, err := ProxyURLsForConfigScoped(config.ID, "site:1", ctx)
+	if err != nil {
+		t.Fatalf("resolve second site candidates: %v", err)
+	}
+	otherSiteSecond, err := ProxyURLsForConfigScoped(config.ID, "site:2", ctx)
+	if err != nil {
+		t.Fatalf("resolve second other-site candidates: %v", err)
+	}
+	if siteFirst[0] != nodes[0].URL || otherSiteFirst[0] != nodes[0].URL ||
+		siteSecond[0] != nodes[1].URL || otherSiteSecond[0] != nodes[1].URL {
+		t.Fatalf("scoped rotations were not independent: site=%#v/%#v other=%#v/%#v", siteFirst, siteSecond, otherSiteFirst, otherSiteSecond)
+	}
+}
+
+func TestProxyURLsForConfigDoesNotAllocateCursorForSingleHealthyNode(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{
+		Name:                   "single-node-no-cursor",
+		URL:                    "https://example.com/single-node.txt",
+		Type:                   model.ProxyConfigurationTypeSubscription,
+		Enabled:                true,
+		RefreshIntervalMinutes: 30,
+	}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create proxy subscription: %v", err)
+	}
+	node := model.ProxySubscriptionNode{
+		ProxyConfigurationID: config.ID,
+		URL:                  "socks5://127.0.0.1:1161",
+		Active:               true,
+		HealthStatus:         model.ProxyTestHealthHealthy,
+		LatencyMS:            10,
+	}
+	if err := dbpkg.GetDB().Create(&node).Error; err != nil {
+		t.Fatalf("create subscription node: %v", err)
+	}
+	if _, err := ProxyURLsForConfigScoped(config.ID, "site:single", ctx); err != nil {
+		t.Fatalf("resolve single-node subscription: %v", err)
+	}
+	if _, ok := proxySubscriptionCounters.Load(proxySubscriptionCounterKey{ConfigID: config.ID, Scope: "site:single"}); ok {
+		t.Fatal("single-node subscription allocated a useless rotation cursor")
+	}
+}
+
+func TestProxyURLsForConfigRotationIndexDoesNotOverflowInt(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{
+		Name:                   "portable counter subscription",
+		URL:                    "https://example.com/portable-counter.txt",
+		Type:                   model.ProxyConfigurationTypeSubscription,
+		Enabled:                true,
+		RefreshIntervalMinutes: 30,
+	}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create proxy subscription: %v", err)
+	}
+	nodes := []model.ProxySubscriptionNode{
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1151", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 10},
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1152", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 20},
+	}
+	if err := dbpkg.GetDB().Create(&nodes).Error; err != nil {
+		t.Fatalf("create subscription nodes: %v", err)
+	}
+
+	key := proxySubscriptionCounterKey{ConfigID: config.ID, Scope: "portable"}
+	counter := &atomic.Uint64{}
+	// Force the next sequence past the host's MaxInt. The old int-first
+	// calculation could yield a negative slice index on both 32-bit and
+	// 64-bit builds.
+	counter.Store(uint64(^uint(0)>>1) + 2)
+	proxySubscriptionCounters.Store(key, counter)
+	t.Cleanup(func() { proxySubscriptionCounters.Delete(key) })
+
+	urls, err := ProxyURLsForConfigScoped(config.ID, key.Scope, ctx)
+	if err != nil {
+		t.Fatalf("resolve candidates after counter overflow: %v", err)
+	}
+	if len(urls) != 2 || (urls[0] != nodes[0].URL && urls[0] != nodes[1].URL) {
+		t.Fatalf("unexpected candidates after counter overflow: %#v", urls)
 	}
 }
 

@@ -900,6 +900,15 @@
             "input": "Input",
             "output": "Output",
             "cost": "Cost",
+            "entryIP": "Entry IP",
+            "entryIPHint": "The client IP identified when the request reached Octopus.",
+            "proxyNode": "Proxy Node",
+            "proxyNodeHint": "The credential-free proxy pool node selected for this attempt. Different nodes across logs confirm node-level rotation.",
+            "proxyIP": "Proxy Server IP",
+            "proxyIPHint": "The proxy server IP to which Octopus established the TCP connection. This is not necessarily the public egress IP seen by the target site.",
+            "egressIP": "Egress IP",
+            "egressIPUnknown": "Not returned upstream",
+            "egressIPHint": "Only the target site or a dedicated IP echo service can observe the public egress IP; ordinary model responses do not return it.",
             "requestHeaders": "Request Headers",
             "requestContent": "Request Content",
             "responseContent": "Response Content",
@@ -1352,7 +1361,9 @@
             "operationFailed": "Operation failed"
         },
         "site": {
-            "inherit": "Inherit site proxy"
+            "inherit": "Inherit site proxy",
+            "roundRobinTitle": "Per-request proxy pool rotation (this site)",
+            "roundRobinDescription": "Off: keep the latency-preferred healthy node; refreshes or failures may still switch. On: share one HTTP-request rotation cursor across this site and its projected channels; reused WebSocket connections stay pinned. Logs show the proxy node and proxy server IP; the public egress IP must be confirmed upstream."
         }
     }
 }

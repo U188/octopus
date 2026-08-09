@@ -900,6 +900,15 @@
             "input": "输入",
             "output": "输出",
             "cost": "费用",
+            "entryIP": "入口 IP",
+            "entryIPHint": "客户端连接到 Octopus 时识别到的请求 IP。",
+            "proxyNode": "代理节点",
+            "proxyNodeHint": "本次尝试实际选中的代理池节点，已移除账号密码；不同日志出现不同节点可证明节点级轮询生效。",
+            "proxyIP": "代理服务器 IP",
+            "proxyIPHint": "Octopus 实际建立 TCP 连接的代理服务器 IP，不等同于目标站点看到的公网出口 IP。",
+            "egressIP": "出口 IP",
+            "egressIPUnknown": "上游未回传",
+            "egressIPHint": "公网出口 IP 只能由目标站点或专用 IP 回显服务观察，普通模型响应不会回传该值。",
             "requestHeaders": "请求头",
             "requestContent": "请求内容",
             "responseContent": "响应内容",
@@ -1352,7 +1361,9 @@
             "operationFailed": "操作失败"
         },
         "site": {
-            "inherit": "继承站点代理"
+            "inherit": "继承站点代理",
+            "roundRobinTitle": "代理池逐请求轮询（本站点）",
+            "roundRobinDescription": "关闭时使用当前延迟优先的健康节点，刷新或故障时仍可能切换；开启后本站点及投影渠道共享 HTTP 逐请求轮询游标，已复用的 WebSocket 连接仍固定原节点。日志会显示代理节点与代理服务器 IP，真实公网出口 IP 需由上游确认。"
         }
     }
 }

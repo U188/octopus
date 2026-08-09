@@ -3,8 +3,11 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -46,19 +49,32 @@ func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
 		}()
 		<-releaseCh
 	}))
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse upstream server URL: %v", err)
+	}
+	proxyServer := httptest.NewServer(httputil.NewSingleHostReverseProxy(serverURL))
+	defer proxyServer.Close()
 	defer func() {
 		releaseOnce.Do(func() { close(releaseCh) })
 		server.Close()
 		resetWSUpstreamPool()
 	}()
 
+	proxyConfig := model.ProxyConfiguration{Name: "relay-warmup-proxy", URL: proxyServer.URL, Enabled: true}
+	if err := op.ProxyConfigurationCreate(&proxyConfig, ctx); err != nil {
+		t.Fatalf("ProxyConfigurationCreate failed: %v", err)
+	}
+
 	channel := &model.Channel{
-		Name:     "relay-warmup-ws",
-		Type:     outbound.OutboundTypeOpenAIResponse,
-		Enabled:  true,
-		BaseUrls: []model.BaseUrl{{URL: server.URL + "/v1"}},
-		Model:    "warmup-model",
-		Keys:     []model.ChannelKey{{Enabled: true, ChannelKey: "warmup-key"}},
+		Name:          "relay-warmup-ws",
+		Type:          outbound.OutboundTypeOpenAIResponse,
+		Enabled:       true,
+		BaseUrls:      []model.BaseUrl{{URL: server.URL + "/v1"}},
+		Model:         "warmup-model",
+		Keys:          []model.ChannelKey{{Enabled: true, ChannelKey: "warmup-key"}},
+		ProxyMode:     model.ProxyUsageModePool,
+		ProxyConfigID: &proxyConfig.ID,
 	}
 	if err := op.ChannelCreate(channel, ctx); err != nil {
 		t.Fatalf("ChannelCreate failed: %v", err)
@@ -96,6 +112,14 @@ func TestBestEffortWarmupUpstreamWSPrimesPoolAndSticky(t *testing.T) {
 	pc := wsUpstreamPool.Get(newWSPoolKey(channel.ID, channel.Keys[0].ID, buildUpstreamWSHeaders(nil, channel, channel.Keys[0].ChannelKey)))
 	if pc == nil {
 		t.Fatalf("expected warmed upstream ws connection to be stored in pool")
+	}
+	proxyURL, err := url.Parse(proxyServer.URL)
+	if err != nil {
+		t.Fatalf("parse proxy server URL: %v", err)
+	}
+	wantProxyIP := net.ParseIP(proxyURL.Hostname()).String()
+	if pc.proxyRoute.ProxyNode != proxyServer.URL || pc.proxyRoute.ProxyIP != wantProxyIP {
+		t.Fatalf("warmed proxy route = %#v, want node=%q ip=%q", pc.proxyRoute, proxyServer.URL, wantProxyIP)
 	}
 	wsUpstreamPool.Put(pc)
 	releaseOnce.Do(func() { close(releaseCh) })

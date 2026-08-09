@@ -1,9 +1,22 @@
 package outboundurl
 
 import (
+	"net/http"
 	"net/netip"
 	"testing"
 )
+
+type closeIdleConnectionsSpy struct {
+	closed bool
+}
+
+func (s *closeIdleConnectionsSpy) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func (s *closeIdleConnectionsSpy) CloseIdleConnections() {
+	s.closed = true
+}
 
 func TestForbiddenIPClassification(t *testing.T) {
 	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "::1"} {
@@ -33,5 +46,18 @@ func TestValidateHTTPURLSyntax(t *testing.T) {
 func TestGoTestRuntimeIsDetectedWithoutExecutableNameCheck(t *testing.T) {
 	if !runningUnderGoTest() {
 		t.Fatal("expected Go test runtime to be detected from registered test flags")
+	}
+}
+
+func TestWrapTransportForwardsCloseIdleConnections(t *testing.T) {
+	base := &closeIdleConnectionsSpy{}
+	wrapped := WrapTransport(base)
+	closer, ok := wrapped.(interface{ CloseIdleConnections() })
+	if !ok {
+		t.Fatalf("wrapped transport %T does not expose CloseIdleConnections", wrapped)
+	}
+	closer.CloseIdleConnections()
+	if !base.closed {
+		t.Fatal("wrapped transport did not close idle connections on the base transport")
 	}
 }

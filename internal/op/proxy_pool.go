@@ -365,7 +365,7 @@ func countManualChannelProxyReferences(ctx context.Context, counts map[int]int) 
 }
 
 func ProxyURLForConfig(id int, ctx context.Context) (string, error) {
-	urls, err := ProxyURLsForConfig(id, ctx)
+	urls, err := ProxyURLsForConfigStable(id, ctx)
 	if err != nil {
 		return "", err
 	}
@@ -401,10 +401,7 @@ func proxyConfigurationRefreshCache(ctx context.Context) error {
 	}
 	proxyConfigurationCache.Clear()
 	proxySubscriptionNodeCache.Clear()
-	proxySubscriptionCounters.Range(func(key, _ any) bool {
-		proxySubscriptionCounters.Delete(key)
-		return true
-	})
+	clearAllProxySubscriptionCounters()
 	for _, item := range items {
 		proxyConfigurationCache.Set(item.ID, item)
 	}

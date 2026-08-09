@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/conf"
 	"github.com/U188/octopus/internal/helper"
 	"github.com/U188/octopus/internal/model"
@@ -174,9 +175,13 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			iter.Index()+1, iter.Len(), iter.IsSticky(), stream)
 
 		span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
+		proxyTrace := client.NewProxyTrace()
+		attemptCtx := client.WithProxyTrace(ctx, proxyTrace)
 
 		// 尝试一次转发
-		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(ctx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
+		statusCode, written, usage, upstreamCT, fwdErr := imagesAttempt(attemptCtx, endpoint, c, bc, isMultipart, boundary, jsonPayload, stream, channel, usedKey.ChannelKey, group.FirstTokenTimeOut, metrics, item.ModelName, hb)
+		proxyRoute := proxyTrace.Snapshot()
+		span.SetProxyRoute(proxyRoute.ProxyNode, proxyRoute.ProxyIP)
 
 		// 更新 channel key 状态：走增量接口避免并发覆盖丢计费
 		lastUse := time.Now().Unix()

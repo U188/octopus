@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -96,6 +95,13 @@ func GetHTTPClientCustomProxy(proxyURL string) (*http.Client, error) {
 // ordered healthy candidates so a reused client does not stay pinned to the
 // same first proxy node.
 func GetHTTPClientProxyPool(ctx context.Context, proxyConfigID int, perRequestRoundRobin bool) (*http.Client, error) {
+	return GetHTTPClientProxyPoolScoped(ctx, proxyConfigID, perRequestRoundRobin, "")
+}
+
+// GetHTTPClientProxyPoolScoped isolates the round-robin cursor for a site or
+// channel. When rotation is disabled, newly-created clients do not advance a
+// cursor; candidate refreshes or safe failover may still change the node.
+func GetHTTPClientProxyPoolScoped(ctx context.Context, proxyConfigID int, perRequestRoundRobin bool, scope string) (*http.Client, error) {
 	if proxyConfigID <= 0 {
 		return nil, fmt.Errorf("proxy config id must be positive")
 	}
@@ -103,7 +109,20 @@ func GetHTTPClientProxyPool(ctx context.Context, proxyConfigID int, perRequestRo
 		ctx = context.Background()
 	}
 
-	proxyURLs, err := op.ProxyURLsForConfig(proxyConfigID, ctx)
+	resolveProxyURLs := func(requestCtx context.Context) ([]string, error) {
+		if requestCtx == nil {
+			requestCtx = ctx
+		}
+		if !perRequestRoundRobin {
+			return op.ProxyURLsForConfigStable(proxyConfigID, requestCtx)
+		}
+		return op.ProxyURLsForConfigScoped(proxyConfigID, scope, requestCtx)
+	}
+
+	// Resolve once at construction to validate the configuration and seed the
+	// transport cache, but do not advance a round-robin cursor here. The first
+	// cursor step belongs to the first actual RoundTrip below.
+	proxyURLs, err := op.ProxyURLsForConfigStable(proxyConfigID, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -117,10 +136,7 @@ func GetHTTPClientProxyPool(ctx context.Context, proxyConfigID int, perRequestRo
 	return newHTTPClientDynamicProxyPoolWithFailureReporter(
 		proxyURLs,
 		func(requestCtx context.Context) ([]string, error) {
-			if requestCtx == nil {
-				requestCtx = ctx
-			}
-			return op.ProxyURLsForConfig(proxyConfigID, requestCtx)
+			return resolveProxyURLs(requestCtx)
 		},
 		reportFailure,
 	)
@@ -156,16 +172,12 @@ func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string,
 		return nil, err
 	}
 	endpointCache := newProxyEndpointCache(initialEndpoints)
-	var initialUsed atomic.Bool
 	transport := &proxyFailoverTransport{
 		endpoints:     initialEndpoints,
 		endpointCache: endpointCache,
 		reportFailure: reportFailure,
 	}
 	transport.resolveEndpoints = func(ctx context.Context) ([]proxyTransportEndpoint, error) {
-		if initialUsed.CompareAndSwap(false, true) {
-			return initialEndpoints, nil
-		}
 		proxyURLs, err := resolve(ctx)
 		if err != nil {
 			return nil, err
@@ -179,6 +191,10 @@ func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string,
 }
 
 func newProxyTransportEndpoints(proxyURLs []string) ([]proxyTransportEndpoint, error) {
+	proxyURLs, err := uniqueProxyURLs(proxyURLs)
+	if err != nil {
+		return nil, err
+	}
 	if len(proxyURLs) == 0 {
 		return nil, fmt.Errorf("proxy url list is empty")
 	}
@@ -186,11 +202,39 @@ func newProxyTransportEndpoints(proxyURLs []string) ([]proxyTransportEndpoint, e
 	for _, proxyURL := range proxyURLs {
 		endpoint, err := newProxyTransportEndpoint(proxyURL)
 		if err != nil {
+			for _, createdEndpoint := range endpoints {
+				closeProxyTransportEndpoint(createdEndpoint)
+			}
 			return nil, err
 		}
 		endpoints = append(endpoints, endpoint)
 	}
 	return endpoints, nil
+}
+
+// uniqueProxyURLs trims and de-duplicates candidate URLs while preserving the
+// resolver's order. Subscription rows are already normalized, but custom
+// callers and a concurrently refreshed pool can still hand the transport a
+// duplicate or whitespace-padded value. Building one transport per URL keeps
+// connection pools and failover attempts bounded.
+func uniqueProxyURLs(proxyURLs []string) ([]string, error) {
+	if len(proxyURLs) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(proxyURLs))
+	unique := make([]string, 0, len(proxyURLs))
+	for _, raw := range proxyURLs {
+		proxyURL := strings.TrimSpace(raw)
+		if proxyURL == "" {
+			return nil, fmt.Errorf("proxy url is empty")
+		}
+		if _, ok := seen[proxyURL]; ok {
+			continue
+		}
+		seen[proxyURL] = struct{}{}
+		unique = append(unique, proxyURL)
+	}
+	return unique, nil
 }
 
 func newProxyTransportEndpoint(proxyURL string) (proxyTransportEndpoint, error) {
@@ -200,6 +244,7 @@ func newProxyTransportEndpoint(proxyURL string) (proxyTransportEndpoint, error) 
 	}
 	http1Client, err := newHTTPClientCustomProxyHTTP1(proxyURL)
 	if err != nil {
+		closeProxyTransportEndpoint(proxyTransportEndpoint{primary: primaryClient.Transport})
 		return proxyTransportEndpoint{}, err
 	}
 	return proxyTransportEndpoint{
@@ -240,41 +285,45 @@ func (t *proxyFailoverTransport) RoundTrip(req *http.Request) (*http.Response, e
 		if !replayable {
 			break
 		}
-		resp, err := endpoint.primary.RoundTrip(attemptReq)
-		if err == nil {
+		resp, rawErr := roundTripWithProxyTrace(endpoint.proxyURL, endpoint.primary, attemptReq)
+		if rawErr == nil {
 			return resp, nil
 		}
+		redactedErr := redactProxyError(rawErr, endpoint.proxyURL)
 		closeProxyFailureResponse(resp)
-		lastErr = err
+		lastErr = redactedErr
 		if req.Context().Err() != nil {
 			return nil, req.Context().Err()
 		}
-		if !isSafeProxyFailoverError(err) {
-			return nil, err
+		if !isSafeProxyFailoverError(rawErr) {
+			return nil, redactedErr
 		}
 
-		if outboundurl.IsTLSHandshakeFailure(err) && endpoint.http1 != nil {
+		lastProxyFailure := rawErr
+		if outboundurl.IsTLSHandshakeFailure(rawErr) && endpoint.http1 != nil {
 			attempt++
 			fallbackReq, canFallback, replayErr := proxyRequestForAttempt(req, attempt)
 			if replayErr != nil {
 				return nil, replayErr
 			}
 			if canFallback {
-				fallbackResp, fallbackErr := endpoint.http1.RoundTrip(fallbackReq)
-				if fallbackErr == nil {
+				fallbackResp, rawFallbackErr := roundTripWithProxyTrace(endpoint.proxyURL, endpoint.http1, fallbackReq)
+				if rawFallbackErr == nil {
 					return fallbackResp, nil
 				}
+				fallbackErr := redactProxyError(rawFallbackErr, endpoint.proxyURL)
 				closeProxyFailureResponse(fallbackResp)
 				lastErr = fallbackErr
+				lastProxyFailure = rawFallbackErr
 				if req.Context().Err() != nil {
 					return nil, req.Context().Err()
 				}
-				if !isSafeProxyFailoverError(fallbackErr) {
+				if !isSafeProxyFailoverError(rawFallbackErr) {
 					return nil, fallbackErr
 				}
 			}
 		}
-		if t.reportFailure != nil && isProxyNodeFailure(lastErr, endpoint.proxyURL) {
+		if t.reportFailure != nil && isProxyNodeFailure(lastProxyFailure, endpoint.proxyURL) {
 			t.reportFailure(endpoint.proxyURL, lastErr)
 		}
 		attempt++
@@ -303,7 +352,7 @@ func (t *proxyFailoverTransport) endpointsForRequest(ctx context.Context) ([]pro
 }
 
 type proxyEndpointCache struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	endpoints map[string]proxyTransportEndpoint
 }
 
@@ -316,31 +365,89 @@ func newProxyEndpointCache(initial []proxyTransportEndpoint) *proxyEndpointCache
 }
 
 func (c *proxyEndpointCache) resolve(proxyURLs []string) ([]proxyTransportEndpoint, error) {
+	proxyURLs, err := uniqueProxyURLs(proxyURLs)
+	if err != nil {
+		return nil, err
+	}
 	if len(proxyURLs) == 0 {
 		return nil, fmt.Errorf("proxy url list is empty")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
+	// Transport construction clones TLS/proxy state and can allocate internal
+	// dialers. Do it outside the cache lock so a refreshed subscription does
+	// not block concurrent requests that only need an already-cached endpoint.
+	missing := make([]string, 0, len(proxyURLs))
+	c.mu.RLock()
+	for _, proxyURL := range proxyURLs {
+		if _, ok := c.endpoints[proxyURL]; !ok {
+			missing = append(missing, proxyURL)
+		}
+	}
+	c.mu.RUnlock()
+
+	created := make(map[string]proxyTransportEndpoint, len(missing))
+	for _, proxyURL := range missing {
+		endpoint, createErr := newProxyTransportEndpoint(proxyURL)
+		if createErr != nil {
+			for _, createdEndpoint := range created {
+				closeProxyTransportEndpoint(createdEndpoint)
+			}
+			return nil, createErr
+		}
+		created[proxyURL] = endpoint
+	}
+
+	active := make(map[string]struct{}, len(proxyURLs))
+	for _, proxyURL := range proxyURLs {
+		active[proxyURL] = struct{}{}
+	}
+	var toClose []proxyTransportEndpoint
+	c.mu.Lock()
+	for proxyURL, endpoint := range created {
+		if _, ok := c.endpoints[proxyURL]; ok {
+			// Another concurrent resolver won the race to install this URL.
+			// Its endpoint is equivalent, so discard the duplicate we built.
+			toClose = append(toClose, endpoint)
+			continue
+		}
+		c.endpoints[proxyURL] = endpoint
+	}
+	for proxyURL, endpoint := range c.endpoints {
+		if _, ok := active[proxyURL]; ok {
+			continue
+		}
+		delete(c.endpoints, proxyURL)
+		// A stale URL must not keep idle sockets or a full Transport alive for
+		// the lifetime of a long-lived dynamic client.
+		toClose = append(toClose, endpoint)
+	}
 	endpoints := make([]proxyTransportEndpoint, 0, len(proxyURLs))
 	for _, proxyURL := range proxyURLs {
-		endpoint, ok := c.endpoints[proxyURL]
-		if !ok {
-			var err error
-			endpoint, err = newProxyTransportEndpoint(proxyURL)
-			if err != nil {
-				return nil, err
-			}
-			c.endpoints[proxyURL] = endpoint
+		if endpoint, ok := c.endpoints[proxyURL]; ok {
+			endpoints = append(endpoints, endpoint)
 		}
-		endpoints = append(endpoints, endpoint)
+	}
+	c.mu.Unlock()
+	for _, endpoint := range toClose {
+		closeProxyTransportEndpoint(endpoint)
+	}
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("proxy url list is empty")
 	}
 	return endpoints, nil
 }
 
+func closeProxyTransportEndpoint(endpoint proxyTransportEndpoint) {
+	for _, transport := range []http.RoundTripper{endpoint.primary, endpoint.http1} {
+		if closer, ok := transport.(interface{ CloseIdleConnections() }); ok {
+			closer.CloseIdleConnections()
+		}
+	}
+}
+
 func (c *proxyEndpointCache) all() []proxyTransportEndpoint {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	endpoints := make([]proxyTransportEndpoint, 0, len(c.endpoints))
 	for _, endpoint := range c.endpoints {
 		endpoints = append(endpoints, endpoint)
@@ -442,11 +549,7 @@ func (t *proxyFailoverTransport) CloseIdleConnections() {
 		endpoints = t.endpointCache.all()
 	}
 	for _, endpoint := range endpoints {
-		for _, transport := range []http.RoundTripper{endpoint.primary, endpoint.http1} {
-			if closer, ok := transport.(interface{ CloseIdleConnections() }); ok {
-				closer.CloseIdleConnections()
-			}
-		}
+		closeProxyTransportEndpoint(endpoint)
 	}
 }
 

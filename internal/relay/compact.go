@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/helper"
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -230,8 +231,15 @@ func supportsResponsesCompact(channelType outbound.OutboundType) bool {
 
 func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
-	request, err := buildResponsesCompactRequest(c.Request.Context(), channel, usedKey.ChannelKey, requestBody)
+	proxyTrace := client.NewProxyTrace()
+	setProxyRoute := func() {
+		proxyRoute := proxyTrace.Snapshot()
+		span.SetProxyRoute(proxyRoute.ProxyNode, proxyRoute.ProxyIP)
+	}
+	attemptCtx := client.WithProxyTrace(c.Request.Context(), proxyTrace)
+	request, err := buildResponsesCompactRequest(attemptCtx, channel, usedKey.ChannelKey, requestBody)
 	if err != nil {
+		setProxyRoute()
 		span.End(dbmodel.AttemptFailed, 0, err.Error())
 		return 0, 0, fmt.Errorf("failed to create compact request: %w", err)
 	}
@@ -243,6 +251,7 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 
 	response, err := sendCompactRequest(channel, request)
 	if err != nil {
+		setProxyRoute()
 		span.End(dbmodel.AttemptFailed, 0, err.Error())
 		return 0, 0, fmt.Errorf("failed to send compact request: %w", err)
 	}
@@ -254,6 +263,7 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	}
 	body, readErr := readRelayBody(response.Body, limit)
 	if readErr != nil {
+		setProxyRoute()
 		span.End(dbmodel.AttemptFailed, response.StatusCode, readErr.Error())
 		return response.StatusCode, 0, fmt.Errorf("failed to read compact response body: %w", readErr)
 	}
@@ -261,6 +271,7 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		retryAfter := parseRetryAfter(response.Header.Get("Retry-After"))
 		statusCode := normalizeUpstreamStatusCode(response.StatusCode, string(body))
+		setProxyRoute()
 		span.End(dbmodel.AttemptFailed, statusCode, string(body))
 		return statusCode, retryAfter, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
@@ -277,6 +288,7 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 		metrics.SetInternalResponse(compactResponseToInternalResponse(&compactResp), metrics.RequestModel)
 	}
 
+	setProxyRoute()
 	span.End(dbmodel.AttemptSuccess, response.StatusCode, "")
 	return response.StatusCode, 0, nil
 }

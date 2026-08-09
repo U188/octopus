@@ -57,3 +57,51 @@ func TestChannelCreateManagedRollsBackChannelWhenBindingFails(t *testing.T) {
 		t.Fatalf("channel survived failed binding transaction: count=%d", count)
 	}
 }
+
+func TestChannelCreateManagedAnnotatesChannelWithSiteSource(t *testing.T) {
+	if dbpkg.GetDB() != nil {
+		_ = dbpkg.Close()
+	}
+	if err := dbpkg.InitDB("sqlite", filepath.Join(t.TempDir(), "managed-channel-metadata.db"), false); err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	t.Cleanup(func() { _ = dbpkg.Close(); channelCache.Clear(); channelKeyCache.Clear() })
+	channelCache.Clear()
+	channelKeyCache.Clear()
+	ctx := context.Background()
+
+	site := model.Site{Name: "managed-metadata", Platform: model.SitePlatformAPI, BaseURL: "https://example.com", Enabled: true}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&site).Error; err != nil {
+		t.Fatalf("create site: %v", err)
+	}
+	account := model.SiteAccount{SiteID: site.ID, Name: "account", CredentialType: model.SiteCredentialTypeAPIKey, Enabled: true}
+	if err := dbpkg.GetDB().WithContext(ctx).Create(&account).Error; err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
+	channel := model.Channel{Name: "managed-metadata-channel", Enabled: true}
+	binding := model.SiteChannelBinding{SiteID: site.ID, SiteAccountID: account.ID, GroupKey: "group-a"}
+	if err := ChannelCreateManaged(&channel, &binding, 0, ctx); err != nil {
+		t.Fatalf("ChannelCreateManaged failed: %v", err)
+	}
+	reloaded, err := ChannelGet(channel.ID, ctx)
+	if err != nil {
+		t.Fatalf("ChannelGet failed: %v", err)
+	}
+	if !reloaded.Managed || reloaded.ManagedSource == nil || reloaded.ManagedSource.SiteID != site.ID || reloaded.ManagedSource.SiteAccountID != account.ID {
+		t.Fatalf("managed metadata = %#v, want site=%d account=%d", reloaded.ManagedSource, site.ID, account.ID)
+	}
+
+	channelCache.Clear()
+	channelKeyCache.Clear()
+	if err := channelRefreshCache(ctx); err != nil {
+		t.Fatalf("channelRefreshCache failed: %v", err)
+	}
+	reloaded, err = ChannelGet(channel.ID, ctx)
+	if err != nil {
+		t.Fatalf("ChannelGet after cache refresh failed: %v", err)
+	}
+	if !reloaded.Managed || reloaded.ManagedSource == nil || reloaded.ManagedSource.SiteID != site.ID || reloaded.ManagedSource.SiteAccountID != account.ID {
+		t.Fatalf("refreshed managed metadata = %#v, want site=%d account=%d", reloaded.ManagedSource, site.ID, account.ID)
+	}
+}

@@ -29,10 +29,21 @@ func ChannelHTTPClientWithContext(ctx context.Context, channel *model.Channel) (
 		if channel.ProxyConfigID == nil || *channel.ProxyConfigID <= 0 {
 			return nil, fmt.Errorf("proxy config id is required when proxy mode is pool")
 		}
-		return client.GetHTTPClientProxyPool(ctx, *channel.ProxyConfigID, channel.ProxyPoolRoundRobin)
+		rotationScope := channelProxyRotationScope(channel)
+		return client.GetHTTPClientProxyPoolScoped(ctx, *channel.ProxyConfigID, channel.ProxyPoolRoundRobin, rotationScope)
 	default:
 		return nil, fmt.Errorf("unsupported proxy mode: %s", channel.ProxyMode)
 	}
+}
+
+func channelProxyRotationScope(channel *model.Channel) string {
+	if channel != nil && channel.ManagedSource != nil && channel.ManagedSource.SiteID > 0 {
+		return fmt.Sprintf("site:%d", channel.ManagedSource.SiteID)
+	}
+	if channel == nil {
+		return "channel:0"
+	}
+	return fmt.Sprintf("channel:%d", channel.ID)
 }
 
 func ChannelBaseUrlDelayUpdate(channel *model.Channel, ctx context.Context) {

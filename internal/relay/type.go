@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/conf"
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/relay/balancer"
@@ -132,6 +133,14 @@ type relayAttempt struct {
 	autoDeniedResponsesTool bool
 	removedResponsesTools   []string
 	removedToolChoice       bool
+	proxyTrace              *client.ProxyTrace
+}
+
+func (r *relayAttempt) requestContext() context.Context {
+	if r == nil || r.relayRequest == nil {
+		return context.Background()
+	}
+	return client.WithProxyTrace(r.relayRequest.requestContext(), r.proxyTrace)
 }
 
 // attemptResult 封装单次尝试的结果

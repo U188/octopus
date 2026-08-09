@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/U188/octopus/internal/client"
 	"github.com/U188/octopus/internal/helper"
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
@@ -242,6 +243,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				channel:              channel,
 				usedKey:              usedKey,
 				firstTokenTimeOutSec: group.FirstTokenTimeOut,
+				proxyTrace:           client.NewProxyTrace(),
 			}
 
 			result = ra.attempt()
@@ -335,10 +337,15 @@ func circuitFailureKind(retryEnabled bool, statusCode int) balancer.FailureKind 
 
 // attempt 统一管理一次通道尝试的完整生命周期
 func (ra *relayAttempt) attempt() attemptResult {
+	if ra.proxyTrace == nil {
+		ra.proxyTrace = client.NewProxyTrace()
+	}
 	span := ra.iter.StartAttempt(ra.channel.ID, ra.usedKey.ID, ra.channel.Name)
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+	proxyRoute := ra.proxyTrace.Snapshot()
+	span.SetProxyRoute(proxyRoute.ProxyNode, proxyRoute.ProxyIP)
 
 	// 更新 channel key 状态：走 op 层增量接口，在缓存锁内对当前值累加，
 	// 避免并发请求各持旧快照整结构回写互相覆盖（丢计费、丢状态）。
@@ -1047,6 +1054,16 @@ func mergeBetaHeader(existing, incoming string) string {
 
 // sendRequest 发送 HTTP 请求
 func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is nil")
+	}
+	// Transformers normally preserve the request context, but a few legacy
+	// adapters rebuild requests from scratch. Re-attach the attempt trace at
+	// the final transport boundary so proxy-node/IP metadata is not lost on
+	// those compatibility paths or their one-time fallback request.
+	if ra != nil && ra.proxyTrace != nil {
+		req = req.WithContext(client.WithProxyTrace(req.Context(), ra.proxyTrace))
+	}
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), ra.channel)
 	if err != nil {
 		log.Warnf("failed to get http client: %v", err)

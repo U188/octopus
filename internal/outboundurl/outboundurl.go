@@ -115,6 +115,16 @@ func (v validatingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	return v.base.RoundTrip(req)
 }
 
+// CloseIdleConnections preserves the lifecycle hook exposed by
+// *http.Transport. Without forwarding it, callers that wrap a transport for
+// outbound URL validation cannot release idle proxy sockets through
+// http.Client.CloseIdleConnections or a proxy-pool transport.
+func (v validatingRoundTripper) CloseIdleConnections() {
+	if closer, ok := v.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 func WrapTransport(base http.RoundTripper) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport

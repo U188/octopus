@@ -28,7 +28,8 @@ func siteHTTPClient(ctx context.Context, siteRecord *model.Site, accounts ...*mo
 		if proxyConfigID == nil || *proxyConfigID <= 0 {
 			return nil, fmt.Errorf("proxy config id is required when proxy mode is pool")
 		}
-		return client.GetHTTPClientProxyPool(ctx, *proxyConfigID, siteRecord != nil && siteRecord.ProxyPoolRoundRobin)
+		rotationScope := fmt.Sprintf("site:%d", siteRecord.ID)
+		return client.GetHTTPClientProxyPoolScoped(ctx, *proxyConfigID, siteRecord.ProxyPoolRoundRobin, rotationScope)
 	default:
 		return nil, fmt.Errorf("unsupported proxy mode: %s", proxyMode)
 	}
