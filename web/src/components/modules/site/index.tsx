@@ -117,6 +117,7 @@ const PLATFORM_LABELS: Record<SitePlatform, string> = {
   [SitePlatform.DeepSeek]: "DeepSeek 官方",
   [SitePlatform.Claude]: "Claude 官方",
   [SitePlatform.NVIDIA]: "NVIDIA 官方",
+  [SitePlatform.Grok]: "Grok 官方",
   [SitePlatform.NewAPI]: "New API",
   [SitePlatform.AnyRouter]: "AnyRouter",
   [SitePlatform.OneAPI]: "One API",

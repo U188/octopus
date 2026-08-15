@@ -25,6 +25,7 @@ const (
 	SitePlatformDeepSeek  SitePlatform = "deepseek"
 	SitePlatformClaude    SitePlatform = "claude"
 	SitePlatformNVIDIA    SitePlatform = "nvidia"
+	SitePlatformGrok      SitePlatform = "grok"
 )
 
 type SiteCredentialType string
@@ -680,6 +681,8 @@ func (p SitePlatform) usesSyncTokenSkPrefix() bool {
 		return false
 	case SitePlatformNVIDIA:
 		return false
+	case SitePlatformGrok:
+		return false
 	default:
 		return true
 	}
@@ -938,7 +941,7 @@ func ParseSiteChannelBindingKey(groupKey string) (string, SiteModelRouteType) {
 
 func ShouldSplitSiteChannelRoutes(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA:
+	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA, SitePlatformGrok:
 		return false
 	default:
 		return true
@@ -984,7 +987,8 @@ func SiteModelRouteTypeFromOutboundType(t outbound.OutboundType) SiteModelRouteT
 func (p SitePlatform) Validate() error {
 	switch p {
 	case SitePlatformNewAPI, SitePlatformAnyRouter, SitePlatformOneAPI, SitePlatformOneHub, SitePlatformDoneHub,
-		SitePlatformSub2API, SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA:
+		SitePlatformSub2API, SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA,
+		SitePlatformGrok:
 		return nil
 	default:
 		return fmt.Errorf("unsupported site platform: %s", p)
@@ -1002,7 +1006,7 @@ func (t SiteCredentialType) Validate() error {
 
 func SitePlatformUsesDirectAPIKey(platform SitePlatform) bool {
 	switch platform {
-	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA:
+	case SitePlatformAPI, SitePlatformDeepSeek, SitePlatformClaude, SitePlatformNVIDIA, SitePlatformGrok:
 		return true
 	default:
 		return false

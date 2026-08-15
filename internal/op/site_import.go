@@ -68,6 +68,8 @@ var supportedImportPlatforms = map[string]model.SitePlatform{
 	"gemini":    model.SitePlatformAPI,
 	"deepseek":  model.SitePlatformDeepSeek,
 	"nvidia":    model.SitePlatformNVIDIA,
+	"grok":      model.SitePlatformGrok,
+	"xai":       model.SitePlatformGrok,
 	"api":       model.SitePlatformAPI,
 }
 
@@ -83,6 +85,7 @@ var directImportPlatforms = map[model.SitePlatform]struct{}{
 	model.SitePlatformDeepSeek: {},
 	model.SitePlatformClaude:   {},
 	model.SitePlatformNVIDIA:   {},
+	model.SitePlatformGrok:     {},
 }
 
 func SiteImportAllAPIHub(ctx context.Context, body []byte) (*model.AllAPIHubImportResult, []int, error) {
@@ -1131,6 +1134,8 @@ func detectSupportedPlatform(values ...any) (model.SitePlatform, bool) {
 		return model.SitePlatformDeepSeek, false
 	case strings.Contains(combined, "integrate.api.nvidia.com"):
 		return model.SitePlatformNVIDIA, false
+	case strings.Contains(combined, "api.x.ai"), strings.Contains(combined, "x.ai/v1"):
+		return model.SitePlatformGrok, false
 	case strings.Contains(combined, "generativelanguage.googleapis.com"),
 		strings.Contains(combined, "googleapis.com/v1beta/openai"),
 		strings.Contains(combined, "gemini.google.com"):
@@ -1156,7 +1161,7 @@ func isDirectImportPlatform(platform model.SitePlatform) bool {
 
 func platformSupportsCheckin(platform model.SitePlatform) bool {
 	switch platform {
-	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI, model.SitePlatformDeepSeek, model.SitePlatformClaude, model.SitePlatformNVIDIA:
+	case model.SitePlatformDoneHub, model.SitePlatformSub2API, model.SitePlatformAPI, model.SitePlatformDeepSeek, model.SitePlatformClaude, model.SitePlatformNVIDIA, model.SitePlatformGrok:
 		return false
 	default:
 		return true

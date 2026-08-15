@@ -63,6 +63,7 @@ func TestNormalizeSiteSyncTokenValueForPlatform(t *testing.T) {
 		{name: "deepseek keeps verbatim", platform: SitePlatformDeepSeek, input: "abc123", expected: "abc123"},
 		{name: "claude keeps verbatim", platform: SitePlatformClaude, input: "sk-ant-xyz", expected: "sk-ant-xyz"},
 		{name: "nvidia keeps verbatim", platform: SitePlatformNVIDIA, input: "nvapi-test", expected: "nvapi-test"},
+		{name: "grok keeps verbatim", platform: SitePlatformGrok, input: "xai-test", expected: "xai-test"},
 	}
 
 	for _, tt := range tests {
@@ -86,6 +87,30 @@ func TestClaudeSiteNormalizeKeepsOfficialPlatform(t *testing.T) {
 	}
 	if !SitePlatformUsesDirectAPIKey(site.Platform) {
 		t.Fatal("expected Claude official platform to use a direct API key")
+	}
+}
+
+func TestGrokSiteBehavesAsDirectOpenAIChatPlatform(t *testing.T) {
+	if err := SitePlatformGrok.Validate(); err != nil {
+		t.Fatalf("expected grok platform to validate, got %v", err)
+	}
+	if !SitePlatformUsesDirectAPIKey(SitePlatformGrok) {
+		t.Fatal("expected grok to use a direct API key")
+	}
+	if ShouldSplitSiteChannelRoutes(SitePlatformGrok) {
+		t.Fatal("expected grok to keep a single route")
+	}
+
+	site := &Site{Platform: SitePlatformGrok}
+	site.Normalize()
+	if site.ResolveDefaultRouteType() != SiteModelRouteTypeOpenAIChat {
+		t.Fatalf("expected grok default route OpenAIChat, got %q", site.ResolveDefaultRouteType())
+	}
+
+	account := &SiteAccount{APIKey: "xai-abc"}
+	account.InferCredentialType(SitePlatformGrok)
+	if account.CredentialType != SiteCredentialTypeAPIKey {
+		t.Fatalf("expected grok credential api_key, got %q", account.CredentialType)
 	}
 }
 
