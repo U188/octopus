@@ -17,6 +17,7 @@ type taskEntry struct {
 	ticker     *time.Ticker
 	stopCh     chan struct{}
 	updateCh   chan time.Duration
+	updateMu   sync.Mutex
 	running    atomic.Bool
 }
 
@@ -63,15 +64,21 @@ func Update(name string, interval time.Duration) {
 		return
 	}
 
+	entry.updateMu.Lock()
 	select {
 	case entry.updateCh <- interval:
-		if interval > 0 {
-			log.Infof("task %s interval updated to %v", name, interval)
-		} else {
-			log.Infof("task %s paused: interval is 0", name)
-		}
 	default:
-		log.Warnf("task %s update channel full, skipping", name)
+		select {
+		case <-entry.updateCh:
+		default:
+		}
+		entry.updateCh <- interval
+	}
+	entry.updateMu.Unlock()
+	if interval > 0 {
+		log.Infof("task %s interval updated to %v", name, interval)
+	} else {
+		log.Infof("task %s paused: interval is 0", name)
 	}
 }
 

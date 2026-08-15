@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Check, Copy } from 'lucide-react';
-import { useCopyToClipboard } from '@uidotdev/usehooks';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/common/Toast';
@@ -22,7 +21,6 @@ export function CopyIconButton({
     checkIconClassName,
 }: CopyIconButtonProps) {
     const t = useTranslations('common.copy');
-    const [, copyToClipboard] = useCopyToClipboard();
     const [copied, setCopied] = useState(false);
     const timerRef = useRef<number | null>(null);
 
@@ -39,7 +37,7 @@ export function CopyIconButton({
         }
 
         try {
-            await copyToClipboard(text);
+            await navigator.clipboard.writeText(text);
 
             setCopied(true);
             toast.success(t('success'));
@@ -50,11 +48,7 @@ export function CopyIconButton({
             const description = err instanceof Error ? err.message : String(err);
             toast.error(t('failed'), { description });
         }
-    }, [
-        text,
-        copyToClipboard,
-        t,
-    ]);
+    }, [text, t]);
 
     return (
         <button
@@ -77,5 +71,4 @@ export function CopyIconButton({
         </button>
     );
 }
-
 

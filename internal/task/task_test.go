@@ -75,6 +75,21 @@ func TestRegisterZeroIntervalRegistersPaused(t *testing.T) {
 	}
 }
 
+func TestUpdateKeepsLatestPendingInterval(t *testing.T) {
+	resetTasks()
+	t.Cleanup(resetTasks)
+
+	Register("t-latest", time.Hour, false, func() {})
+	entry := tasks["t-latest"]
+
+	Update("t-latest", time.Minute)
+	Update("t-latest", 2*time.Minute)
+
+	if got := <-entry.updateCh; got != 2*time.Minute {
+		t.Fatalf("pending interval = %v, want latest %v", got, 2*time.Minute)
+	}
+}
+
 // 暂停态注册的任务，Update 启用后应开始执行。
 func TestRegisterPausedThenEnable(t *testing.T) {
 	resetTasks()

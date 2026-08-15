@@ -96,13 +96,13 @@ func setUpdateStatus(state UpdateState, message string) {
 func runAsyncUpdate(meta AuditMeta) {
 	execPath, err := updateRunner()
 	if err != nil {
-		setUpdateStatus(UpdateStateFailed, err.Error())
 		updateAuditWriter(meta, op.AuditStatusFailed, err)
+		setUpdateStatus(UpdateStateFailed, err.Error())
 		log.Warnf("async update failed: %v", err)
 		return
 	}
-	setUpdateStatus(UpdateStateSuccess, "")
 	updateAuditWriter(meta, op.AuditStatusSuccess, nil)
+	setUpdateStatus(UpdateStateSuccess, "")
 	log.Infof("update core success; restarting in %s", updateRestartDelay)
 	time.Sleep(updateRestartDelay)
 	updateRestart(execPath)

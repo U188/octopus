@@ -75,12 +75,14 @@ func UpdateLLMPrice(ctx context.Context) error {
 			llmPrice[model.ID] = model.Cost
 		}
 	}
-	llmPriceLock.Unlock()
 	lastUpdateTime = time.Now()
+	llmPriceLock.Unlock()
 	return nil
 }
 
 func GetLastUpdateTime() time.Time {
+	llmPriceLock.RLock()
+	defer llmPriceLock.RUnlock()
 	return lastUpdateTime
 }
 
