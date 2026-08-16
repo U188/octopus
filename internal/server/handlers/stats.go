@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/server/middleware"
@@ -32,6 +34,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/apikey", http.MethodGet).
 				Handle(getStatsAPIKey),
+		).
+		AddRoute(
+			router.NewRoute("/channel/:id", http.MethodGet).
+				Handle(getStatsChannel24h),
 		)
 }
 
@@ -58,4 +64,18 @@ func getStatsTotal(c *gin.Context) {
 
 func getStatsAPIKey(c *gin.Context) {
 	resp.Success(c, op.StatsAPIKeyList())
+}
+
+func getStatsChannel24h(c *gin.Context) {
+	channelID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || channelID <= 0 {
+		resp.InvalidParam(c)
+		return
+	}
+	stats, err := op.StatsChannel24hGet(c.Request.Context(), channelID, time.Now())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, stats)
 }

@@ -63,6 +63,39 @@ export interface StatsAPIKey extends StatsMetrics {
 export interface StatsAPIKeyFormatted extends StatsMetricsFormatted {
     api_key_id: number;
 }
+
+export interface StatsChannel24h {
+    channel_id: number;
+    from: number;
+    to: number;
+    as_of: number;
+    relay_log_retention_enabled: boolean;
+    relay_log_dropped_total: number;
+    request_total: number;
+    request_success: number;
+    request_failed: number;
+    input_token: number;
+    output_token: number;
+    bill_input_token: number;
+    cache_read_token: number;
+    cache_write_token: number;
+    total_cost: number;
+    average_latency_ms: number;
+    average_ftut_ms: number;
+    success_rate: number | null;
+    cache_read_ratio: number | null;
+    cache_read_request_rate: number | null;
+    usage_coverage: number | null;
+}
+
+export function useStatsChannel24h(channelID: number, enabled = true) {
+    return useQuery({
+        queryKey: ['stats', 'channel', channelID, '24h'],
+        queryFn: async () => apiClient.get<StatsChannel24h>(`/api/v1/stats/channel/${channelID}`),
+        enabled,
+        refetchInterval: 30000,
+    });
+}
 /**
  * 获取今日统计数据 Hook
  */

@@ -998,6 +998,7 @@
                 "requests": "请求详情",
                 "tokens": "Token 使用",
                 "costs": "成本详情",
+                "last24h": "近24小时",
                 "baseUrls": "Base URLs",
                 "keys": "密钥",
                 "responsesTools": "Responses 工具"
@@ -1021,7 +1022,19 @@
                 "outputToken": "输出 Token",
                 "inputCost": "输入成本",
                 "outputCost": "输出成本",
-                "avgWaitTime": "等待时间"
+                "avgWaitTime": "等待时间",
+                "last24hTotalToken": "24小时 Token",
+                "last24hCacheReadRatio": "缓存读取占比",
+                "last24hRequests": "24小时请求",
+                "last24hSuccessRate": "成功率",
+                "last24hCost": "24小时成本",
+                "last24hLatency": "平均延迟",
+                "cacheReadToken": "缓存读取 Token",
+                "cacheWriteToken": "缓存写入 Token",
+                "cacheReadRequestRate": "缓存读取请求占比",
+                "usageCoverage": "Usage 覆盖率",
+                "last24hError": "近24小时统计加载失败",
+                "last24hIncomplete": "日志留存未开启，或进程启动以来丢弃了 {count} 条日志，当前数据可能低于实际值"
             },
             "actions": {
                 "edit": "编辑",

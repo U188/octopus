@@ -10,7 +10,10 @@ import {
     TrendingUp,
     Globe,
     Key,
-    Wrench
+    Wrench,
+    Database,
+    Gauge,
+    type LucideIcon,
 } from 'lucide-react';
 import { useUpdateChannel, useDeleteChannel, useClearChannelResponsesToolAutoDenylist, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
 import {
@@ -20,12 +23,12 @@ import {
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
 import { Tabs, TabsContents, TabsContent } from '@/components/animate-ui/primitives/animate/tabs';
-import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
+import { type StatsMetricsFormatted, useStatsChannel24h } from '@/api/endpoints/stats';
 import { useTranslations } from 'next-intl';
 import { toast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/button';
 import { ChannelForm, type ChannelFormData } from './Form';
-import { formatMoney } from '@/lib/utils';
+import { formatCount, formatMoney, formatTime } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useJumpStore } from '@/stores/jump';
@@ -271,6 +274,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                         ) : null}
                                     </section>
                                 ) : null}
+                                <Channel24hMetrics channelID={channel.id} enabled={!isEditing} />
                                 <dl className="grid gap-3 grid-cols-1 sm:grid-cols-3">
                                     <div className="rounded-2xl border bg-linear-to-br from-chart-1/10 to-chart-1/5 p-3 sm:p-4">
                                         <dt className="flex items-center gap-2 mb-2 text-xs font-medium text-muted-foreground">
@@ -611,4 +615,85 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
 
 function parseToolDenylist(value: string): string[] {
     return Array.from(new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
+}
+
+function Channel24hMetrics({ channelID, enabled }: { channelID: number; enabled: boolean }) {
+    const t = useTranslations('channel.detail');
+    const query = useStatsChannel24h(channelID, enabled);
+
+    if (query.isPending) {
+        return (
+            <section className="space-y-3" aria-busy="true">
+                <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    <Gauge className="size-3.5" />
+                    {t('sections.last24h')}
+                </h4>
+                <div className="h-28 animate-pulse rounded-2xl border bg-muted/30" />
+            </section>
+        );
+    }
+
+    if (query.isError || !query.data) {
+        return (
+            <section className="space-y-3">
+                <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    <Gauge className="size-3.5" />
+                    {t('sections.last24h')}
+                </h4>
+                <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-muted-foreground">
+                    {t('metrics.last24hError')}
+                </div>
+            </section>
+        );
+    }
+
+    const data = query.data;
+    const count = (value: number) => {
+        const formatted = formatCount(value).formatted;
+        return `${formatted.value}${formatted.unit}`;
+    };
+    const money = formatMoney(data.total_cost).formatted;
+    const latency = formatTime(Math.round(data.average_latency_ms)).formatted;
+    const ratio = (value: number | null) => value === null ? '—' : `${(value * 100).toFixed(1)}%`;
+    const metrics: Array<{ label: string; value: string; icon: LucideIcon; className: string }> = [
+        { label: t('metrics.last24hTotalToken'), value: count(data.input_token + data.output_token), icon: FileText, className: 'text-chart-3' },
+        { label: t('metrics.last24hCacheReadRatio'), value: ratio(data.cache_read_ratio), icon: Database, className: 'text-chart-2' },
+        { label: t('metrics.last24hRequests'), value: count(data.request_total), icon: Activity, className: 'text-chart-1' },
+        { label: t('metrics.last24hSuccessRate'), value: ratio(data.success_rate), icon: CheckCircle2, className: 'text-accent' },
+        { label: t('metrics.last24hCost'), value: `${money.value}${money.unit}`, icon: DollarSign, className: 'text-chart-5' },
+        { label: t('metrics.last24hLatency'), value: `${latency.value}${latency.unit}`, icon: Clock, className: 'text-primary' },
+    ];
+
+    return (
+        <section className="space-y-3">
+            <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <Gauge className="size-3.5" />
+                {t('sections.last24h')}
+            </h4>
+            <dl className="grid gap-3 grid-cols-2 sm:grid-cols-3">
+                {metrics.map((metric) => (
+                    <div key={metric.label} className="rounded-2xl border bg-card p-3 sm:p-4">
+                        <dt className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <metric.icon className={cn('size-4', metric.className)} />
+                            <span className="truncate">{metric.label}</span>
+                        </dt>
+                        <dd className={cn('mt-2 text-xl font-bold', metric.className)}>{metric.value}</dd>
+                    </div>
+                ))}
+            </dl>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-2xl border bg-muted/20 p-3 text-xs text-muted-foreground">
+                <span>{t('metrics.inputToken')}: {count(data.input_token)}</span>
+                <span>{t('metrics.outputToken')}: {count(data.output_token)}</span>
+                <span>{t('metrics.cacheReadToken')}: {count(data.cache_read_token)}</span>
+                <span>{t('metrics.cacheWriteToken')}: {count(data.cache_write_token)}</span>
+                <span>{t('metrics.cacheReadRequestRate')}: {ratio(data.cache_read_request_rate)}</span>
+                <span>{t('metrics.usageCoverage')}: {ratio(data.usage_coverage)}</span>
+            </div>
+            {!data.relay_log_retention_enabled || data.relay_log_dropped_total > 0 ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                    {t('metrics.last24hIncomplete', { count: data.relay_log_dropped_total })}
+                </div>
+            ) : null}
+        </section>
+    );
 }

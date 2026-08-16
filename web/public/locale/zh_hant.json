@@ -998,6 +998,7 @@
                 "requests": "請求詳情",
                 "tokens": "Token 使用",
                 "costs": "成本詳情",
+                "last24h": "近24小時",
                 "baseUrls": "Base URLs",
                 "keys": "金鑰",
                 "responsesTools": "Responses 工具"
@@ -1021,7 +1022,19 @@
                 "outputToken": "輸出 Token",
                 "inputCost": "輸入成本",
                 "outputCost": "輸出成本",
-                "avgWaitTime": "等待時間"
+                "avgWaitTime": "等待時間",
+                "last24hTotalToken": "24小時 Token",
+                "last24hCacheReadRatio": "快取讀取占比",
+                "last24hRequests": "24小時請求",
+                "last24hSuccessRate": "成功率",
+                "last24hCost": "24小時成本",
+                "last24hLatency": "平均延遲",
+                "cacheReadToken": "快取讀取 Token",
+                "cacheWriteToken": "快取寫入 Token",
+                "cacheReadRequestRate": "快取讀取請求占比",
+                "usageCoverage": "Usage 覆蓋率",
+                "last24hError": "近24小時統計載入失敗",
+                "last24hIncomplete": "日誌保留未開啟，或進程啟動以來丟棄了 {count} 條日誌，目前資料可能低於實際值"
             },
             "actions": {
                 "edit": "編輯",

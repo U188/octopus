@@ -998,6 +998,7 @@
                 "requests": "Request Details",
                 "tokens": "Token Usage",
                 "costs": "Cost Details",
+                "last24h": "Last 24 Hours",
                 "baseUrls": "Base URLs",
                 "keys": "Keys",
                 "responsesTools": "Responses Tools"
@@ -1021,7 +1022,19 @@
                 "outputToken": "Output Tokens",
                 "inputCost": "Input Cost",
                 "outputCost": "Output Cost",
-                "avgWaitTime": "Wait Time"
+                "avgWaitTime": "Wait Time",
+                "last24hTotalToken": "24h Tokens",
+                "last24hCacheReadRatio": "Cache Read Ratio",
+                "last24hRequests": "24h Requests",
+                "last24hSuccessRate": "Success Rate",
+                "last24hCost": "24h Cost",
+                "last24hLatency": "Average Latency",
+                "cacheReadToken": "Cache Read Tokens",
+                "cacheWriteToken": "Cache Write Tokens",
+                "cacheReadRequestRate": "Cache Read Request Rate",
+                "usageCoverage": "Usage Coverage",
+                "last24hError": "Failed to load 24-hour statistics",
+                "last24hIncomplete": "Log retention is disabled or {count} logs were dropped since process start; current values may be lower than actual usage"
             },
             "actions": {
                 "edit": "Edit",
