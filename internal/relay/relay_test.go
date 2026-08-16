@@ -2744,6 +2744,10 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 			http.Error(w, fmt.Sprintf(`{"error":"unexpected content-type values %#v"}`, got), http.StatusBadRequest)
 			return
 		}
+		if got := r.Header.Get("Accept"); got != "application/json" {
+			http.Error(w, fmt.Sprintf(`{"error":"unexpected accept %q"}`, got), http.StatusBadRequest)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		if !strings.Contains(string(body), `"previous_response_id":"resp_123"`) {
 			http.Error(w, `{"error":"missing previous_response_id"}`, http.StatusBadRequest)
@@ -2758,6 +2762,7 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 		Name:         "relay-compact-openai",
 		Type:         outbound.OutboundTypeOpenAIResponse,
 		Enabled:      true,
+		CodexMode:    true,
 		BaseUrls:     []model.BaseUrl{{URL: server.URL + "/v1"}},
 		Model:        "compact-model",
 		CustomHeader: []model.CustomHeader{{HeaderKey: "Content-Type", HeaderValue: "text/plain"}},
@@ -2804,6 +2809,24 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 	}
 	if logItems[0].InputTokens != 12 || logItems[0].OutputTokens != 4 {
 		t.Fatalf("expected compact usage to be logged, got input=%d output=%d", logItems[0].InputTokens, logItems[0].OutputTokens)
+	}
+}
+
+func TestSendCompactRequestTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	req, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sendCompactRequest(&model.Channel{}, req, 20*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected compact request timeout, got %v", err)
 	}
 }
 

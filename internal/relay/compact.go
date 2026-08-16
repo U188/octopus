@@ -41,6 +41,8 @@ type responsesCompactResponse struct {
 	Error     *transformerModel.ErrorDetail  `json:"error,omitempty"`
 }
 
+const responsesCompactTimeout = 2 * time.Minute
+
 // HandleResponsesCompact proxies OpenAI-compatible /responses/compact requests upstream.
 func HandleResponsesCompact(c *gin.Context) {
 	if c.Request.ContentLength > maxRelayRequestBodyBytes {
@@ -94,6 +96,7 @@ func HandleResponsesCompact(c *gin.Context) {
 	metricsReq := &transformerModel.InternalLLMRequest{Model: requestModel, RawRequest: body}
 	metrics := NewRelayMetrics(apiKeyID, requestModel, body, metricsReq)
 	metrics.SetRequestIP(middleware.RequestIP(c))
+	log.Infow("relay.compact.start", "model", requestModel, "request_ip", metrics.RequestIP)
 
 	var lastErr error
 	var lastStatusCode int
@@ -247,9 +250,10 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
 	compactRelay := &relayAttempt{relayRequest: &relayRequest{c: c}, channel: channel, usedKey: usedKey}
 	compactRelay.applyCodexResponseHeadersPreservingBody(request)
+	request.Header.Set("Accept", "application/json")
 	metrics.SetRequestHeadersFromHTTP(request.Header)
 
-	response, err := sendCompactRequest(channel, request)
+	response, err := sendCompactRequest(channel, request, responsesCompactTimeout)
 	if err != nil {
 		setProxyRoute()
 		span.End(dbmodel.AttemptFailed, 0, err.Error())
@@ -344,10 +348,15 @@ func copyProxyResponseHeaders(dst http.Header, src http.Header) {
 	}
 }
 
-func sendCompactRequest(channel *dbmodel.Channel, req *http.Request) (*http.Response, error) {
+func sendCompactRequest(channel *dbmodel.Channel, req *http.Request, timeout time.Duration) (*http.Response, error) {
 	httpClient, err := helper.ChannelHTTPClientWithContext(req.Context(), channel)
 	if err != nil {
 		return nil, err
+	}
+	if timeout > 0 {
+		clientWithTimeout := *httpClient
+		clientWithTimeout.Timeout = timeout
+		httpClient = &clientWithTimeout
 	}
 	return httpClient.Do(req)
 }
