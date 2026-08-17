@@ -617,7 +617,7 @@ function parseToolDenylist(value: string): string[] {
     return Array.from(new Set(value.split(/[\n,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }
 
-function Channel24hMetrics({ channelID, enabled }: { channelID: number; enabled: boolean }) {
+export function Channel24hMetrics({ channelID, enabled }: { channelID: number; enabled: boolean }) {
     const t = useTranslations('channel.detail');
     const query = useStatsChannel24h(channelID, enabled);
 

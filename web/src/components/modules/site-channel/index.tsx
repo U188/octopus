@@ -11,6 +11,7 @@ import 'dayjs/locale/zh-tw';
 import { useCompletionStore } from './completion-store';
 import {
     ArrowUpDown,
+    Activity,
     Check,
     CheckCircle2,
     CircleAlert,
@@ -77,6 +78,7 @@ import { getModelIcon } from '@/lib/model-icons';
 import type { ToolbarSortField, ToolbarSortOrder } from '@/components/modules/toolbar/view-options-store';
 import { useSettingStore } from '@/stores/setting';
 import { useClearChannelResponsesToolAutoDenylist } from '@/api/endpoints/channel';
+import { Channel24hMetrics } from '@/components/modules/channel/CardContent';
 import {
     type SiteChannelAccount,
     type SiteChannelCard,
@@ -1048,6 +1050,7 @@ const SiteChannelTableView = forwardRef<
     'use no memo';
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const [statsChannelID, setStatsChannelID] = useState<number | null>(null);
 
     // eslint-disable-next-line react-hooks/incompatible-library
     const rowVirtualizer = useVirtualizer({
@@ -1169,6 +1172,18 @@ const SiteChannelTableView = forwardRef<
                                                 <span className="min-w-0 truncate text-sm font-medium">{model.model_name}</span>
                                                 {model.source === 'manual' ? (
                                                     <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px] border-primary/30 bg-primary/10 text-primary">自定义</Badge>
+                                                ) : null}
+                                                {model.projected_channel_id ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setStatsChannelID(model.projected_channel_id!)}
+                                                        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg border border-border px-1.5 text-[11px] text-muted-foreground transition hover:border-primary/30 hover:bg-primary/5 hover:text-foreground xl:hidden"
+                                                        aria-label={`查看渠道 #${model.projected_channel_id} 近24小时统计`}
+                                                        title="近24小时统计"
+                                                    >
+                                                        <Activity className="size-3.5" />
+                                                        24h
+                                                    </button>
                                                 ) : null}
                                             </div>
                                             {!compactMode ? (
@@ -1318,6 +1333,17 @@ const SiteChannelTableView = forwardRef<
                         );
                     })}
                 </div>
+                <Dialog open={statsChannelID !== null} onOpenChange={(open) => !open && setStatsChannelID(null)}>
+                    <DialogContent className="max-h-[calc(100vh-1rem)] overflow-y-auto p-4 sm:p-6">
+                        <DialogHeader>
+                            <DialogTitle>渠道 #{statsChannelID}</DialogTitle>
+                            <DialogDescription>近24小时</DialogDescription>
+                        </DialogHeader>
+                        {statsChannelID !== null ? (
+                            <Channel24hMetrics channelID={statsChannelID} enabled />
+                        ) : null}
+                    </DialogContent>
+                </Dialog>
             </div>
         </div>
     );
