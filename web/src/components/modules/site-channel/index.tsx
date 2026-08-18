@@ -1177,7 +1177,7 @@ const SiteChannelTableView = forwardRef<
                                                     <button
                                                         type="button"
                                                         onClick={() => setStatsChannelID(model.projected_channel_id!)}
-                                                        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg border border-border px-1.5 text-[11px] text-muted-foreground transition hover:border-primary/30 hover:bg-primary/5 hover:text-foreground xl:hidden"
+                                                        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg border border-border px-1.5 text-[11px] text-muted-foreground transition hover:border-primary/30 hover:bg-primary/5 hover:text-foreground"
                                                         aria-label={`查看渠道 #${model.projected_channel_id} 近24小时统计`}
                                                         title="近24小时统计"
                                                     >
