@@ -26,6 +26,15 @@ type HeroValue = {
 
 type ChartPoint = { date: string; total_cost: number };
 
+function sliceFromFirstUsage<T extends { request_count: { raw: number } }>(stats: T[]): T[] {
+    if (stats.length === 0) return stats;
+    const firstUsageIndex = stats.findIndex((stat) => stat.request_count.raw > 0);
+    const startIndex = firstUsageIndex === -1
+        ? Math.max(stats.length - 1, 0)
+        : Math.max(firstUsageIndex - 1, 0);
+    return stats.slice(startIndex);
+}
+
 const PERIOD_KEY: Record<ChartPeriod, 'today' | 'last7Days' | 'last30Days' | 'allTime'> = {
     '1': 'today',
     '7': 'last7Days',
@@ -107,7 +116,8 @@ export function StatsChart() {
             if (!statsHourly) {
                 return { hero: emptyHero, metrics: emptyMetrics, chartData: [] };
             }
-            const points: ChartPoint[] = statsHourly.map((stat) => ({
+            const recentHourly = sliceFromFirstUsage(statsHourly);
+            const points: ChartPoint[] = recentHourly.map((stat) => ({
                 date: `${stat.hour}:00`,
                 total_cost: stat.total_cost.raw,
             }));
@@ -129,7 +139,7 @@ export function StatsChart() {
 
         // 7 / 30 天：聚合 statsDaily
         const days = Number(period);
-        const recent = sortedDaily.slice(-days);
+        const recent = sliceFromFirstUsage(sortedDaily.slice(-days));
         const points: ChartPoint[] = recent.map((stat) => ({
             date: dayjs(stat.date).format('MM/DD'),
             total_cost: stat.total_cost.raw,

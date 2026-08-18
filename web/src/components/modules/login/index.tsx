@@ -4,6 +4,7 @@ import { useState } from "react"
 import { motion } from "motion/react"
 import { useTranslations } from 'next-intl'
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { useLogin } from "@/api/endpoints/user"
@@ -28,6 +29,7 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
   const [mode, setMode] = useState<LoginMode>('user')
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [trustDevice, setTrustDevice] = useState(false)
   const [apiKey, setApiKey] = useState("")
   const [error, setError] = useState<string | null>(null)
 
@@ -43,7 +45,7 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
         await loginMutation.mutateAsync({
           username,
           password,
-          expire: 1440,
+          expire: trustDevice ? -1 : 1440,
         })
       } else {
         await apiKeyLoginMutation.mutateAsync(apiKey)
@@ -133,6 +135,17 @@ export function LoginForm({ onLoginSuccess }: { onLoginSuccess?: () => void }) {
                     required={mode === 'user'}
                     disabled={isPending}
                   />
+                </Field>
+                <Field orientation="horizontal" data-disabled={isPending}>
+                  <Checkbox
+                    id="trust-device"
+                    checked={trustDevice}
+                    onCheckedChange={(checked) => setTrustDevice(checked === true)}
+                    disabled={isPending}
+                  />
+                  <FieldLabel htmlFor="trust-device" className="text-muted-foreground">
+                    {t('trustDevice')}
+                  </FieldLabel>
                 </Field>
               </TabsContent>
               <TabsContent value="apikey">

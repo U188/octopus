@@ -4,6 +4,7 @@
         "usernamePlaceholder": "请输入用户名",
         "password": "密码",
         "passwordPlaceholder": "请输入密码",
+        "trustDevice": "信任此设备",
         "apikey": "API 密钥",
         "apikeyPlaceholder": "请输入 API 密钥 (sk-octopus-...)",
         "mode": {

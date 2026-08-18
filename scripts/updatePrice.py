@@ -24,6 +24,7 @@ PROVIDERS = [
     "minimax",     # MiniMax 系列
     "moonshotai",  # Kimi/Moonshot
     "v0",          # v0 系列
+    "xiaomi",      # MiMo 系列
 ]
 
 # 其他模型别名映射 (非 Claude)

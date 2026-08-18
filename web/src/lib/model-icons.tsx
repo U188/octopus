@@ -62,6 +62,8 @@ const MODEL_ICON_PATTERNS: ModelIconConfig[] = [
     { prefixes: ['gemini'], Avatar: Gemini.Avatar, color: '#4285F4' },
     { prefixes: ['gemma'], Avatar: Gemma.Avatar, color: '#4285F4' },
     { prefixes: ['palm', 'google'], Avatar: Google.Avatar, color: '#4285F4' },
+    // Xiaomi MiMo (the installed icon package has no Xiaomi glyph; use a neutral provider avatar)
+    { prefixes: ['xiaomi', 'mimo'], Avatar: Google.Avatar, color: '#FF6900' },
     // DeepSeek series
     { prefixes: ['deepseek'], Avatar: DeepSeek.Avatar, color: '#4D6BFE' },
     // xAI - Grok series
@@ -137,4 +139,3 @@ export function getModelIcon(modelName: string): { Avatar: AvatarComponent; colo
     }
     return DEFAULT_CONFIG;
 }
-

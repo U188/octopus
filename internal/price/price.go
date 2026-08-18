@@ -28,6 +28,7 @@ var Provider = []string{
 	"minimax",    // MiniMax 系列
 	"moonshotai", // Kimi/Moonshot
 	"v0",         // v0 系列
+	"xiaomi",     // MiMo 系列
 }
 
 var lastUpdateTime time.Time
@@ -38,32 +39,27 @@ func UpdateLLMPrice(ctx context.Context) error {
 	defer func() {
 		log.Debugf("update LLM price task finished, update time: %s", time.Since(startTime))
 	}()
-	client, err := client.GetHTTPClientSystemProxy(false)
-	if err != nil {
-		return err
+	directClient, directErr := client.GetHTTPClientSystemProxy(false)
+	var body []byte
+	if directErr == nil {
+		body, directErr = fetchPriceBody(ctx, directClient, llmPriceUrl)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, llmPriceUrl, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch LLM info: %s", resp.Status)
+	if directErr != nil {
+		log.Warnf("direct price request failed, retrying with system proxy: %v", directErr)
+		proxyClient, proxyErr := client.GetHTTPClientSystemProxy(true)
+		if proxyErr != nil {
+			return fmt.Errorf("price request failed directly and proxy client unavailable: %w", directErr)
+		}
+		body, proxyErr = fetchPriceBody(ctx, proxyClient, llmPriceUrl)
+		if proxyErr != nil {
+			return fmt.Errorf("price request failed through system proxy: %w", proxyErr)
+		}
 	}
 	var rawPrice map[string]struct {
 		Models map[string]struct {
 			ID   string         `json:"id"`
 			Cost model.LLMPrice `json:"cost"`
 		} `json:"models"`
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
 	}
 	if err := json.Unmarshal(body, &rawPrice); err != nil {
 		return fmt.Errorf("failed to parse LLM info: %w", err)
@@ -78,6 +74,27 @@ func UpdateLLMPrice(ctx context.Context) error {
 	lastUpdateTime = time.Now()
 	llmPriceLock.Unlock()
 	return nil
+}
+
+func fetchPriceBody(ctx context.Context, httpClient *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch LLM info: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	return body, nil
 }
 
 func GetLastUpdateTime() time.Time {
