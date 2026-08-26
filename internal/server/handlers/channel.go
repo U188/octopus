@@ -10,6 +10,7 @@ import (
 	"github.com/U188/octopus/internal/helper"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
+	"github.com/U188/octopus/internal/relay"
 	"github.com/U188/octopus/internal/server/middleware"
 	"github.com/U188/octopus/internal/server/resp"
 	"github.com/U188/octopus/internal/server/router"
@@ -49,6 +50,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test-conversation", http.MethodPost).
+				Handle(testChannelConversation),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -60,6 +65,29 @@ func init() {
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
 		)
+}
+
+func testChannelConversation(c *gin.Context) {
+	var req struct {
+		ChannelID int    `json:"channel_id" binding:"required"`
+		Model     string `json:"model" binding:"required"`
+		Greeting  string `json:"greeting" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	channel, err := op.ChannelGet(req.ChannelID, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, "channel not found")
+		return
+	}
+	result, err := relay.TestChannelConversation(c.Request.Context(), channel, req.Model, req.Greeting)
+	if err != nil {
+		resp.Error(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	resp.Success(c, result)
 }
 
 func listChannel(c *gin.Context) {

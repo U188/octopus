@@ -32,6 +32,7 @@ import { formatCount, formatMoney, formatTime } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useJumpStore } from '@/stores/jump';
+import { ChannelTestConversationPanel } from './TestConversationPanel';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
@@ -221,7 +222,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         <>
             <MorphingDialogTitle>
                 <header className="mb-6 flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-card-foreground">
+                    <h2 className="min-w-0 flex-1 truncate text-2xl font-bold text-card-foreground">
                         {isEditing ? t('title.edit') : t('title.view')}
                     </h2>
                     {channel.managed ? (
@@ -229,6 +230,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                             站点投影
                         </Badge>
                     ) : null}
+                    {!channel.managed ? <ChannelTestConversationPanel channel={channel} /> : null}
                     <MorphingDialogClose
                         className="relative top-0 right-0"
                         variants={{

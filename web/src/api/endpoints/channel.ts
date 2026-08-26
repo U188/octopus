@@ -168,6 +168,20 @@ export type FetchModelRequest = {
     custom_header?: CustomHeader[];
 };
 
+export type ChannelTestConversationResult = {
+    model: string;
+    greeting: string;
+    reply: string;
+    duration_ms: number;
+};
+
+export function useTestChannelConversation() {
+    return useMutation({
+        mutationFn: (data: { channel_id: number; model: string; greeting: string }) =>
+            apiClient.post<ChannelTestConversationResult>('/api/v1/channel/test-conversation', data),
+    });
+}
+
 /**
  * 获取渠道列表 Hook
  * 
