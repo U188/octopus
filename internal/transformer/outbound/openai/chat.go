@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/U188/octopus/internal/transformer/compat"
 	"github.com/U188/octopus/internal/transformer/model"
 )
 
@@ -23,12 +24,32 @@ type ChatCompletionsTool struct {
 	Function model.Function `json:"function,omitempty"`
 }
 
+// ChatCompletionsMessage is the wire shape of a request message. It embeds the
+// shared model.Message so every legitimately forwarded field (content, name,
+// refusal, audio, reasoning_content, …) keeps working, and overrides only
+// tool_calls: the internal model.ToolCall carries a streaming-only `index`
+// field that has no place in a request body and that strict upstreams reject as
+// a malformed tool payload. Go's JSON encoder resolves the conflict in favour
+// of the shallower field, so the embedded ToolCalls is suppressed.
+type ChatCompletionsMessage struct {
+	model.Message
+	ToolCalls []ChatCompletionsToolCall `json:"tool_calls,omitempty"`
+}
+
+// ChatCompletionsToolCall is the request-side tool call: id, type and function
+// only. No index.
+type ChatCompletionsToolCall struct {
+	ID       string             `json:"id,omitempty"`
+	Type     string             `json:"type,omitempty"`
+	Function model.FunctionCall `json:"function"`
+}
+
 // ChatCompletionsRequest is the explicit OpenAI chat/completions wire payload.
 // Keeping this as a whitelist prevents internal/provider-specific fields on the
 // shared InternalLLMRequest from leaking to OpenAI-compatible upstreams.
 type ChatCompletionsRequest struct {
-	Messages []model.Message `json:"messages"`
-	Model    string          `json:"model"`
+	Messages []ChatCompletionsMessage `json:"messages"`
+	Model    string                   `json:"model"`
 
 	FrequencyPenalty    *float64              `json:"frequency_penalty,omitempty"`
 	Logprobs            *bool                 `json:"logprobs,omitempty"`
@@ -83,6 +104,7 @@ func (o *ChatOutbound) TransformRequest(ctx context.Context, request *model.Inte
 	request.ClearHelpFields()
 	request.NormalizeMessages()
 	request.FlattenUnsupportedBlocks(model.AlternationProviderOpenAI)
+	compat.PatchOpenAIRequest(request)
 
 	// developer role is preserved as-is on OpenAI outbound (O-L5). OpenAI
 	// 2025+ model spec treats "developer" as the canonical instruction
@@ -165,7 +187,7 @@ func buildChatCompletionsRequest(request *model.InternalLLMRequest) *ChatComplet
 	}
 
 	result := &ChatCompletionsRequest{
-		Messages:            request.Messages,
+		Messages:            convertMessagesToChatCompletions(request.Messages),
 		Model:               request.Model,
 		FrequencyPenalty:    request.FrequencyPenalty,
 		Logprobs:            request.Logprobs,
@@ -251,6 +273,35 @@ func convertToolsToChatCompletions(tools []model.Tool) []ChatCompletionsTool {
 			Type:     "function",
 			Function: tool.Function,
 		})
+	}
+	return result
+}
+
+// convertMessagesToChatCompletions rewraps internal messages into the wire
+// shape. The only transformation is on tool_calls, where the streaming-only
+// `index` field is dropped and empty arguments are backfilled with `{}` —
+// Normalize already does the latter for messages that reach it, but a caller
+// that builds a ChatCompletionsRequest directly gets the same guarantee here.
+func convertMessagesToChatCompletions(messages []model.Message) []ChatCompletionsMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	result := make([]ChatCompletionsMessage, 0, len(messages))
+	for _, msg := range messages {
+		wire := ChatCompletionsMessage{Message: msg}
+		if len(msg.ToolCalls) > 0 {
+			wire.ToolCalls = make([]ChatCompletionsToolCall, 0, len(msg.ToolCalls))
+			for _, toolCall := range msg.ToolCalls {
+				function := toolCall.Function
+				function.Arguments = model.NormalizeToolArguments(function.Arguments)
+				wire.ToolCalls = append(wire.ToolCalls, ChatCompletionsToolCall{
+					ID:       toolCall.ID,
+					Type:     toolCall.Type,
+					Function: function,
+				})
+			}
+		}
+		result = append(result, wire)
 	}
 	return result
 }

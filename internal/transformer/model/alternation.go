@@ -23,40 +23,76 @@ const continuedPivotText = "(continued)"
 // is not natively supported by the target provider into text hints or
 // drops them outright. Intended for outbound paths whose upstream rejects
 // unknown block types (OpenAI chat completions rejects anything other than
-// text / image_url / input_audio / file today). Anthropic and Gemini
-// outbound paths build their own wire shapes and do not need this.
+// text / image_url / input_audio / file today; Gemini has no server-tool
+// equivalent). The Anthropic outbound path supports every block we carry and
+// does not need this.
+//
+// Call this BEFORE EnforceMessageAlternation: dropping the last part of a turn
+// empties it, and only Normalize's placeholder keeps the turn addressable so
+// alternation still merges runs correctly.
 //
 // The rewrite is destructive: the affected parts are replaced in-place so
-// downstream JSON marshalling sees only supported types. Document blocks
-// are collapsed into a text hint containing title/context/body; server
-// tool blocks are dropped silently. Tools with provider-specific types
-// (server_search / code_execution / url_context) are stripped since
-// OpenAI Chat Completions rejects the corresponding payloads.
+// downstream conversion sees only supported types. For OpenAI, document blocks
+// are collapsed into a text hint containing title/context/body and tools with
+// provider-specific types (server_search / code_execution / url_context) are
+// stripped since Chat Completions rejects the corresponding payloads. Server
+// tool blocks are dropped for both providers.
 func (r *InternalLLMRequest) FlattenUnsupportedBlocks(provider AlternationProvider) {
-	if provider != AlternationProviderOpenAI {
+	switch provider {
+	case AlternationProviderOpenAI:
+		for i := range r.Messages {
+			r.Messages[i].flattenUnsupportedBlocksForOpenAI()
+		}
+		if len(r.Tools) > 0 {
+			filtered := r.Tools[:0]
+			for _, tool := range r.Tools {
+				switch tool.Type {
+				case "server_search", "code_execution", "url_context":
+					continue
+				default:
+					filtered = append(filtered, tool)
+				}
+			}
+			r.Tools = filtered
+		}
+	case AlternationProviderGemini:
+		for i := range r.Messages {
+			r.Messages[i].flattenUnsupportedBlocksForGemini()
+		}
+	}
+}
+
+// flattenUnsupportedBlocksForGemini drops server_tool_use / server_tool_result
+// parts, which Gemini has no equivalent for. Documents, images, audio and files
+// are all natively supported and pass through. A turn left with no parts is
+// re-normalized so it still carries a placeholder — Gemini rejects a Content
+// whose parts array is empty.
+func (m *Message) flattenUnsupportedBlocksForGemini() {
+	if len(m.Content.MultipleContent) == 0 {
 		return
 	}
-	for i := range r.Messages {
-		r.Messages[i].flattenUnsupportedBlocksForOpenAI()
-	}
-	if len(r.Tools) > 0 {
-		filtered := r.Tools[:0]
-		for _, tool := range r.Tools {
-			switch tool.Type {
-			case "server_search", "code_execution", "url_context":
-				continue
-			default:
-				filtered = append(filtered, tool)
-			}
+	filtered := m.Content.MultipleContent[:0]
+	for _, part := range m.Content.MultipleContent {
+		switch part.Type {
+		case "server_tool_use", "server_tool_result":
+			// Gemini has no direct equivalent; drop.
+		default:
+			filtered = append(filtered, part)
 		}
-		r.Tools = filtered
+	}
+	m.Content.MultipleContent = filtered
+	if len(m.Content.MultipleContent) == 0 {
+		m.Content.MultipleContent = nil
+		m.Normalize()
 	}
 }
 
 // flattenUnsupportedBlocksForOpenAI is the per-message worker for
 // FlattenUnsupportedBlocks. It compacts MultipleContent in place: document
 // blocks become text parts, server_tool_use / server_tool_result blocks
-// are dropped (they carry no value for OpenAI-shaped clients).
+// are dropped (they carry no value for OpenAI-shaped clients). When every
+// part is dropped the message is re-normalized instead of being left with a
+// non-nil empty slice, which would marshal as `"content": null`.
 func (m *Message) flattenUnsupportedBlocksForOpenAI() {
 	if len(m.Content.MultipleContent) == 0 {
 		return
@@ -77,6 +113,11 @@ func (m *Message) flattenUnsupportedBlocksForOpenAI() {
 		default:
 			filtered = append(filtered, part)
 		}
+	}
+	if len(filtered) == 0 {
+		m.Content.MultipleContent = nil
+		m.Normalize()
+		return
 	}
 	m.Content.MultipleContent = filtered
 }

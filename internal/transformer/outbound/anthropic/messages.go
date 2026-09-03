@@ -40,8 +40,9 @@ func (o *MessageOutbound) TransformRequest(ctx context.Context, request *model.I
 	}
 
 	request.NormalizeMessages()
+	compat.RepairToolResultBindings(request)
 	request.EnforceMessageAlternation(model.AlternationProviderAnthropic)
-	compat.PatchAnthropicRequest(request)
+	compat.RepairUnansweredToolCalls(request)
 
 	// Convert to Anthropic request format
 	anthropicReq := convertToAnthropicRequest(request)
@@ -1108,6 +1109,19 @@ func convertAssistantMessage(msg model.Message) []anthropicModel.MessageParam {
 	return []anthropicModel.MessageParam{{Role: "assistant", Content: content}}
 }
 
+// toolUseInput renders a tool call's arguments as an Anthropic tool_use.input
+// object. Anthropic types the field as an object, so anything that is not valid
+// JSON — an empty string from a client that omitted `input`, a bare `null`, or
+// a model's malformed output — falls back to an empty object rather than being
+// forwarded and rejected.
+func toolUseInput(arguments string) json.RawMessage {
+	normalized := model.NormalizeToolArguments(arguments)
+	if !json.Valid([]byte(normalized)) {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(normalized)
+}
+
 func convertAssistantWithToolCalls(msg model.Message) []anthropicModel.MessageParam {
 	var blocks []anthropicModel.MessageContentBlock
 
@@ -1136,17 +1150,11 @@ func convertAssistantWithToolCalls(msg model.Message) []anthropicModel.MessagePa
 
 	// Add tool calls
 	for _, toolCall := range msg.ToolCalls {
-		input := json.RawMessage("{}")
-		if toolCall.Function.Arguments != "" {
-			if json.Valid([]byte(toolCall.Function.Arguments)) {
-				input = json.RawMessage(toolCall.Function.Arguments)
-			}
-		}
 		blocks = append(blocks, anthropicModel.MessageContentBlock{
 			Type:         "tool_use",
 			ID:           toolCall.ID,
 			Name:         &toolCall.Function.Name,
-			Input:        input,
+			Input:        toolUseInput(toolCall.Function.Arguments),
 			CacheControl: convertCacheControl(toolCall.CacheControl),
 		})
 	}
@@ -1373,7 +1381,7 @@ func convertMultiplePartContent(msg model.Message) anthropicModel.MessageContent
 				Type:         "server_tool_use",
 				ID:           part.ServerToolUse.ID,
 				Name:         &name,
-				Input:        part.ServerToolUse.Input,
+				Input:        toolUseInput(string(part.ServerToolUse.Input)),
 				CacheControl: convertCacheControl(part.CacheControl),
 			})
 		case "server_tool_result":
@@ -1419,17 +1427,11 @@ func convertMultiplePartContent(msg model.Message) anthropicModel.MessageContent
 
 	// Add tool calls if present
 	for _, toolCall := range msg.ToolCalls {
-		input := json.RawMessage("{}")
-		if toolCall.Function.Arguments != "" {
-			if json.Valid([]byte(toolCall.Function.Arguments)) {
-				input = json.RawMessage(toolCall.Function.Arguments)
-			}
-		}
 		blocks = append(blocks, anthropicModel.MessageContentBlock{
 			Type:         "tool_use",
 			ID:           toolCall.ID,
 			Name:         &toolCall.Function.Name,
-			Input:        input,
+			Input:        toolUseInput(toolCall.Function.Arguments),
 			CacheControl: convertCacheControl(toolCall.CacheControl),
 		})
 	}

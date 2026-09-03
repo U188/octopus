@@ -14,6 +14,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/U188/octopus/internal/transformer/compat"
 	"github.com/U188/octopus/internal/transformer/model"
 )
 
@@ -49,6 +50,7 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	}
 
 	request.NormalizeMessages()
+	compat.PatchOpenAIRequest(request)
 
 	// Convert to Responses API request format
 	responsesReq := ConvertToResponsesRequest(request)
@@ -1165,7 +1167,7 @@ func convertAssistantMessageToResponses(msg model.Message) []ResponsesItem {
 			Type:      "function_call",
 			CallID:    tc.ID,
 			Name:      tc.Function.Name,
-			Arguments: tc.Function.Arguments,
+			Arguments: model.NormalizeToolArguments(tc.Function.Arguments),
 		})
 	}
 

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/U188/octopus/internal/transformer/compat"
 	"github.com/U188/octopus/internal/transformer/model"
 	"github.com/U188/octopus/internal/utils/log"
 	"github.com/U188/octopus/internal/utils/xurl"
@@ -52,7 +53,10 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 	}
 
 	request.NormalizeMessages()
+	request.FlattenUnsupportedBlocks(model.AlternationProviderGemini)
+	compat.RepairToolResultBindings(request)
 	request.EnforceMessageAlternation(model.AlternationProviderGemini)
+	compat.RepairUnansweredToolCalls(request)
 
 	// Convert internal request to Gemini format
 	geminiReq := convertLLMToGeminiRequest(request)
@@ -707,7 +711,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 				}
 			}
 
-			geminiReq.Contents = append(geminiReq.Contents, content)
+			geminiReq.Contents = appendGeminiContent(geminiReq.Contents, content)
 
 		case "assistant":
 			content := &model.GeminiContent{
@@ -756,9 +760,16 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 					if toolCall.ID != "" && toolCall.Function.Name != "" {
 						toolCallNamesByID[toolCall.ID] = toolCall.Function.Name
 					}
+					// Arguments are canonicalised to "{}" upstream, so skip the
+					// unmarshal for the no-argument case rather than letting it
+					// fail and log. A nil map is fine on the wire: args carries
+					// omitempty, so both nil and empty are simply omitted, which
+					// is the correct "no arguments" shape.
 					var args map[string]interface{}
-					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-						log.Warnf("gemini: failed to unmarshal tool call arguments for %s: %v", toolCall.Function.Name, err)
+					if arguments := model.NormalizeToolArguments(toolCall.Function.Arguments); arguments != "{}" {
+						if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+							log.Warnf("gemini: failed to unmarshal tool call arguments for %s: %v", toolCall.Function.Name, err)
+						}
 					}
 					part := &model.GeminiPart{
 						FunctionCall: &model.GeminiFunctionCall{
@@ -792,7 +803,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 					content.Parts = append(content.Parts, part)
 				}
 			}
-			geminiReq.Contents = append(geminiReq.Contents, content)
+			geminiReq.Contents = appendGeminiContent(geminiReq.Contents, content)
 
 			if len(geminiBlocks) > 0 || sigIdx > 0 {
 				log.Debugw("transformer.reasoning.signature.passthrough",
@@ -814,7 +825,7 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 					content = convertLLMToolResultToGeminiTextContent(&msg, toolName)
 				}
 			}
-			geminiReq.Contents = append(geminiReq.Contents, content)
+			geminiReq.Contents = appendGeminiContent(geminiReq.Contents, content)
 		}
 	}
 
@@ -1132,11 +1143,20 @@ func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiG
 
 }
 
-func convertLLMToolResultToGeminiContent(msg *model.Message, functionName string) *model.GeminiContent {
-	content := &model.GeminiContent{
-		Role: "user", // Function responses come from user role in Gemini
+// appendGeminiContent appends a converted turn, skipping any whose parts list
+// came out empty. Gemini rejects a Content with no parts, and that shape is
+// reachable whenever every block in a turn was dropped as unsupported — an
+// assistant turn holding only a server_tool_result, or a user turn holding only
+// a server_tool_use. Dropping the turn is the only lossless option: there is
+// nothing left to send.
+func appendGeminiContent(contents []*model.GeminiContent, content *model.GeminiContent) []*model.GeminiContent {
+	if content == nil || len(content.Parts) == 0 {
+		return contents
 	}
+	return append(contents, content)
+}
 
+func convertLLMToolResultToGeminiContent(msg *model.Message, functionName string) *model.GeminiContent {
 	var responseData map[string]any
 	if msg.Content.Content != nil {
 		if parsed, ok := decodeGeminiToolResponse(*msg.Content.Content); ok {
@@ -1154,11 +1174,11 @@ func convertLLMToolResultToGeminiContent(msg *model.Message, functionName string
 		Response: responseData,
 	}
 
-	content.Parts = []*model.GeminiPart{
-		{FunctionResponse: fp},
+	return &model.GeminiContent{
+		// Function responses come from the user role in Gemini.
+		Role:  "user",
+		Parts: []*model.GeminiPart{{FunctionResponse: fp}},
 	}
-
-	return content
 }
 
 // resolveGeminiToolResponseName looks up the originating function name for a

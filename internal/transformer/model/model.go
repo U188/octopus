@@ -865,10 +865,18 @@ func (m *Message) ClearHelpFields() {
 }
 
 // Normalize prepares the message for dispatch to upstream providers. It
-// performs two jobs:
+// performs three jobs:
 //  1. Drop empty text parts from MultipleContent. Image / audio / file /
-//     tool_use / tool_result / thinking parts are preserved verbatim.
-//  2. If the message ends up with no content-carrying payload at all
+//     tool_use / tool_result / thinking parts are preserved verbatim. When
+//     filtering empties the slice it is reset to nil so MessageContent stays
+//     the zero value — a non-nil empty slice is not zero, defeats the
+//     `omitzero` tag on Message.Content and makes MarshalJSON fall through to
+//     the nil Content pointer, emitting `"content": null`. OpenAI Chat and
+//     Gemini both reject a null content.
+//  2. Give tool-role messages an explicit empty content when the tool_call_id
+//     is their only payload. OpenAI Chat requires `content` on every tool
+//     message; Anthropic and Gemini accept an empty one.
+//  3. If the message ends up with no content-carrying payload at all
 //     (no text, no non-text parts, no tool_calls, no reasoning), insert a
 //     single-space placeholder into Content.Content. This matches
 //     Anthropic's strictest requirement — empty assistant / user messages
@@ -890,6 +898,21 @@ func (m *Message) Normalize() {
 		}
 		m.Content.MultipleContent = filtered
 	}
+	if len(m.Content.MultipleContent) == 0 {
+		// A non-nil empty slice is not the zero value, so it defeats the
+		// `omitzero` tag on Message.Content and makes MessageContent.MarshalJSON
+		// fall through to the nil Content pointer — emitting `"content": null`.
+		// Reset to nil whether the slice arrived empty or was emptied above.
+		m.Content.MultipleContent = nil
+	}
+
+	m.normalizeToolCallArguments()
+
+	if m.Role == "tool" && m.Content.Content == nil && len(m.Content.MultipleContent) == 0 {
+		empty := ""
+		m.Content.Content = &empty
+		return
+	}
 
 	if m.hasAnyPayload() {
 		return
@@ -898,6 +921,34 @@ func (m *Message) Normalize() {
 	space := " "
 	m.Content.Content = &space
 	m.Content.MultipleContent = nil
+}
+
+// normalizeToolCallArguments replaces empty tool-call arguments with an empty
+// JSON object. Anthropic's tool_use.input and Gemini's functionCall.args are
+// typed as objects, and OpenAI-compatible upstreams routinely json.Unmarshal
+// the arguments string — neither an empty string nor a bare `null` is an
+// acceptable object, and both are rejected as a malformed tool payload. Inbound
+// conversions produce both shapes legitimately: an Anthropic client may omit
+// `input` (nil json.RawMessage → empty string) or send `"input": null` (→
+// "null"), and a Gemini client omitting `args` marshals its nil map to "null".
+func (m *Message) normalizeToolCallArguments() {
+	for i := range m.ToolCalls {
+		m.ToolCalls[i].Function.Arguments = NormalizeToolArguments(m.ToolCalls[i].Function.Arguments)
+	}
+}
+
+// NormalizeToolArguments canonicalises a tool-call arguments string to a JSON
+// object literal when it carries no arguments. Non-empty values are returned
+// unchanged — including syntactically invalid ones, which every provider
+// tolerates or repairs on its own wire conversion, and which we must not
+// silently discard since they may still carry the model's intent.
+func NormalizeToolArguments(arguments string) string {
+	switch strings.TrimSpace(arguments) {
+	case "", "null":
+		return "{}"
+	default:
+		return arguments
+	}
 }
 
 // hasAnyPayload reports whether the message carries any information that
