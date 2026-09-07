@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Check, Copy } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { cn } from '@/lib/utils';
+import { cn, copyText } from '@/lib/utils';
 import { toast } from '@/components/common/Toast';
 
 export type CopyIconButtonProps = {
@@ -37,7 +37,7 @@ export function CopyIconButton({
         }
 
         try {
-            await navigator.clipboard.writeText(text);
+            await copyText(text);
 
             setCopied(true);
             toast.success(t('success'));
@@ -71,4 +71,3 @@ export function CopyIconButton({
         </button>
     );
 }
-

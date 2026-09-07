@@ -32,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import dayjs from 'dayjs';
+import { copyText } from '@/lib/utils';
 
 export function APIKeyDashboard() {
     const t = useTranslations('apiKeyDashboard');
@@ -43,7 +44,7 @@ export function APIKeyDashboard() {
     const copyWithToast = useCallback(
         async (text: string, label: string) => {
             try {
-                await navigator.clipboard.writeText(text);
+                await copyText(text);
                 toast.success(`${label} copied`);
                 return true;
             } catch {

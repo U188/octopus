@@ -571,7 +571,7 @@ func TestNormalizeResponsesFinishReason(t *testing.T) {
 	}{
 		{name: "completed", status: "completed", wantReason: "stop"},
 		{name: "incomplete", status: "incomplete", wantReason: "length"},
-		{name: "failed carries error cause", status: "failed", err: &ResponsesError{Code: 400, Message: "boom"}, wantReason: "stop", wantErrMsg: "boom"},
+		{name: "failed carries error cause", status: "failed", err: &ResponsesError{Code: "400", Message: "boom"}, wantReason: "stop", wantErrMsg: "boom"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -614,6 +614,21 @@ func TestTransformStreamFailedEventPreservesLegalFinishReason(t *testing.T) {
 	}
 	if resp.Error == nil || resp.Error.Detail.Message != "upstream oops" {
 		t.Fatalf("expected ResponseError attached, got %+v", resp.Error)
+	}
+	if resp.Error.Detail.Code != "500" {
+		t.Fatalf("expected numeric error code to be preserved, got %q", resp.Error.Detail.Code)
+	}
+}
+
+func TestTransformStreamFailedEventAcceptsStringErrorCode(t *testing.T) {
+	o := &ResponseOutbound{}
+	event := `{"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"upstream oops"}}}`
+	resp, err := o.TransformStream(context.Background(), []byte(event))
+	if err != nil {
+		t.Fatalf("TransformStream: %v", err)
+	}
+	if resp == nil || resp.Error == nil || resp.Error.Detail.Code != "server_error" {
+		t.Fatalf("expected string error code to be preserved, got %+v", resp)
 	}
 }
 

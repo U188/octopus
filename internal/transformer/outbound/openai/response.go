@@ -313,7 +313,7 @@ func (o *ResponseOutbound) TransformStreamEvent(ctx context.Context, eventData [
 		if streamEvent.Response != nil && streamEvent.Response.Error != nil {
 			respErr = &model.ResponseError{
 				Detail: model.ErrorDetail{
-					Code:    fmt.Sprintf("%d", streamEvent.Response.Error.Code),
+					Code:    string(streamEvent.Response.Error.Code),
 					Message: streamEvent.Response.Error.Message,
 				},
 			}
@@ -545,9 +545,32 @@ type ResponsesUsage struct {
 }
 
 type ResponsesError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Reason  string `json:"incomplete_details.reason,omitempty"`
+	Code    ResponsesErrorCode `json:"code"`
+	Message string             `json:"message"`
+	Reason  string             `json:"incomplete_details.reason,omitempty"`
+}
+
+type ResponsesErrorCode string
+
+func (c *ResponsesErrorCode) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, []byte("null")) {
+		*c = ""
+		return nil
+	}
+	var value string
+	if len(data) > 0 && data[0] == '"' {
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+	} else {
+		var number json.Number
+		if err := json.Unmarshal(data, &number); err != nil {
+			return err
+		}
+		value = number.String()
+	}
+	*c = ResponsesErrorCode(value)
+	return nil
 }
 
 type ResponsesStreamEvent struct {
@@ -1869,10 +1892,10 @@ func firstNonEmpty(values ...string) string {
 // with O-M1.
 func normalizeResponsesFinishReason(status *string, errDetail *ResponsesError) (*string, *model.ResponseError) {
 	var respErr *model.ResponseError
-	if errDetail != nil && (errDetail.Message != "" || errDetail.Code != 0) {
+	if errDetail != nil && (errDetail.Message != "" || errDetail.Code != "") {
 		respErr = &model.ResponseError{
 			Detail: model.ErrorDetail{
-				Code:    fmt.Sprintf("%d", errDetail.Code),
+				Code:    string(errDetail.Code),
 				Message: errDetail.Message,
 			},
 		}

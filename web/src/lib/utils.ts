@@ -5,6 +5,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+  } catch {
+    // Fall back for denied clipboard permissions and non-secure contexts.
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = text
+  textarea.readOnly = true
+  textarea.style.position = "fixed"
+  textarea.style.opacity = "0"
+  document.body.appendChild(textarea)
+  textarea.select()
+  textarea.setSelectionRange(0, text.length)
+  const copied = document.execCommand("copy")
+  textarea.remove()
+  if (!copied) throw new Error("Clipboard access is unavailable")
+}
+
 
 function formatNumber(num: number | undefined, compare: number[], units: string[]): { value: string, unit: string } {
   if (num === undefined) return { value: "0.00", unit: units[0] };
