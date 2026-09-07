@@ -752,6 +752,17 @@
             "retryEnabledHint": "When enabled, retries on the same channel for 429/5xx errors before passing through the status code to the client",
             "maxRetries": "Max Retries",
             "maxRetriesHint": "Same-channel retry count, only effective when same-channel retry is enabled",
+            "systemPromptMode": "System Prompt Hijack",
+            "systemPrompt": "Custom System Prompt",
+            "systemPromptPlaceholder": "Enter the system instructions sent to the upstream model",
+            "systemPromptRequired": "A System Prompt is required when hijacking is enabled",
+            "systemPromptOverrideWarning": "Strict override removes every client system/developer instruction and may break Codex or Claude Code agent behavior.",
+            "systemPromptModes": {
+                "off": "Off",
+                "prepend": "Prepend",
+                "append": "Append",
+                "override": "Strict override"
+            },
             "items": "Selected Models",
             "addItem": "Add Model",
             "autoAdd": "Auto Add",

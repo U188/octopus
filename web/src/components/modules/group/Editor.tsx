@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDownIcon, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { useModelChannelList, type LLMChannel } from '@/api/endpoints/model';
@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionContent, AccordionItem } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
-import type { GroupMode } from '@/api/endpoints/group';
+import { SystemPromptMode, type GroupMode } from '@/api/endpoints/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { matchesGroupName, memberKey, normalizeKey, MODE_LABELS } from './utils';
@@ -29,6 +29,8 @@ export type GroupEditorValues = {
     session_keep_time: number;
     retry_enabled: boolean;
     max_retries: number;
+    system_prompt_mode: SystemPromptMode;
+    system_prompt: string;
     members: SelectedMember[];
 };
 
@@ -277,6 +279,8 @@ export function GroupEditor({
     const [sessionKeepTime, setSessionKeepTime] = useState<number>(initial?.session_keep_time ?? 0);
     const [retryEnabled, setRetryEnabled] = useState<boolean>(initial?.retry_enabled ?? false);
     const [maxRetries, setMaxRetries] = useState<number>(initial?.max_retries ?? 3);
+    const [systemPromptMode, setSystemPromptMode] = useState<SystemPromptMode>(initial?.system_prompt_mode ?? SystemPromptMode.Off);
+    const [systemPrompt, setSystemPrompt] = useState<string>(initial?.system_prompt ?? '');
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
@@ -349,7 +353,9 @@ export function GroupEditor({
         setRemovingIds(new Set());
     }, []);
 
-    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError;
+    const systemPromptBytes = new TextEncoder().encode(systemPrompt).length;
+    const systemPromptValid = systemPromptMode === SystemPromptMode.Off || (systemPrompt.trim().length > 0 && systemPromptBytes <= 64000);
+    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError && systemPromptValid;
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -362,6 +368,8 @@ export function GroupEditor({
             session_keep_time: sessionKeepTime,
             retry_enabled: retryEnabled,
             max_retries: maxRetries,
+            system_prompt_mode: systemPromptMode,
+            system_prompt: systemPrompt,
             members: selectedMembers,
         });
     };
@@ -527,6 +535,54 @@ export function GroupEditor({
                                 </Tooltip>
                             </TooltipProvider>
                         )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 border-t border-border/40 pt-3 md:grid-cols-[18rem_1fr]">
+                        <Field>
+                            <FieldLabel>{t('form.systemPromptMode')}</FieldLabel>
+                            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-2">
+                                {Object.values(SystemPromptMode).map((value) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        onClick={() => setSystemPromptMode(value)}
+                                        className={cn(
+                                            'min-h-8 px-2 py-1 text-xs rounded-lg transition-colors',
+                                            systemPromptMode === value ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
+                                        )}
+                                    >
+                                        {t(`form.systemPromptModes.${value}`)}
+                                    </button>
+                                ))}
+                            </div>
+                            {systemPromptMode === SystemPromptMode.Override && (
+                                <p className="flex items-start gap-1.5 text-xs text-destructive">
+                                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                                    <span>{t('form.systemPromptOverrideWarning')}</span>
+                                </p>
+                            )}
+                        </Field>
+                        <Field>
+                            <details className="group/prompt">
+                                <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-sm font-medium outline-none transition-colors hover:bg-muted/80 focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                                    <span className="min-w-0 flex-1 truncate">{t('form.systemPrompt')}</span>
+                                    <span className="shrink-0 text-xs font-normal text-muted-foreground">{systemPromptBytes}/64000 B</span>
+                                    <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open/prompt:rotate-180" />
+                                </summary>
+                                <textarea
+                                    id="group-system-prompt"
+                                    aria-label={t('form.systemPrompt')}
+                                    value={systemPrompt}
+                                    onChange={(event) => setSystemPrompt(event.target.value)}
+                                    disabled={systemPromptMode === SystemPromptMode.Off}
+                                    placeholder={t('form.systemPromptPlaceholder')}
+                                    className="mt-2 min-h-20 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                            </details>
+                            {!systemPromptValid && (
+                                <p className="text-xs text-destructive">{t('form.systemPromptRequired')}</p>
+                            )}
+                        </Field>
                     </div>
 
                     <div className="md:flex-1 md:min-h-0">

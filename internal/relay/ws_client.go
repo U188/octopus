@@ -413,17 +413,19 @@ func newWSRelayRequest(
 	metrics.SetRequestIP(requestIP)
 
 	return &relayRequest{
-		c:               nil,
-		ctx:             ctx,
-		inAdapter:       inAdapter,
-		internalRequest: executionRequest,
-		metrics:         metrics,
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		streamWriter:    NewWSStreamWriter(ctx, conn),
+		c:                nil,
+		ctx:              ctx,
+		inAdapter:        inAdapter,
+		internalRequest:  executionRequest,
+		metrics:          metrics,
+		apiKeyID:         apiKeyID,
+		requestModel:     requestModel,
+		groupID:          group.ID,
+		groupSessionTTL:  group.SessionKeepTime,
+		systemPromptMode: group.SystemPromptMode,
+		systemPrompt:     group.SystemPrompt,
+		iter:             iter,
+		streamWriter:     NewWSStreamWriter(ctx, conn),
 	}, &group, nil
 }
 

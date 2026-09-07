@@ -752,6 +752,17 @@
             "retryEnabledHint": "启用后，遇到 429/5xx 等可重试错误时先在同通道重试，全部失败后透传状态码给客户端",
             "maxRetries": "最大重试",
             "maxRetriesHint": "同通道重试次数，仅在开启同通道重试时生效",
+            "systemPromptMode": "System Prompt 劫持",
+            "systemPrompt": "自定义 System Prompt",
+            "systemPromptPlaceholder": "输入发送给上游模型的系统指令",
+            "systemPromptRequired": "启用劫持时必须填写 System Prompt",
+            "systemPromptOverrideWarning": "严格覆盖会删除客户端全部 system/developer 指令，可能破坏 Codex 或 Claude Code 的 Agent 行为。",
+            "systemPromptModes": {
+                "off": "关闭",
+                "prepend": "前置",
+                "append": "追加",
+                "override": "严格覆盖"
+            },
             "items": "已选模型",
             "addItem": "添加模型",
             "autoAdd": "自动添加",

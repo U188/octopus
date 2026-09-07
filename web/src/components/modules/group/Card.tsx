@@ -59,6 +59,8 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                         session_keep_time: group.session_keep_time ?? 0,
                         retry_enabled: group.retry_enabled ?? false,
                         max_retries: group.max_retries ?? 3,
+                        system_prompt_mode: group.system_prompt_mode,
+                        system_prompt: group.system_prompt ?? '',
                         members: displayMembers,
                     }}
                     submitText={t('detail.actions.save')}
@@ -268,6 +270,8 @@ export function GroupCard({ group }: { group: Group }) {
         if (nextSessionKeepTime !== (group.session_keep_time ?? 0)) payload.session_keep_time = nextSessionKeepTime;
         if (values.retry_enabled !== (group.retry_enabled ?? false)) payload.retry_enabled = values.retry_enabled;
         if (values.max_retries !== (group.max_retries ?? 3)) payload.max_retries = values.max_retries;
+        if (values.system_prompt_mode !== (group.system_prompt_mode ?? 'off')) payload.system_prompt_mode = values.system_prompt_mode;
+        if (values.system_prompt !== (group.system_prompt ?? '')) payload.system_prompt = values.system_prompt;
         if (items_to_add.length) payload.items_to_add = items_to_add;
         if (items_to_update.length) payload.items_to_update = items_to_update;
         if (items_to_delete.length) payload.items_to_delete = items_to_delete;
@@ -284,7 +288,7 @@ export function GroupCard({ group }: { group: Group }) {
             },
             onError,
         });
-    }, [group.first_token_time_out, group.session_keep_time, group.retry_enabled, group.max_retries, group.id, group.items, group.match_regex, group.mode, group.name, onSuccess, onError, updateGroup]);
+    }, [group.first_token_time_out, group.session_keep_time, group.retry_enabled, group.max_retries, group.system_prompt_mode, group.system_prompt, group.id, group.items, group.match_regex, group.mode, group.name, onSuccess, onError, updateGroup]);
 
     return (
         <article className="relative group/card flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4 custom-shadow">

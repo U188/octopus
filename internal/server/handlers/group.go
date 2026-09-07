@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -59,6 +60,10 @@ func createGroup(c *gin.Context) {
 		}
 	}
 	if err := op.GroupCreate(&group, c.Request.Context()); err != nil {
+		if errors.Is(err, model.ErrInvalidSystemPromptConfig) {
+			resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonValidationFailed, err.Error()).WithStatus(http.StatusBadRequest))
+			return
+		}
 		recordAuditFailure(c, "group.create", map[string]any{
 			"name": group.Name,
 		}, err)
@@ -87,6 +92,10 @@ func updateGroup(c *gin.Context) {
 	}
 	group, err := op.GroupUpdate(&req, c.Request.Context())
 	if err != nil {
+		if errors.Is(err, model.ErrInvalidSystemPromptConfig) {
+			resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonValidationFailed, err.Error()).WithStatus(http.StatusBadRequest))
+			return
+		}
 		recordAuditFailure(c, "group.update", map[string]any{
 			"id": req.ID,
 		}, err)

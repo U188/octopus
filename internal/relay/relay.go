@@ -105,17 +105,19 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 请求级上下文
 	req := &relayRequest{
-		c:               c,
-		inAdapter:       inAdapter,
-		internalRequest: internalRequest,
-		metrics:         metrics,
-		apiKeyID:        apiKeyID,
-		requestModel:    requestModel,
-		groupID:         group.ID,
-		groupSessionTTL: group.SessionKeepTime,
-		iter:            iter,
-		rawBody:         rawBody,
-		heartbeat:       hb,
+		c:                c,
+		inAdapter:        inAdapter,
+		internalRequest:  internalRequest,
+		metrics:          metrics,
+		apiKeyID:         apiKeyID,
+		requestModel:     requestModel,
+		groupID:          group.ID,
+		groupSessionTTL:  group.SessionKeepTime,
+		systemPromptMode: group.SystemPromptMode,
+		systemPrompt:     group.SystemPrompt,
+		iter:             iter,
+		rawBody:          rawBody,
+		heartbeat:        hb,
 	}
 
 	var lastErr error
@@ -522,6 +524,11 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		wsUpstreamPool.Put(pc)
 		return -1, nil // fall through to HTTP
 	}
+	reqBody, err = ra.rewriteSystemPromptBody(reqBody)
+	if err != nil {
+		wsUpstreamPool.Put(pc)
+		return http.StatusInternalServerError, fmt.Errorf("system prompt rewrite failed: %w", err)
+	}
 	ra.metrics.SetTransportRequestPayload(reqBody, ra.internalRequest.Model)
 
 	// Send response.create message
@@ -762,6 +769,9 @@ func (ra *relayAttempt) forwardViaHTTPPassthrough(ctx context.Context, pt model.
 	}
 	ra.applyCodexResponseHeaders(outboundRequest)
 	ra.applyClaudeAnthropicMode(outboundRequest)
+	if err := ra.finalizeOutboundRequest(outboundRequest); err != nil {
+		return 0, err
+	}
 	ra.metrics.SetRequestHeadersFromHTTP(outboundRequest.Header)
 
 	// Send request
@@ -848,6 +858,9 @@ func (ra *relayAttempt) forwardViaHTTPStandard(ctx context.Context) (int, error)
 	}
 	ra.applyCodexResponseHeaders(outboundRequest)
 	ra.applyClaudeAnthropicMode(outboundRequest)
+	if err := ra.finalizeOutboundRequest(outboundRequest); err != nil {
+		return 0, err
+	}
 	ra.metrics.SetRequestHeadersFromHTTP(outboundRequest.Header)
 
 	// 发送请求
@@ -931,9 +944,6 @@ func (ra *relayAttempt) applyParamOverride(outboundRequest *http.Request) error 
 		return err
 	}
 	ra.recordRemovedResponsesTools(removedTools, removedToolChoice)
-	if requestBody, readErr := readOutboundRequestBody(outboundRequest); readErr == nil {
-		ra.metrics.SetTransportRequestPayload(requestBody, ra.internalRequest.Model)
-	}
 	return nil
 }
 

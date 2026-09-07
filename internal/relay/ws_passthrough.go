@@ -181,7 +181,11 @@ func (ra *relayAttempt) buildWSPassthroughRequestPayload() ([]byte, error) {
 		}
 		payload["model"] = modelBytes
 	}
-	return json.Marshal(payload)
+	rewritten, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return ra.rewriteSystemPromptBody(rewritten)
 }
 
 func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *pooledConn) (*wsPassthroughStats, error) {

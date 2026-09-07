@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
 
 type GroupMode int
 
@@ -11,19 +16,49 @@ const (
 	GroupModeWeighted   GroupMode = 4 // 加权分配：按优权重分配流量
 )
 
+type SystemPromptMode string
+
+const (
+	SystemPromptModeOff      SystemPromptMode = "off"
+	SystemPromptModePrepend  SystemPromptMode = "prepend"
+	SystemPromptModeAppend   SystemPromptMode = "append"
+	SystemPromptModeOverride SystemPromptMode = "override"
+	SystemPromptMaxBytes                      = 64_000
+)
+
+var ErrInvalidSystemPromptConfig = errors.New("invalid system prompt config")
+
+func ValidateSystemPromptConfig(mode SystemPromptMode, prompt string) error {
+	switch mode {
+	case SystemPromptModeOff:
+	case SystemPromptModePrepend, SystemPromptModeAppend, SystemPromptModeOverride:
+		if strings.TrimSpace(prompt) == "" {
+			return fmt.Errorf("%w: prompt is required when mode is %q", ErrInvalidSystemPromptConfig, mode)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported mode %q", ErrInvalidSystemPromptConfig, mode)
+	}
+	if len(prompt) > SystemPromptMaxBytes {
+		return fmt.Errorf("%w: prompt exceeds %d bytes", ErrInvalidSystemPromptConfig, SystemPromptMaxBytes)
+	}
+	return nil
+}
+
 type Group struct {
-	ID                int         `json:"id" gorm:"primaryKey"`
-	Name              string      `json:"name" gorm:"unique;not null"`
-	Mode              GroupMode   `json:"mode" gorm:"not null"`
-	MatchRegex        string      `json:"match_regex"`
-	FirstTokenTimeOut int         `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
-	SessionKeepTime   int         `json:"session_keep_time"`                  // 会话保持时间(秒) 0 为禁用
-	RetryEnabled      bool        `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试+透传429/503
-	MaxRetries        int         `json:"max_retries" gorm:"default:3"`       // 同通道最大重试次数(RetryEnabled启用时生效)
-	Pinned            bool        `json:"pinned" gorm:"default:false;index"`  // 置顶
-	PinnedAt          *time.Time  `json:"pinned_at,omitempty"`                // 置顶时间，置顶时写入，取消置顶时置空
-	ActivePresetID    *int        `json:"active_preset_id,omitempty"`         // 当前激活的预设ID，仅 UI 标记，不参与路由
-	Items             []GroupItem `json:"items,omitempty" gorm:"foreignKey:GroupID"`
+	ID                int              `json:"id" gorm:"primaryKey"`
+	Name              string           `json:"name" gorm:"unique;not null"`
+	Mode              GroupMode        `json:"mode" gorm:"not null"`
+	MatchRegex        string           `json:"match_regex"`
+	FirstTokenTimeOut int              `json:"first_token_time_out"`               // 单个渠道首个Token响应超时时间(秒)
+	SessionKeepTime   int              `json:"session_keep_time"`                  // 会话保持时间(秒) 0 为禁用
+	RetryEnabled      bool             `json:"retry_enabled" gorm:"default:false"` // 启用同通道重试+透传429/503
+	MaxRetries        int              `json:"max_retries" gorm:"default:3"`       // 同通道最大重试次数(RetryEnabled启用时生效)
+	SystemPromptMode  SystemPromptMode `json:"system_prompt_mode" gorm:"type:varchar(16);not null;default:'off'"`
+	SystemPrompt      string           `json:"system_prompt" gorm:"type:text;not null"`
+	Pinned            bool             `json:"pinned" gorm:"default:false;index"` // 置顶
+	PinnedAt          *time.Time       `json:"pinned_at,omitempty"`               // 置顶时间，置顶时写入，取消置顶时置空
+	ActivePresetID    *int             `json:"active_preset_id,omitempty"`        // 当前激活的预设ID，仅 UI 标记，不参与路由
+	Items             []GroupItem      `json:"items,omitempty" gorm:"foreignKey:GroupID"`
 }
 
 type GroupItem struct {
@@ -71,9 +106,11 @@ type GroupUpdateRequest struct {
 	SessionKeepTime   *int                     `json:"session_keep_time,omitempty"`    // 仅在会话保持时间变更时发送(秒)
 	RetryEnabled      *bool                    `json:"retry_enabled,omitempty"`        // 启用同通道重试+透传429/503
 	MaxRetries        *int                     `json:"max_retries,omitempty"`          // 同通道最大重试次数
-	ItemsToAdd        []GroupItemAddRequest    `json:"items_to_add,omitempty"`         // 新增的 items
-	ItemsToUpdate     []GroupItemUpdateRequest `json:"items_to_update,omitempty"`      // 更新的 items (priority 变更)
-	ItemsToDelete     []int                    `json:"items_to_delete,omitempty"`      // 删除的 item IDs
+	SystemPromptMode  *SystemPromptMode        `json:"system_prompt_mode,omitempty"`
+	SystemPrompt      *string                  `json:"system_prompt,omitempty"`
+	ItemsToAdd        []GroupItemAddRequest    `json:"items_to_add,omitempty"`    // 新增的 items
+	ItemsToUpdate     []GroupItemUpdateRequest `json:"items_to_update,omitempty"` // 更新的 items (priority 变更)
+	ItemsToDelete     []int                    `json:"items_to_delete,omitempty"` // 删除的 item IDs
 }
 
 // GroupItemAddRequest 新增 item 请求

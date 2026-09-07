@@ -174,7 +174,7 @@ func HandleResponsesCompact(c *gin.Context) {
 				}
 			}
 
-			statusCode, retryAfter, attemptErr = forwardResponsesCompact(c, metrics, iter, channel, usedKey, body)
+			statusCode, retryAfter, attemptErr = forwardResponsesCompact(c, metrics, iter, &group, channel, usedKey, body)
 			if attemptErr == nil {
 				success = true
 				break
@@ -232,7 +232,7 @@ func supportsResponsesCompact(channelType outbound.OutboundType) bool {
 	}
 }
 
-func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {
+func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balancer.Iterator, group *dbmodel.Group, channel *dbmodel.Channel, usedKey dbmodel.ChannelKey, requestBody []byte) (int, time.Duration, error) {
 	span := iter.StartAttempt(channel.ID, usedKey.ID, channel.Name)
 	proxyTrace := client.NewProxyTrace()
 	setProxyRoute := func() {
@@ -246,10 +246,24 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 		span.End(dbmodel.AttemptFailed, 0, err.Error())
 		return 0, 0, fmt.Errorf("failed to create compact request: %w", err)
 	}
-	metrics.SetTransportRequestPayload(requestBody, metrics.RequestModel)
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
-	compactRelay := &relayAttempt{relayRequest: &relayRequest{c: c}, channel: channel, usedKey: usedKey}
+	compactRelay := &relayAttempt{
+		relayRequest: &relayRequest{
+			c:                c,
+			metrics:          metrics,
+			requestModel:     metrics.RequestModel,
+			systemPromptMode: group.SystemPromptMode,
+			systemPrompt:     group.SystemPrompt,
+		},
+		channel: channel,
+		usedKey: usedKey,
+	}
 	compactRelay.applyCodexResponseHeadersPreservingBody(request)
+	if err := compactRelay.finalizeOutboundRequest(request); err != nil {
+		setProxyRoute()
+		span.End(dbmodel.AttemptFailed, 0, err.Error())
+		return 0, 0, err
+	}
 	request.Header.Set("Accept", "application/json")
 	metrics.SetRequestHeadersFromHTTP(request.Header)
 

@@ -2753,6 +2753,10 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 			http.Error(w, `{"error":"missing previous_response_id"}`, http.StatusBadRequest)
 			return
 		}
+		if !strings.Contains(string(body), "managed compact") {
+			http.Error(w, `{"error":"missing managed system prompt"}`, http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"resp_cmp_1","object":"response.compaction","created_at":1764967971,"output":[{"id":"cmp_001","type":"compaction","encrypted_content":"secret"}],"usage":{"input_tokens":12,"input_tokens_details":{"cached_tokens":3},"output_tokens":4,"output_tokens_details":{"reasoning_tokens":1},"total_tokens":16}}`))
 	}))
@@ -2772,7 +2776,12 @@ func TestHandleResponsesCompactProxiesSuccessfulResponse(t *testing.T) {
 		t.Fatalf("ChannelCreate failed: %v", err)
 	}
 
-	group := &model.Group{Name: "relay-compact-group", Mode: model.GroupModeFailover}
+	group := &model.Group{
+		Name:             "relay-compact-group",
+		Mode:             model.GroupModeFailover,
+		SystemPromptMode: model.SystemPromptModeAppend,
+		SystemPrompt:     "managed compact",
+	}
 	if err := op.GroupCreate(group, ctx); err != nil {
 		t.Fatalf("GroupCreate failed: %v", err)
 	}

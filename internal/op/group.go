@@ -173,6 +173,12 @@ func filterGroupItemsByProjectedVisibility(items []model.GroupItem, visibility m
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
+	if group.SystemPromptMode == "" {
+		group.SystemPromptMode = model.SystemPromptModeOff
+	}
+	if err := model.ValidateSystemPromptConfig(group.SystemPromptMode, group.SystemPrompt); err != nil {
+		return err
+	}
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
@@ -187,6 +193,20 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		return nil, fmt.Errorf("group not found")
 	}
 	oldName := oldGroup.Name
+	nextSystemPromptMode := oldGroup.SystemPromptMode
+	if nextSystemPromptMode == "" {
+		nextSystemPromptMode = model.SystemPromptModeOff
+	}
+	nextSystemPrompt := oldGroup.SystemPrompt
+	if req.SystemPromptMode != nil {
+		nextSystemPromptMode = *req.SystemPromptMode
+	}
+	if req.SystemPrompt != nil {
+		nextSystemPrompt = *req.SystemPrompt
+	}
+	if err := model.ValidateSystemPromptConfig(nextSystemPromptMode, nextSystemPrompt); err != nil {
+		return nil, err
+	}
 	affectedChannelIDs := groupUpdateAffectedChannelIDs(oldGroup, req)
 
 	tx := db.GetDB().WithContext(ctx).Begin()
@@ -230,6 +250,14 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 		selectFields = append(selectFields, "max_retries")
 		updates.MaxRetries = v
+	}
+	if req.SystemPromptMode != nil {
+		selectFields = append(selectFields, "system_prompt_mode")
+		updates.SystemPromptMode = *req.SystemPromptMode
+	}
+	if req.SystemPrompt != nil {
+		selectFields = append(selectFields, "system_prompt")
+		updates.SystemPrompt = *req.SystemPrompt
 	}
 
 	if len(selectFields) > 0 {
