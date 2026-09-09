@@ -38,7 +38,7 @@ func init() {
 				Handle(deleteAPIKey),
 		)
 	router.NewGroupRouter("/api/v1/apikey").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyAuth(false)).
 		AddRoute(
 			router.NewRoute("/stats", http.MethodGet).
 				Handle(getStatsAPIKeyById),
@@ -60,8 +60,8 @@ func createAPIKey(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "name is required").WithStatus(http.StatusBadRequest))
 		return
 	}
-	if req.MaxRPM < 0 {
-		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "max_rpm must be non-negative").WithStatus(http.StatusBadRequest))
+	if field := invalidAPIKeyLimit(req); field != "" {
+		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, field+" must be non-negative").WithStatus(http.StatusBadRequest))
 		return
 	}
 	if apiKeyNameExists(req.Name, 0, c.Request.Context()) {
@@ -119,8 +119,8 @@ func updateAPIKey(c *gin.Context) {
 		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "name is required").WithStatus(http.StatusBadRequest))
 		return
 	}
-	if req.MaxRPM < 0 {
-		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, "max_rpm must be non-negative").WithStatus(http.StatusBadRequest))
+	if field := invalidAPIKeyLimit(req); field != "" {
+		resp.ErrorWithAppError(c, http.StatusBadRequest, apperror.New(apperror.CodeCommonInvalidParam, field+" must be non-negative").WithStatus(http.StatusBadRequest))
 		return
 	}
 	if apiKeyNameExists(req.Name, req.ID, c.Request.Context()) {
@@ -140,6 +140,22 @@ func updateAPIKey(c *gin.Context) {
 		"name": req.Name,
 	})
 	resp.Success(c, req)
+}
+
+func invalidAPIKeyLimit(req model.APIKey) string {
+	if req.MaxCost < 0 {
+		return "max_cost"
+	}
+	if req.MaxDailyCost < 0 {
+		return "max_daily_cost"
+	}
+	if req.MaxDailyRequests < 0 {
+		return "max_daily_requests"
+	}
+	if req.MaxRPM < 0 {
+		return "max_rpm"
+	}
+	return ""
 }
 
 func deleteAPIKey(c *gin.Context) {

@@ -58,10 +58,16 @@ export interface StatsHourlyFormatted extends StatsMetricsFormatted {
  */
 export interface StatsAPIKey extends StatsMetrics {
     api_key_id: number;
+    daily_date: string;
+    daily_request_count: number;
+    daily_cost: number;
 }
 
 export interface StatsAPIKeyFormatted extends StatsMetricsFormatted {
     api_key_id: number;
+    daily_date: string;
+    daily_request_count: ReturnType<typeof formatCount>;
+    daily_cost: ReturnType<typeof formatMoney>;
 }
 
 export interface StatsChannel24h {
@@ -196,6 +202,9 @@ export function useStatsAPIKey() {
         },
         select: (data) => data.map((item): StatsAPIKeyFormatted => ({
             api_key_id: item.api_key_id,
+            daily_date: item.daily_date,
+            daily_request_count: formatCount(item.daily_request_count),
+            daily_cost: formatMoney(item.daily_cost),
             input_token: formatCount(item.input_token),
             output_token: formatCount(item.output_token),
             total_token: formatCount(item.input_token + item.output_token),

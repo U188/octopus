@@ -36,6 +36,15 @@ var statsAPIKeyCache = cache.New[int, model.StatsAPIKey](16)
 var statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 var statsAPIKeyCacheNeedUpdateLock sync.Mutex
 
+type APIKeyQuotaStatus int
+
+const (
+	APIKeyQuotaAllowed APIKeyQuotaStatus = iota
+	APIKeyQuotaTotalCostExceeded
+	APIKeyQuotaDailyCostExceeded
+	APIKeyQuotaDailyRequestsExceeded
+)
+
 // pendingDailyOverrides holds prev-day StatsDaily snapshots whose persistence
 // failed. Retried on the next StatsSaveDB cycle so a rollover snapshot is
 // never silently dropped after the in-memory cache has advanced.
@@ -369,17 +378,69 @@ func StatsModelUpdate(stats model.StatsModel) error {
 }
 
 func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
+	return statsAPIKeyUpdateAt(apiKeyID, metrics, time.Now())
+}
+
+func statsAPIKeyUpdateAt(apiKeyID int, metrics model.StatsMetrics, now time.Time) error {
 	statsAPIKeyCache.Update(apiKeyID, func(old model.StatsAPIKey, ok bool) model.StatsAPIKey {
 		if !ok {
 			old = model.StatsAPIKey{APIKeyID: apiKeyID}
 		}
+		resetAPIKeyDailyStats(&old, now.Format("20060102"))
 		old.StatsMetrics.Add(metrics)
+		old.DailyCost += metrics.InputCost + metrics.OutputCost
 		return old
 	})
+	markStatsAPIKeyDirty(apiKeyID)
+	return nil
+}
+
+func APIKeyQuotaCheck(apiKey model.APIKey, countRequest bool, now time.Time) APIKeyQuotaStatus {
+	status := APIKeyQuotaAllowed
+	changed := false
+	statsAPIKeyCache.Update(apiKey.ID, func(old model.StatsAPIKey, ok bool) model.StatsAPIKey {
+		if !ok {
+			old = model.StatsAPIKey{APIKeyID: apiKey.ID}
+			changed = true
+		}
+		if resetAPIKeyDailyStats(&old, now.Format("20060102")) {
+			changed = true
+		}
+
+		totalCost := old.InputCost + old.OutputCost
+		switch {
+		case apiKey.MaxCost > 0 && totalCost >= apiKey.MaxCost:
+			status = APIKeyQuotaTotalCostExceeded
+		case apiKey.MaxDailyCost > 0 && old.DailyCost >= apiKey.MaxDailyCost:
+			status = APIKeyQuotaDailyCostExceeded
+		case apiKey.MaxDailyRequests > 0 && old.DailyRequestCount >= int64(apiKey.MaxDailyRequests):
+			status = APIKeyQuotaDailyRequestsExceeded
+		case countRequest:
+			old.DailyRequestCount++
+			changed = true
+		}
+		return old
+	})
+	if changed {
+		markStatsAPIKeyDirty(apiKey.ID)
+	}
+	return status
+}
+
+func resetAPIKeyDailyStats(stats *model.StatsAPIKey, today string) bool {
+	if stats.DailyDate == today {
+		return false
+	}
+	stats.DailyDate = today
+	stats.DailyRequestCount = 0
+	stats.DailyCost = 0
+	return true
+}
+
+func markStatsAPIKeyDirty(apiKeyID int) {
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	statsAPIKeyCacheNeedUpdate[apiKeyID] = struct{}{}
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
-	return nil
 }
 
 func StatsChannelDel(id int) error {
@@ -432,24 +493,28 @@ func StatsChannelGet(id int) model.StatsChannel {
 }
 
 func StatsAPIKeyGet(id int) model.StatsAPIKey {
-	stats, ok := statsAPIKeyCache.Get(id)
-	if !ok {
-		tmp := model.StatsAPIKey{
-			APIKeyID: id,
+	changed := false
+	stats := statsAPIKeyCache.Update(id, func(old model.StatsAPIKey, ok bool) model.StatsAPIKey {
+		if !ok {
+			old = model.StatsAPIKey{APIKeyID: id}
+			changed = true
 		}
-		statsAPIKeyCache.Set(id, tmp)
-		statsAPIKeyCacheNeedUpdateLock.Lock()
-		statsAPIKeyCacheNeedUpdate[id] = struct{}{}
-		statsAPIKeyCacheNeedUpdateLock.Unlock()
-		return tmp
+		if resetAPIKeyDailyStats(&old, time.Now().Format("20060102")) {
+			changed = true
+		}
+		return old
+	})
+	if changed {
+		markStatsAPIKeyDirty(id)
 	}
 	return stats
 }
 
 func StatsAPIKeyList() []model.StatsAPIKey {
-	apiKeys := make([]model.StatsAPIKey, 0, statsAPIKeyCache.Len())
-	for _, v := range statsAPIKeyCache.GetAll() {
-		apiKeys = append(apiKeys, v)
+	all := statsAPIKeyCache.GetAll()
+	apiKeys := make([]model.StatsAPIKey, 0, len(all))
+	for id := range all {
+		apiKeys = append(apiKeys, StatsAPIKeyGet(id))
 	}
 	return apiKeys
 }

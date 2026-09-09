@@ -123,6 +123,56 @@ func TestAPIKeyAuthInvalidKeyUsesAPIKeyErrorCode(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuthDailyRequestLimitStopsAllKeyRoutes(t *testing.T) {
+	const apiKey = "daily-limit-local-test-key"
+	setupAPIKeyAuthTest(t, apiKey)
+	record, err := op.APIKeyGetByAPIKey(apiKey, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := op.StatsAPIKeyDel(record.ID); err != nil {
+		t.Fatal(err)
+	}
+	record.MaxDailyRequests = 1
+	if err := op.APIKeyUpdate(&record, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	request := func(router *gin.Engine) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		return response
+	}
+	newRouter := func(countDailyRequest bool) *gin.Engine {
+		router := gin.New()
+		router.Use(APIKeyAuth(countDailyRequest))
+		router.GET("/ok", func(c *gin.Context) { c.Status(http.StatusOK) })
+		return router
+	}
+
+	if response := request(newRouter(true)); response.Code != http.StatusOK {
+		t.Fatalf("first request status=%d body=%s", response.Code, response.Body.String())
+	}
+	response := request(newRouter(false))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("non-counted route after limit status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Retry-After") == "" {
+		t.Fatal("missing Retry-After header")
+	}
+	var body struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorCode != apperror.CodeAuthAPIKeyDailyRequestsExceeded {
+		t.Fatalf("error code = %q, want %q", body.ErrorCode, apperror.CodeAuthAPIKeyDailyRequestsExceeded)
+	}
+}
+
 func setupAPIKeyAuthTest(t *testing.T, apiKey string) *gin.Engine {
 	t.Helper()
 
@@ -143,7 +193,7 @@ func setupAPIKeyAuthTest(t *testing.T, apiKey string) *gin.Engine {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(APIKeyAuth())
+	router.Use(APIKeyAuth(false))
 	router.GET("/ok", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})

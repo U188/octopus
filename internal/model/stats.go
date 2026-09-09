@@ -39,7 +39,10 @@ type StatsChannel struct {
 }
 
 type StatsAPIKey struct {
-	APIKeyID int `json:"api_key_id" gorm:"primaryKey"`
+	APIKeyID          int     `json:"api_key_id" gorm:"primaryKey"`
+	DailyDate         string  `json:"daily_date" gorm:"type:varchar(8)"`
+	DailyRequestCount int64   `json:"daily_request_count"`
+	DailyCost         float64 `json:"daily_cost" gorm:"type:real"`
 	StatsMetrics
 }
 

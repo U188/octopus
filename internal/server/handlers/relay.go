@@ -15,7 +15,7 @@ import (
 
 func init() {
 	router.NewGroupRouter("/v1").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyAuth(true)).
 		Use(middleware.RequireJSON()).
 		AddRoute(
 			router.NewRoute("/chat/completions", http.MethodPost).
@@ -40,7 +40,7 @@ func init() {
 
 	// WebSocket route for /v1/responses (no RequireJSON middleware)
 	router.NewGroupRouter("/v1").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyAuth(true)).
 		AddRoute(
 			router.NewRoute("/responses", http.MethodGet).
 				Handle(wsResponse),
@@ -48,7 +48,7 @@ func init() {
 
 	for _, prefix := range []string{"/v1", "/v1beta"} {
 		router.NewGroupRouter(prefix).
-			Use(middleware.APIKeyAuth()).
+			Use(middleware.APIKeyAuth(true)).
 			Use(middleware.RequireJSON()).
 			AddRoute(
 				router.NewRoute("/models/*model_method", http.MethodPost).

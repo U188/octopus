@@ -25,11 +25,11 @@ import {
     type CreateAPIKeyRequest,
 } from '@/api/endpoints/apikey';
 import { useGroupList } from '@/api/endpoints/group';
-import { useStatsAPIKey } from '@/api/endpoints/stats';
+import { useStatsAPIKey, type StatsAPIKeyFormatted } from '@/api/endpoints/stats';
 import { useSettingValue, SettingKey } from '@/api/endpoints/setting';
 import { APIKeyExportOverlay } from './APIKeyExport';
 import { OverlayPortal } from './OverlayPortal';
-import { cn } from '@/lib/utils';
+import { cn, formatMoney } from '@/lib/utils';
 import { toast } from '@/components/common/Toast';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import type { ApiError } from '@/api/types';
@@ -93,11 +93,19 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
         enabled: apiKey?.enabled ?? true,
         expire_at: apiKey?.expire_at,
         max_cost: apiKey?.max_cost,
+        max_daily_cost: apiKey?.max_daily_cost,
+        max_daily_requests: apiKey?.max_daily_requests,
         max_rpm: apiKey?.max_rpm,
         supported_models: apiKey?.supported_models,
     }));
     const [maxCostInput, setMaxCostInput] = useState(() =>
         apiKey?.max_cost != null ? String(apiKey.max_cost) : ''
+    );
+    const [maxDailyCostInput, setMaxDailyCostInput] = useState(() =>
+        apiKey?.max_daily_cost != null ? String(apiKey.max_daily_cost) : ''
+    );
+    const [maxDailyRequestsInput, setMaxDailyRequestsInput] = useState(() =>
+        apiKey?.max_daily_requests != null ? String(apiKey.max_daily_requests) : ''
     );
     const [maxRPMInput, setMaxRPMInput] = useState(() =>
         apiKey?.max_rpm != null ? String(apiKey.max_rpm) : ''
@@ -121,6 +129,8 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
     const expireDate = parseExpireDate(form.expire_at);
     const neverExpire = !form.expire_at;
     const isUnlimitedCost = maxCostInput.trim() === '';
+    const isUnlimitedDailyCost = maxDailyCostInput.trim() === '';
+    const isUnlimitedDailyRequests = maxDailyRequestsInput.trim() === '';
     const isUnlimitedRPM = maxRPMInput.trim() === '';
     const canSubmit = Boolean(form.name.trim());
 
@@ -169,6 +179,35 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
     const handleClearMaxCost = useCallback(() => {
         setMaxCostInput('');
         updateForm({ max_cost: undefined });
+    }, [updateForm]);
+
+    const handleMaxDailyCostChange = useCallback((val: string) => {
+        const normalized = normalizeMoneyInput(val);
+        setMaxDailyCostInput(normalized);
+        const num = parseFloat(normalized);
+        updateForm({ max_daily_cost: Number.isFinite(num) ? num : undefined });
+    }, [updateForm]);
+
+    const handleClearMaxDailyCost = useCallback(() => {
+        setMaxDailyCostInput('');
+        updateForm({ max_daily_cost: undefined });
+    }, [updateForm]);
+
+    const handleMaxDailyRequestsChange = useCallback((val: string) => {
+        const cleaned = val.replace(/[^\d]/g, '');
+        const num = parseInt(cleaned, 10);
+        if (Number.isFinite(num) && num > 0) {
+            setMaxDailyRequestsInput(cleaned);
+            updateForm({ max_daily_requests: num });
+        } else {
+            setMaxDailyRequestsInput('');
+            updateForm({ max_daily_requests: undefined });
+        }
+    }, [updateForm]);
+
+    const handleClearMaxDailyRequests = useCallback(() => {
+        setMaxDailyRequestsInput('');
+        updateForm({ max_daily_requests: undefined });
     }, [updateForm]);
 
     const handleMaxRPMChange = useCallback((val: string) => {
@@ -253,6 +292,69 @@ function APIKeyForm({ apiKey, isPending, submitLabel, onSubmit, onClose }: APIKe
                         className={cn(
                             'h-9 px-3 rounded-xl border text-sm transition-colors shrink-0',
                             isUnlimitedCost
+                                ? 'bg-primary text-primary-foreground border-primary/30'
+                                : 'border-border bg-muted/20 text-foreground hover:bg-muted/30',
+                            isPending && 'opacity-50 cursor-not-allowed'
+                        )}
+                    >
+                        {t('apiKey.form.unlimited')}
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid gap-1 text-xs text-muted-foreground">
+                {t('apiKey.form.maxDailyCost')}
+                <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                        <Input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder={t('apiKey.form.maxDailyCostPlaceholder')}
+                            value={maxDailyCostInput}
+                            onChange={(e) => handleMaxDailyCostChange(e.target.value)}
+                            className="h-9 text-sm rounded-xl pl-7"
+                            disabled={isPending}
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleClearMaxDailyCost}
+                        disabled={isPending}
+                        aria-pressed={isUnlimitedDailyCost}
+                        className={cn(
+                            'h-9 px-3 rounded-xl border text-sm transition-colors shrink-0',
+                            isUnlimitedDailyCost
+                                ? 'bg-primary text-primary-foreground border-primary/30'
+                                : 'border-border bg-muted/20 text-foreground hover:bg-muted/30',
+                            isPending && 'opacity-50 cursor-not-allowed'
+                        )}
+                    >
+                        {t('apiKey.form.unlimited')}
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid gap-1 text-xs text-muted-foreground">
+                {t('apiKey.form.maxDailyRequests')}
+                <div className="flex items-center gap-2">
+                    <Input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder={t('apiKey.form.maxDailyRequestsPlaceholder')}
+                        value={maxDailyRequestsInput}
+                        onChange={(e) => handleMaxDailyRequestsChange(e.target.value)}
+                        className="h-9 text-sm rounded-xl flex-1"
+                        disabled={isPending}
+                    />
+                    <button
+                        type="button"
+                        onClick={handleClearMaxDailyRequests}
+                        disabled={isPending}
+                        aria-pressed={isUnlimitedDailyRequests}
+                        className={cn(
+                            'h-9 px-3 rounded-xl border text-sm transition-colors shrink-0',
+                            isUnlimitedDailyRequests
                                 ? 'bg-primary text-primary-foreground border-primary/30'
                                 : 'border-border bg-muted/20 text-foreground hover:bg-muted/30',
                             isPending && 'opacity-50 cursor-not-allowed'
@@ -464,15 +566,45 @@ function APIKeyFormOverlay({
 function APIKeyStatsCard({
     layoutId,
     apiKey,
+    stats,
     onClose,
 }: {
     layoutId: string;
     apiKey: APIKey;
+    stats?: StatsAPIKeyFormatted;
     onClose: () => void;
 }) {
     const t = useTranslations('setting');
-    const { data: statsList = [] } = useStatsAPIKey();
-    const stats = useMemo(() => statsList.find((s) => s.api_key_id === apiKey.id), [statsList, apiKey.id]);
+    const maxCost = apiKey.max_cost && apiKey.max_cost > 0 ? apiKey.max_cost : undefined;
+    const usedCost = stats?.total_cost.raw ?? 0;
+    const remainingCost = maxCost === undefined ? undefined : Math.max(0, maxCost - usedCost);
+    const maxDailyCost = apiKey.max_daily_cost && apiKey.max_daily_cost > 0 ? apiKey.max_daily_cost : undefined;
+    const dailyCost = stats?.daily_cost.raw ?? 0;
+    const remainingDailyCost = maxDailyCost === undefined ? undefined : Math.max(0, maxDailyCost - dailyCost);
+    const maxDailyRequests = apiKey.max_daily_requests && apiKey.max_daily_requests > 0 ? apiKey.max_daily_requests : undefined;
+    const dailyRequests = stats?.daily_request_count.raw ?? 0;
+    const remainingDailyRequests = maxDailyRequests === undefined ? undefined : Math.max(0, maxDailyRequests - dailyRequests);
+    const unlimited = t('apiKey.form.unlimited');
+    const quotaRows = [
+        {
+            label: t('apiKey.stats.totalCostQuota'),
+            limit: maxCost === undefined ? unlimited : formatCost(maxCost),
+            used: formatCost(usedCost),
+            remaining: remainingCost === undefined ? unlimited : formatCost(remainingCost),
+        },
+        {
+            label: t('apiKey.stats.dailyRequestsQuota'),
+            limit: maxDailyRequests === undefined ? unlimited : formatRequestCount(maxDailyRequests),
+            used: formatRequestCount(dailyRequests),
+            remaining: remainingDailyRequests === undefined ? unlimited : formatRequestCount(remainingDailyRequests),
+        },
+        {
+            label: t('apiKey.stats.dailyCostQuota'),
+            limit: maxDailyCost === undefined ? unlimited : formatCost(maxDailyCost),
+            used: formatCost(dailyCost),
+            remaining: remainingDailyCost === undefined ? unlimited : formatCost(remainingDailyCost),
+        },
+    ];
 
     return (
         <OverlayPortal onClose={onClose}>
@@ -495,6 +627,21 @@ function APIKeyStatsCard({
                     >
                         <X className="size-4" />
                     </button>
+                </div>
+
+                <div className="mb-3 grid grid-cols-[minmax(64px,1.2fr)_repeat(3,minmax(0,1fr))] overflow-hidden rounded-lg border border-border/60 text-center text-[11px]">
+                    <div />
+                    <div className="px-1.5 py-1.5 text-muted-foreground">{t('apiKey.stats.maxCost')}</div>
+                    <div className="px-1.5 py-1.5 text-muted-foreground">{t('apiKey.stats.usedCost')}</div>
+                    <div className="px-1.5 py-1.5 text-muted-foreground">{t('apiKey.stats.remainingCost')}</div>
+                    {quotaRows.map((row) => (
+                        <div key={row.label} className="contents">
+                            <div className="truncate border-t border-border/60 px-1.5 py-1.5 text-left text-muted-foreground">{row.label}</div>
+                            <div className="truncate border-l border-t border-border/60 px-1.5 py-1.5 font-medium tabular-nums">{row.limit}</div>
+                            <div className="truncate border-l border-t border-border/60 px-1.5 py-1.5 font-medium tabular-nums">{row.used}</div>
+                            <div className="truncate border-l border-t border-border/60 px-1.5 py-1.5 font-medium tabular-nums">{row.remaining}</div>
+                        </div>
+                    ))}
                 </div>
 
                 {!stats ? (
@@ -557,8 +704,18 @@ function formatAPIKeyPreview(value: string): string {
     return `${key.slice(0, 11)}...${key.slice(-4)}`;
 }
 
+function formatCost(value: number): string {
+    const { value: amount, unit } = formatMoney(value).formatted;
+    return `${amount}${unit}`;
+}
+
+function formatRequestCount(value: number): string {
+    return Math.trunc(value).toString();
+}
+
 function APIKeyKeyItem({
     apiKey,
+    stats,
     statsLayoutId,
     editLayoutId,
     deleteLayoutId,
@@ -570,6 +727,7 @@ function APIKeyKeyItem({
     isDeleting,
 }: {
     apiKey: APIKey;
+    stats?: StatsAPIKeyFormatted;
     statsLayoutId: string;
     editLayoutId: string;
     deleteLayoutId: string;
@@ -583,6 +741,14 @@ function APIKeyKeyItem({
     const t = useTranslations('setting');
     const [confirmDelete, setConfirmDelete] = useState(false);
     const apiKeyPreview = formatAPIKeyPreview(apiKey.api_key);
+    const maxCost = apiKey.max_cost && apiKey.max_cost > 0 ? apiKey.max_cost : undefined;
+    const usedCost = stats?.total_cost.raw ?? 0;
+    const remainingCost = maxCost === undefined ? undefined : Math.max(0, maxCost - usedCost);
+    const maxDailyCost = apiKey.max_daily_cost && apiKey.max_daily_cost > 0 ? apiKey.max_daily_cost : undefined;
+    const remainingDailyCost = maxDailyCost === undefined ? undefined : Math.max(0, maxDailyCost - (stats?.daily_cost.raw ?? 0));
+    const maxDailyRequests = apiKey.max_daily_requests && apiKey.max_daily_requests > 0 ? apiKey.max_daily_requests : undefined;
+    const remainingDailyRequests = maxDailyRequests === undefined ? undefined : Math.max(0, maxDailyRequests - (stats?.daily_request_count.raw ?? 0));
+    const quotaStopped = remainingCost === 0 || remainingDailyCost === 0 || remainingDailyRequests === 0;
 
     return (
         <motion.div
@@ -591,7 +757,7 @@ function APIKeyKeyItem({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-            className="group relative flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/50 overflow-hidden origin-top"
+            className="group relative flex flex-wrap items-center justify-between gap-x-3 p-3 rounded-xl bg-muted/50 overflow-hidden origin-top"
         >
             <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium truncate">{apiKey.name}</div>
@@ -650,6 +816,19 @@ function APIKeyKeyItem({
                 )}
             </div>
 
+            <div className={cn('mt-1 grid basis-full grid-cols-1 gap-x-3 text-[11px] leading-4 text-muted-foreground tabular-nums sm:grid-cols-3', quotaStopped && 'text-destructive')}>
+                <div className="truncate">
+                    {t('apiKey.stats.totalRemaining')}: {remainingCost === undefined ? t('apiKey.form.unlimited') : formatCost(remainingCost)}
+                </div>
+                <div className="truncate">
+                    {t('apiKey.stats.dailyRequestsRemaining')}: {remainingDailyRequests === undefined ? t('apiKey.form.unlimited') : formatRequestCount(remainingDailyRequests)}
+                </div>
+                <div className="truncate">
+                    {t('apiKey.stats.dailyCostRemaining')}: {remainingDailyCost === undefined ? t('apiKey.form.unlimited') : formatCost(remainingDailyCost)}
+                    {quotaStopped && ` · ${t('apiKey.stats.quotaStopped')}`}
+                </div>
+            </div>
+
             <AnimatePresence>
                 {confirmDelete && (
                     <motion.div
@@ -694,6 +873,7 @@ function APIKeyPanelBase({
 }) {
     const t = useTranslations('setting');
     const { data: apiKeys, isLoading: apiKeysLoading, error: apiKeysError } = useAPIKeyList();
+    const { data: statsList } = useStatsAPIKey();
     const createAPIKey = useCreateAPIKey();
     const updateAPIKey = useUpdateAPIKey();
     const deleteAPIKey = useDeleteAPIKey();
@@ -717,6 +897,10 @@ function APIKeyPanelBase({
         if (!apiKeys) return [];
         return [...apiKeys].sort((a, b) => a.id - b.id);
     }, [apiKeys]);
+    const statsByAPIKey = useMemo(
+        () => new Map((statsList ?? []).map((stats) => [stats.api_key_id, stats])),
+        [statsList]
+    );
 
     const handleDelete = useCallback((id: number) => {
         setDeletingId(id);
@@ -760,6 +944,8 @@ function APIKeyPanelBase({
             enabled: data.enabled,
             expire_at: data.expire_at,
             max_cost: data.max_cost,
+            max_daily_cost: data.max_daily_cost,
+            max_daily_requests: data.max_daily_requests,
             max_rpm: data.max_rpm,
             supported_models: data.supported_models,
         };
@@ -814,6 +1000,7 @@ function APIKeyPanelBase({
                     <APIKeyStatsCard
                         layoutId={viewingStats.layoutId}
                         apiKey={viewingStats.apiKey}
+                        stats={statsByAPIKey.get(viewingStats.apiKey.id)}
                         onClose={() => setViewingStats(null)}
                     />
                 )}
@@ -867,6 +1054,7 @@ function APIKeyPanelBase({
                                 <APIKeyKeyItem
                                     key={apiKey.id}
                                     apiKey={apiKey}
+                                    stats={statsByAPIKey.get(apiKey.id)}
                                     statsLayoutId={statsLayoutId}
                                     editLayoutId={editLayoutId}
                                     deleteLayoutId={deleteLayoutId}
@@ -921,7 +1109,7 @@ export function SettingAPIKey() {
         <APIKeyPanelBase
             idPrefix="apikey"
             containerClassName="rounded-3xl border border-border bg-card p-6 space-y-5 relative"
-            listClassName="space-y-2 h-36 overflow-y-auto"
+            listClassName="space-y-2 h-60 overflow-y-auto sm:h-44"
             renderHeaderExtra={() => (
                 <MorphingDialog>
                     <MorphingDialogTrigger className="h-9 w-9 flex items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted">

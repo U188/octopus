@@ -15,6 +15,8 @@ export interface APIKey {
     enabled: boolean;
     expire_at?: number; // Unix 时间戳（秒），不传表示永不过期
     max_cost?: number; // 不传表示无限制
+    max_daily_cost?: number; // 不传表示每日金额无限制
+    max_daily_requests?: number; // 不传表示每日调用次数无限制
     max_rpm?: number; // 不传表示无限制
     supported_models?: string; // 不传表示支持所有模型
 }
@@ -65,6 +67,9 @@ export function useAPIKeyDashboardStats() {
         select: (data): APIKeyStatsResponseFormatted => ({
             stats: {
                 api_key_id: data.stats.api_key_id,
+                daily_date: data.stats.daily_date,
+                daily_request_count: formatCount(data.stats.daily_request_count),
+                daily_cost: formatMoney(data.stats.daily_cost),
                 input_token: formatCount(data.stats.input_token),
                 output_token: formatCount(data.stats.output_token),
                 total_token: formatCount(data.stats.input_token + data.stats.output_token),
@@ -211,6 +216,9 @@ export function useAPIKeyStats() {
         },
         select: (data): StatsAPIKeyFormatted => ({
             api_key_id: data.api_key_id,
+            daily_date: data.daily_date,
+            daily_request_count: formatCount(data.daily_request_count),
+            daily_cost: formatMoney(data.daily_cost),
             input_token: formatCount(data.input_token),
             output_token: formatCount(data.output_token),
             total_token: formatCount(data.input_token + data.output_token),

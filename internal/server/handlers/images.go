@@ -11,7 +11,7 @@ import (
 
 func init() {
 	router.NewGroupRouter("/v1/images").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyAuth(true)).
 		AddRoute(
 			router.NewRoute("/generations", http.MethodPost).
 				Handle(generations),

@@ -37,7 +37,7 @@ func Auth() gin.HandlerFunc {
 	}
 }
 
-func APIKeyAuth() gin.HandlerFunc {
+func APIKeyAuth(countDailyRequest bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !checkIPWhitelist(c) {
 			return
@@ -71,14 +71,9 @@ func APIKeyAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if apiKeyObj.ExpireAt > 0 && apiKeyObj.ExpireAt < time.Now().Unix() {
+		now := time.Now()
+		if apiKeyObj.ExpireAt > 0 && apiKeyObj.ExpireAt < now.Unix() {
 			resp.APIKeyExpired(c)
-			c.Abort()
-			return
-		}
-		statsAPIKey := op.StatsAPIKeyGet(apiKeyObj.ID)
-		if apiKeyObj.MaxCost > 0 && apiKeyObj.MaxCost < statsAPIKey.StatsMetrics.OutputCost+statsAPIKey.StatsMetrics.InputCost {
-			resp.ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthAPIKeyCostExceeded, "API key has reached the max cost").WithStatus(http.StatusUnauthorized))
 			c.Abort()
 			return
 		}
@@ -91,11 +86,36 @@ func APIKeyAuth() gin.HandlerFunc {
 				return
 			}
 		}
+		switch op.APIKeyQuotaCheck(apiKeyObj, countDailyRequest, now) {
+		case op.APIKeyQuotaTotalCostExceeded:
+			resp.ErrorWithAppError(c, http.StatusUnauthorized, apperror.New(apperror.CodeAuthAPIKeyCostExceeded, "API key has reached the max cost").WithStatus(http.StatusUnauthorized))
+			c.Abort()
+			return
+		case op.APIKeyQuotaDailyCostExceeded:
+			c.Header("Retry-After", strconv.Itoa(secondsUntilNextDay(now)))
+			resp.ErrorWithAppError(c, http.StatusTooManyRequests, apperror.New(apperror.CodeAuthAPIKeyDailyCostExceeded, "API key has reached the daily cost limit").WithStatus(http.StatusTooManyRequests))
+			c.Abort()
+			return
+		case op.APIKeyQuotaDailyRequestsExceeded:
+			c.Header("Retry-After", strconv.Itoa(secondsUntilNextDay(now)))
+			resp.ErrorWithAppError(c, http.StatusTooManyRequests, apperror.New(apperror.CodeAuthAPIKeyDailyRequestsExceeded, "API key has reached the daily request limit").WithStatus(http.StatusTooManyRequests))
+			c.Abort()
+			return
+		}
 		c.Set("request_type", requestType)
 		c.Set("supported_models", apiKeyObj.SupportedModels)
 		c.Set("api_key_id", apiKeyObj.ID)
 		c.Next()
 	}
+}
+
+func secondsUntilNextDay(now time.Time) int {
+	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	seconds := int(tomorrow.Sub(now).Seconds())
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }
 
 func extractAPIKeyFromAuthorization(authHeader string) string {

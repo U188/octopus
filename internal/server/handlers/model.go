@@ -47,7 +47,7 @@ func init() {
 				Handle(getLastUpdateTime),
 		)
 	router.NewGroupRouter("/v1").
-		Use(middleware.APIKeyAuth()).
+		Use(middleware.APIKeyAuth(false)).
 		AddRoute(
 			router.NewRoute("/models", http.MethodGet).
 				Handle(getModelList),

@@ -113,7 +113,7 @@ func setupIPWhitelistRouter(t *testing.T, enabled bool, whitelist string) *gin.E
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(APIKeyAuth())
+	router.Use(APIKeyAuth(false))
 	router.GET("/ok", func(c *gin.Context) { c.Status(http.StatusOK) })
 	return router
 }
