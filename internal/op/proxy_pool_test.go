@@ -219,6 +219,22 @@ not-a-proxy
 	}
 }
 
+func TestParseProxySubscriptionExtractsJSONFormat2(t *testing.T) {
+	urls, err := parseProxySubscription(`{"code":0,"data":{"all":{"dedup":{"format2":"socks5://User:Pass@Proxy.Example:1080\nhttp://Second.Example:8080\nsocks5://User:Pass@proxy.example:1080"}}}}`)
+	if err != nil {
+		t.Fatalf("parse JSON proxy subscription: %v", err)
+	}
+	want := []string{"http://second.example:8080", "socks5://User:Pass@proxy.example:1080"}
+	if len(urls) != len(want) {
+		t.Fatalf("parsed JSON URLs = %#v, want %#v", urls, want)
+	}
+	for i := range want {
+		if urls[i] != want[i] {
+			t.Fatalf("parsed JSON URLs = %#v, want %#v", urls, want)
+		}
+	}
+}
+
 func TestProxyURLsForConfigRotatesHealthyActiveNodes(t *testing.T) {
 	initProxySubscriptionTestDB(t)
 	ctx := context.Background()

@@ -3,6 +3,7 @@ package op
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -345,6 +346,39 @@ func fetchProxySubscription(ctx context.Context, rawURL string) ([]string, error
 }
 
 func parseProxySubscription(content string) ([]string, error) {
+	trimmed := strings.TrimSpace(content)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		var payload struct {
+			Data struct {
+				All struct {
+					Dedup struct {
+						Format2 string `json:"format2"`
+						Nodes   []struct {
+							Format2 string `json:"format2"`
+						} `json:"nodes"`
+					} `json:"dedup"`
+				} `json:"all"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+			return nil, fmt.Errorf("parse subscription JSON: %w", err)
+		}
+		format2 := payload.Data.All.Dedup.Format2
+		if strings.TrimSpace(format2) == "" {
+			lines := make([]string, 0, len(payload.Data.All.Dedup.Nodes))
+			for _, node := range payload.Data.All.Dedup.Nodes {
+				if strings.TrimSpace(node.Format2) != "" {
+					lines = append(lines, node.Format2)
+				}
+			}
+			format2 = strings.Join(lines, "\n")
+		}
+		if strings.TrimSpace(format2) == "" {
+			return nil, fmt.Errorf("subscription JSON contains no supported proxy nodes")
+		}
+		content = format2
+	}
+
 	seen := make(map[string]struct{})
 	urls := make([]string, 0)
 	scanner := bufio.NewScanner(strings.NewReader(content))
