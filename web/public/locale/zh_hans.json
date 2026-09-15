@@ -695,7 +695,9 @@
             "autoAddFailed": "自动添加失败",
             "pinned": "已置顶",
             "unpinned": "已取消置顶",
-            "pinFailed": "置顶操作失败"
+            "pinFailed": "置顶操作失败",
+            "outlierRecovered": "已手动恢复渠道",
+            "outlierRecoverFailed": "手动恢复渠道失败"
         },
         "pin": {
             "pin": "置顶",
@@ -782,7 +784,8 @@
             "autoAdd": "自动添加",
             "clear": "清空",
             "selectChannel": "渠道",
-            "selectModel": "模型"
+            "selectModel": "模型",
+            "recoverOutlier": "手动恢复已退役渠道"
         },
         "mode": {
             "roundRobin": "轮询",
@@ -937,10 +940,13 @@
             "egressIPHint": "公网出口 IP 只能由目标站点或专用 IP 回显服务观察，普通模型响应不会回传该值。",
             "requestHeaders": "请求头",
             "requestContent": "请求内容",
+            "upstreamRequestContent": "上游请求",
             "responseContent": "响应内容",
             "noRequestHeaders": "(无请求头)",
             "noRequestContent": "(无请求内容)",
+            "noUpstreamRequestContent": "(无上游请求内容)",
             "noResponseContent": "(无响应内容)",
+            "upstreamBaseURL": "Base URL",
             "firstTokenTime": "首字时间",
             "tokens": "tokens",
             "retryDetails": "重试详情",

@@ -1131,7 +1131,7 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                                 </div>
                                             </div>
                                         ) : null}
-                                        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2">
+                                        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                                         <div className="flex flex-col rounded-2xl border border-border bg-muted/30 overflow-hidden min-h-0">
                                             <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-border bg-muted/50 shrink-0">
                                                 <Send className="size-4 text-green-500" />
@@ -1162,6 +1162,15 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                                 <DeferredJsonContent content={displayLog.response_content} fallbackText={t('noResponseContent')} isLoading={detailLoading} />
                                             </div>
                                         </div>
+                                        <div className="flex flex-col rounded-2xl border border-border bg-muted/30 overflow-hidden min-h-0">
+                                            <div className="flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-3 border-b border-border bg-muted/50 shrink-0">
+                                                <ArrowUpFromLine className="size-4 text-cyan-500" />
+                                                <span className="text-sm font-medium text-card-foreground">{t('upstreamRequestContent')}</span>
+                                            </div>
+                                            <div className="flex-1 overflow-auto min-h-0">
+                                                <DeferredJsonContent content={displayLog.upstream_request_content} fallbackText={t('noUpstreamRequestContent')} isLoading={detailLoading} />
+                                            </div>
+                                        </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1185,6 +1194,11 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 <Globe2 className="size-3.5 shrink-0 text-sky-500" />
                                 <span className="shrink-0 font-medium text-foreground/70">{t('entryIP')}</span>
                                 <span className="truncate" title={displayLog.request_ip ? `${t('entryIPHint')}\n${displayLog.request_ip}` : t('entryIPHint')}>{displayLog.request_ip || '-'}</span>
+                            </div>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                                <Link className="size-3.5 shrink-0 text-cyan-500" />
+                                <span className="shrink-0 font-medium text-foreground/70">{t('upstreamBaseURL')}</span>
+                                <span className="truncate font-mono" title={displayLog.upstream_base_url || t('upstreamBaseURL')}>{displayLog.upstream_base_url || '-'}</span>
                             </div>
                             {detailProxyNode || detailProxyIP ? (
                                 <>

@@ -529,7 +529,7 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		wsUpstreamPool.Put(pc)
 		return http.StatusInternalServerError, fmt.Errorf("system prompt rewrite failed: %w", err)
 	}
-	ra.metrics.SetTransportRequestPayload(reqBody, ra.internalRequest.Model)
+	ra.metrics.SetUpstreamRequestPayload(reqBody, ra.channel.GetBaseUrl(), ra.internalRequest.Model)
 
 	// Send response.create message
 	if err := wsUpstreamPool.SendResponseCreate(ctx, pc, reqBody); err != nil {

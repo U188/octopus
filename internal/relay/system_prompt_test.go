@@ -209,11 +209,13 @@ func TestFinalizeOutboundRequestWinsAfterParamOverride(t *testing.T) {
 	ra := &relayAttempt{
 		relayRequest: &relayRequest{
 			internalRequest:  &transformerModel.InternalLLMRequest{Model: "gpt"},
+			metrics:          NewRelayMetrics(0, "gpt", nil, &transformerModel.InternalLLMRequest{Model: "gpt"}),
 			systemPromptMode: dbmodel.SystemPromptModeOverride,
 			systemPrompt:     "managed",
 		},
 		channel: &dbmodel.Channel{
 			Type:          outbound.OutboundTypeOpenAIChat,
+			BaseUrls:      []dbmodel.BaseUrl{{URL: "https://user:secret@example.test/v1/"}},
 			ParamOverride: &paramOverride,
 		},
 	}
@@ -229,6 +231,12 @@ func TestFinalizeOutboundRequestWinsAfterParamOverride(t *testing.T) {
 	}
 	if strings.Contains(string(body), "channel") || !strings.Contains(string(body), "managed") {
 		t.Fatalf("system prompt did not win after param override: %s", body)
+	}
+	if got := ra.metrics.UpstreamRequestContent; got == "" || !strings.Contains(got, "managed") || strings.Contains(got, "client") {
+		t.Fatalf("metrics did not capture final upstream request: %s", got)
+	}
+	if got, want := ra.metrics.UpstreamBaseURL, "https://example.test/v1"; got != want {
+		t.Fatalf("metrics base URL = %q, want %q", got, want)
 	}
 }
 

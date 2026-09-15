@@ -22,7 +22,11 @@ func (ra *relayAttempt) finalizeOutboundRequest(req *http.Request) error {
 			if ra.internalRequest != nil {
 				modelName = ra.internalRequest.Model
 			}
-			ra.metrics.SetTransportRequestPayload(body, modelName)
+			baseURL := ""
+			if ra.channel != nil {
+				baseURL = ra.channel.GetBaseUrl()
+			}
+			ra.metrics.SetUpstreamRequestPayload(body, baseURL, modelName)
 		}
 	}
 	return nil

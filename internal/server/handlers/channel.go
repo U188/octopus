@@ -40,6 +40,10 @@ func init() {
 				Handle(enableChannel),
 		).
 		AddRoute(
+			router.NewRoute("/recover-outlier", http.MethodPost).
+				Handle(recoverOutlierChannel),
+		).
+		AddRoute(
 			router.NewRoute("/responses-tool-auto-denylist/clear", http.MethodPost).
 				Handle(clearResponsesToolAutoDenylist),
 		).
@@ -230,6 +234,30 @@ func enableChannel(c *gin.Context) {
 		"id":      request.ID,
 		"enabled": request.Enabled,
 	})
+	resp.Success(c, nil)
+}
+
+func recoverOutlierChannel(c *gin.Context) {
+	var request struct {
+		ID int `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	if _, managed, err := op.ChannelManagedBinding(request.ID, c.Request.Context()); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	} else if !managed {
+		resp.Error(c, http.StatusBadRequest, "only managed site channels can be recovered")
+		return
+	}
+	if err := op.SiteChannelOutlierRecover(request.ID, c.Request.Context()); err != nil {
+		recordAuditFailure(c, "channel.outlier.recover", map[string]any{"id": request.ID}, err)
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "channel.outlier.recover", map[string]any{"id": request.ID})
 	resp.Success(c, nil)
 }
 

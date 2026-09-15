@@ -52,6 +52,7 @@ export function PresetEditorContent({ preset }: PresetEditorContentProps) {
                     id: key,
                     name: item.model_name,
                     enabled: mc?.enabled ?? true,
+                    outlier_retired: mc?.outlier_retired ?? false,
                     channel_id: item.channel_id,
                     channel_name: mc?.channel_name ?? `Channel ${item.channel_id}`,
                     weight: item.weight,

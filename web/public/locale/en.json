@@ -695,7 +695,9 @@
             "autoAddFailed": "Auto add failed",
             "pinned": "Pinned",
             "unpinned": "Unpinned",
-            "pinFailed": "Pin toggle failed"
+            "pinFailed": "Pin toggle failed",
+            "outlierRecovered": "Channel manually recovered",
+            "outlierRecoverFailed": "Failed to manually recover channel"
         },
         "pin": {
             "pin": "Pin to top",
@@ -782,7 +784,8 @@
             "autoAdd": "Auto Add",
             "clear": "Clear",
             "selectChannel": "Channel",
-            "selectModel": "Model"
+            "selectModel": "Model",
+            "recoverOutlier": "Manually recover retired channel"
         },
         "mode": {
             "roundRobin": "Round Robin",
@@ -937,10 +940,13 @@
             "egressIPHint": "Only the target site or a dedicated IP echo service can observe the public egress IP; ordinary model responses do not return it.",
             "requestHeaders": "Request Headers",
             "requestContent": "Request Content",
+            "upstreamRequestContent": "Upstream Request",
             "responseContent": "Response Content",
             "noRequestHeaders": "(No request headers)",
             "noRequestContent": "(No request content)",
+            "noUpstreamRequestContent": "(No upstream request content)",
             "noResponseContent": "(No response content)",
+            "upstreamBaseURL": "Base URL",
             "firstTokenTime": "First Token Time",
             "tokens": "tokens",
             "retryDetails": "Retry Details",

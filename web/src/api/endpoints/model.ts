@@ -25,6 +25,7 @@ export interface LLMInfo extends LLMPrice {
 export interface LLMChannel {
     name: string;
     enabled: boolean;
+    outlier_retired: boolean;
     channel_id: number;
     channel_name: string;
     site_id?: number | null;

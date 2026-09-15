@@ -181,7 +181,7 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size := 256
 	size += len(relayLog.RequestIP) + len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ChannelName) + len(relayLog.ActualModelName)
-	size += len(relayLog.RequestHeaders) + len(relayLog.RequestContent) + len(relayLog.ResponseContent) + len(relayLog.Error)
+	size += len(relayLog.RequestHeaders) + len(relayLog.RequestContent) + len(relayLog.UpstreamRequestContent) + len(relayLog.UpstreamBaseURL) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
 		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.ProxyNode) + len(attempt.ProxyIP) + len(attempt.Msg)
 	}
@@ -734,6 +734,7 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 		"use_time",
 		"cost",
 		"request_headers",
+		"upstream_base_url",
 		"error",
 		"success",
 		"attempts",
@@ -848,6 +849,7 @@ func relayLogFindRecent(id int64) (model.RelayLog, bool) {
 
 func relayLogLightCopy(entry model.RelayLog) model.RelayLog {
 	entry.RequestContent = ""
+	entry.UpstreamRequestContent = ""
 	entry.ResponseContent = ""
 	return entry
 }
@@ -904,8 +906,8 @@ func applyRelayLogDBFilters(query *gorm.DB, filter RelayLogListFilter) *gorm.DB 
 		like := "%" + escaped + "%"
 		if filter.KeywordScope == RelayLogKeywordScopeContent {
 			query = query.Where(
-				"LOWER(request_ip) LIKE ? ESCAPE '#' OR LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(request_headers) LIKE ? ESCAPE '#' OR LOWER(request_content) LIKE ? ESCAPE '#' OR LOWER(response_content) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
-				like, like, like, like, like, like, like, like, like,
+				"LOWER(request_ip) LIKE ? ESCAPE '#' OR LOWER(request_model_name) LIKE ? ESCAPE '#' OR LOWER(actual_model_name) LIKE ? ESCAPE '#' OR LOWER(request_api_key_name) LIKE ? ESCAPE '#' OR LOWER(channel_name) LIKE ? ESCAPE '#' OR LOWER(request_headers) LIKE ? ESCAPE '#' OR LOWER(request_content) LIKE ? ESCAPE '#' OR LOWER(upstream_request_content) LIKE ? ESCAPE '#' OR LOWER(upstream_base_url) LIKE ? ESCAPE '#' OR LOWER(response_content) LIKE ? ESCAPE '#' OR LOWER(error) LIKE ? ESCAPE '#'",
+				like, like, like, like, like, like, like, like, like, like, like,
 			)
 		} else {
 			query = query.Where(
@@ -955,7 +957,7 @@ func logMatchesKeyword(relayLog model.RelayLog, keyword string, scope RelayLogKe
 	if mode == RelayLogKeywordModeContains {
 		fields = append(fields, relayLog.Error)
 		if scope == RelayLogKeywordScopeContent {
-			fields = append(fields, relayLog.RequestHeaders, relayLog.RequestContent, relayLog.ResponseContent)
+			fields = append(fields, relayLog.RequestHeaders, relayLog.RequestContent, relayLog.UpstreamRequestContent, relayLog.UpstreamBaseURL, relayLog.ResponseContent)
 		}
 	}
 	for _, field := range fields {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,10 +28,12 @@ type RelayMetrics struct {
 	FirstTokenTime time.Time
 
 	// 请求和响应内容
-	RawRequest       []byte
-	RequestHeaders   string
-	InternalRequest  *transformerModel.InternalLLMRequest
-	InternalResponse *transformerModel.InternalLLMResponse
+	RawRequest             []byte
+	RequestHeaders         string
+	UpstreamRequestContent string
+	UpstreamBaseURL        string
+	InternalRequest        *transformerModel.InternalLLMRequest
+	InternalResponse       *transformerModel.InternalLLMResponse
 
 	// 统计指标
 	ActualModel string
@@ -70,11 +73,36 @@ func (m *RelayMetrics) SetFirstTokenTime(t time.Time) {
 }
 
 func (m *RelayMetrics) SetTransportRequestPayload(payload []byte, modelName string) {
+	m.setUpstreamRequestPayload(payload, "", modelName)
+}
+
+func (m *RelayMetrics) SetUpstreamRequestPayload(payload []byte, baseURL, modelName string) {
+	m.setUpstreamRequestPayload(payload, baseURL, modelName)
+}
+
+func (m *RelayMetrics) setUpstreamRequestPayload(payload []byte, baseURL, modelName string) {
 	if len(payload) == 0 {
 		return
 	}
+	m.UpstreamRequestContent = string(payload)
+	if sanitized := sanitizeBaseURLForLog(baseURL); sanitized != "" {
+		m.UpstreamBaseURL = sanitized
+	}
 	count := tokenizer.CountTokens(string(payload), modelName)
 	m.TransportInputTokens = intPtr(count)
+}
+
+func sanitizeBaseURLForLog(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return strings.TrimRight(raw, "/")
+	}
+	parsed.User = nil
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func (m *RelayMetrics) SetActualModel(modelName string) {
@@ -347,6 +375,8 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog.CacheReadTokens = m.CacheReadTokens
 	relayLog.CacheWriteTokens = m.CacheWriteTokens
 	relayLog.RequestHeaders = m.RequestHeaders
+	relayLog.UpstreamRequestContent = m.UpstreamRequestContent
+	relayLog.UpstreamBaseURL = m.UpstreamBaseURL
 	relayLog.WSMode = m.WSMode
 	relayLog.WSExecMode = m.WSExecMode
 	relayLog.WSRecovery = m.WSRecovery

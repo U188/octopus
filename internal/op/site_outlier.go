@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/U188/octopus/internal/db"
@@ -91,4 +92,16 @@ func SiteChannelOutlierClear(channelID int, ctx context.Context) error {
 	return db.GetDB().WithContext(ctx).
 		Where("channel_id = ?", channelID).
 		Delete(&model.SiteChannelOutlierState{}).Error
+}
+
+// SiteChannelOutlierRecover manually re-enables a retired managed channel.
+func SiteChannelOutlierRecover(channelID int, ctx context.Context) error {
+	state, err := SiteChannelOutlierGet(channelID, ctx)
+	if err != nil || state.Status != model.OutlierStatusRetired {
+		return fmt.Errorf("channel is not passively retired")
+	}
+	if err := ChannelEnabledManaged(channelID, true, ctx); err != nil {
+		return err
+	}
+	return SiteChannelOutlierClear(channelID, ctx)
 }

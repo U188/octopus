@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2 } from 'lucide-react';
+import { Layers, GripVertical, RotateCcw, X, Trash2 } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -13,8 +13,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import type { LLMChannel } from '@/api/endpoints/model';
+import { useRecoverOutlierChannel } from '@/api/endpoints/channel';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { useTranslations } from 'next-intl';
+import { toast } from '@/components/common/Toast';
 
 export interface SelectedMember extends LLMChannel {
     id: string;
@@ -58,12 +60,24 @@ function MemberItem({
     dnd: MemberItemDnd;
 }) {
     const { Avatar: ModelAvatar } = getModelIcon(member.name);
+    const t = useTranslations('group');
+    const recoverOutlier = useRecoverOutlierChannel();
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
     const isSiteChannel = member.site_id != null;
     const sourceLabel = [member.channel_name, isSiteChannel ? null : member.endpoint_type?.trim()]
         .filter(Boolean)
         .join(' · ');
+
+    const handleRecoverOutlier = () => {
+        recoverOutlier.mutate(
+            { id: member.channel_id },
+            {
+                onSuccess: () => toast.success(t('toast.outlierRecovered')),
+                onError: (error) => toast.error(t('toast.outlierRecoverFailed'), { description: error.message }),
+            },
+        );
+    };
 
     return (
         <div
@@ -135,6 +149,19 @@ function MemberItem({
                             isDisabled && 'text-muted-foreground'
                         )}
                     />
+                )}
+
+                {member.outlier_retired && (
+                    <button
+                        type="button"
+                        onClick={handleRecoverOutlier}
+                        disabled={recoverOutlier.isPending}
+                        className="p-1 rounded text-amber-600 transition-colors hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={t('form.recoverOutlier')}
+                        aria-label={t('form.recoverOutlier')}
+                    >
+                        <RotateCcw className="size-3.5" />
+                    </button>
                 )}
 
                 {(!showConfirmDelete || !confirmDelete) && (

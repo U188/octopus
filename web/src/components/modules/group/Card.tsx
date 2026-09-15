@@ -107,6 +107,7 @@ export function GroupCard({ group }: { group: Group }) {
                     id: key,
                     name: item.model_name,
                     enabled: modelChannel?.enabled ?? true,
+                    outlier_retired: modelChannel?.outlier_retired ?? false,
                     channel_id: item.channel_id,
                     channel_name: modelChannel?.channel_name ?? `Channel ${item.channel_id}`,
                     item_id: item.id,

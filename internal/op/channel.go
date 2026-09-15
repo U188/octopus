@@ -852,6 +852,13 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 		if err != nil {
 			return nil, err
 		}
+		outlierRetired := false
+		if binding != nil && !channel.Enabled {
+			outlierRetired, err = SiteChannelOutlierIsRetired(channel.ID, ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
 		for _, modelName := range modelNames {
 			if modelName == "" {
 				continue
@@ -859,6 +866,7 @@ func ChannelLLMList(ctx context.Context) ([]model.LLMChannel, error) {
 			models = append(models, model.LLMChannel{
 				Name:            modelName,
 				Enabled:         channel.Enabled,
+				OutlierRetired:  outlierRetired,
 				ChannelID:       channel.ID,
 				ChannelName:     channel.Name,
 				SiteID:          siteID,

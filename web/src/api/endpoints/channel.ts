@@ -372,6 +372,22 @@ export function useEnableChannel() {
     });
 }
 
+export function useRecoverOutlierChannel() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: { id: number }) => {
+            return apiClient.post<null>('/api/v1/channel/recover-outlier', data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['site-channel', 'list'] });
+        },
+    });
+}
+
 export function useClearChannelResponsesToolAutoDenylist() {
     const queryClient = useQueryClient();
 

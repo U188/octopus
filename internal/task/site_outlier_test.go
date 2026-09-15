@@ -125,6 +125,29 @@ func mustChannelEnabled(t *testing.T, ctx context.Context, channelID int) bool {
 	return ch.Enabled
 }
 
+func TestManualOutlierRecoveryReenablesChannelAndClearsState(t *testing.T) {
+	ctx := setupOutlierTestDB(t)
+	siteID, accountID := createSiteAccountFixture(t, ctx)
+	channelID := createProjectedChannel(t, ctx, siteID, accountID, "manual-recovery", true, true)
+	now := time.Now()
+
+	if err := op.SiteChannelOutlierRetire(channelID, accountID, "test retirement", false, model.OutlierSnapshot{}, now, ctx); err != nil {
+		t.Fatalf("retire channel: %v", err)
+	}
+	if err := op.ChannelEnabledManaged(channelID, false, ctx); err != nil {
+		t.Fatalf("disable retired channel: %v", err)
+	}
+	if err := op.SiteChannelOutlierRecover(channelID, ctx); err != nil {
+		t.Fatalf("manually recover channel: %v", err)
+	}
+	if !mustChannelEnabled(t, ctx, channelID) {
+		t.Fatal("manually recovered channel remains disabled")
+	}
+	if _, err := op.SiteChannelOutlierGet(channelID, ctx); err == nil {
+		t.Fatal("manual recovery left the retirement state behind")
+	}
+}
+
 // 用例1：账号下所有渠道高失败 + 探活失败 → 全部禁用并写入站点级退役记录，且每轮只探活一次。
 func TestRunOutlierRetire_SiteOutageDisablesAll(t *testing.T) {
 	ctx := setupOutlierTestDB(t)
