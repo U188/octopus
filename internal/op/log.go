@@ -181,7 +181,7 @@ func enqueueRelayLogPending(relayLog model.RelayLog) bool {
 func relayLogApproxBytes(relayLog model.RelayLog) int64 {
 	size := 256
 	size += len(relayLog.RequestIP) + len(relayLog.RequestModelName) + len(relayLog.RequestAPIKeyName) + len(relayLog.ChannelName) + len(relayLog.ActualModelName)
-	size += len(relayLog.RequestHeaders) + len(relayLog.RequestContent) + len(relayLog.UpstreamRequestContent) + len(relayLog.UpstreamBaseURL) + len(relayLog.ResponseContent) + len(relayLog.Error)
+	size += len(relayLog.RequestHeaders) + len(relayLog.RequestContent) + len(relayLog.UpstreamRequestContent) + len(relayLog.UpstreamBaseURL) + len(relayLog.SystemPromptRetryReason) + len(relayLog.ResponseContent) + len(relayLog.Error)
 	for _, attempt := range relayLog.Attempts {
 		size += 96 + len(attempt.ChannelName) + len(attempt.ModelName) + len(attempt.ProxyNode) + len(attempt.ProxyIP) + len(attempt.Msg)
 	}
@@ -735,6 +735,8 @@ func selectRelayLogListFields(query *gorm.DB, includeContent bool) *gorm.DB {
 		"cost",
 		"request_headers",
 		"upstream_base_url",
+		"system_prompt_retry",
+		"system_prompt_retry_reason",
 		"error",
 		"success",
 		"attempts",

@@ -249,11 +249,12 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 	copyProxyHeaders(c.Request.Header, channel, request.Header)
 	compactRelay := &relayAttempt{
 		relayRequest: &relayRequest{
-			c:                c,
-			metrics:          metrics,
-			requestModel:     metrics.RequestModel,
-			systemPromptMode: group.SystemPromptMode,
-			systemPrompt:     group.SystemPrompt,
+			c:                                c,
+			metrics:                          metrics,
+			requestModel:                     metrics.RequestModel,
+			systemPromptMode:                 group.SystemPromptMode,
+			systemPrompt:                     group.SystemPrompt,
+			systemPromptSanitizeFingerprints: group.SystemPromptSanitizeFingerprints,
 		},
 		channel: channel,
 		usedKey: usedKey,

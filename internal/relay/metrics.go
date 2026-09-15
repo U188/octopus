@@ -28,12 +28,14 @@ type RelayMetrics struct {
 	FirstTokenTime time.Time
 
 	// 请求和响应内容
-	RawRequest             []byte
-	RequestHeaders         string
-	UpstreamRequestContent string
-	UpstreamBaseURL        string
-	InternalRequest        *transformerModel.InternalLLMRequest
-	InternalResponse       *transformerModel.InternalLLMResponse
+	RawRequest              []byte
+	RequestHeaders          string
+	UpstreamRequestContent  string
+	UpstreamBaseURL         string
+	SystemPromptRetry       bool
+	SystemPromptRetryReason string
+	InternalRequest         *transformerModel.InternalLLMRequest
+	InternalResponse        *transformerModel.InternalLLMResponse
 
 	// 统计指标
 	ActualModel string
@@ -377,6 +379,8 @@ func (m *RelayMetrics) saveLog(ctx context.Context, success bool, err error, dur
 	relayLog.RequestHeaders = m.RequestHeaders
 	relayLog.UpstreamRequestContent = m.UpstreamRequestContent
 	relayLog.UpstreamBaseURL = m.UpstreamBaseURL
+	relayLog.SystemPromptRetry = m.SystemPromptRetry
+	relayLog.SystemPromptRetryReason = m.SystemPromptRetryReason
 	relayLog.WSMode = m.WSMode
 	relayLog.WSExecMode = m.WSExecMode
 	relayLog.WSRecovery = m.WSRecovery

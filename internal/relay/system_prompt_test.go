@@ -1,19 +1,22 @@
 package relay
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	dbmodel "github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/op"
 	"github.com/U188/octopus/internal/transformer/inbound"
 	transformerModel "github.com/U188/octopus/internal/transformer/model"
 	"github.com/U188/octopus/internal/transformer/outbound"
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"net/http/httptest"
 )
 
 func TestRewriteSystemPromptBody(t *testing.T) {
@@ -32,7 +35,7 @@ func TestRewriteSystemPromptBody(t *testing.T) {
 			body:        `{"model":"gpt","messages":[{"role":"system","content":"old"},{"role":"user","content":"hi"},{"role":"developer","content":"late"}]}`,
 			check: func(t *testing.T, payload map[string]any) {
 				messages := payload["messages"].([]any)
-				if len(messages) != 2 || messages[0].(map[string]any)["content"] != "managed" || messages[1].(map[string]any)["role"] != "user" {
+				if len(messages) != 2 || messages[0].(map[string]any)["role"] != "system" || messages[0].(map[string]any)["content"] != "managed" || messages[1].(map[string]any)["role"] != "user" {
 					t.Fatalf("unexpected chat messages: %#v", messages)
 				}
 			},
@@ -109,6 +112,138 @@ func TestRewriteSystemPromptBody(t *testing.T) {
 			}
 			tt.check(t, payload)
 		})
+	}
+}
+
+func TestSanitizeOutboundPayloadRewritesKnownFingerprints(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"system","content":"You are Claude Code, Anthropic's official CLI for Claude. cc_entrypoint=cli;"}]}`)
+	got, changed, err := sanitizeOutboundPayload(body)
+	if err != nil || !changed {
+		t.Fatalf("sanitizeOutboundPayload() changed=%t err=%v", changed, err)
+	}
+	text := string(got)
+	if strings.Contains(text, "official CLI for Claude") || strings.Contains(text, "cc_entrypoint=") || !strings.Contains(text, "official CLI tool for Claude") {
+		t.Fatalf("fingerprint was not minimally rewritten: %s", text)
+	}
+}
+
+func TestSanitizeOutboundPayloadLeavesNonPromptFieldsUntouched(t *testing.T) {
+	body := []byte(`{"model":"11128","metadata":"You are Claude Code, Anthropic's official CLI for Claude","messages":[{"role":"user","content":"11128 cc_entrypoint=cli;"},{"role":"system","name":"11128","content":"ordinary"}]}`)
+	got, changed, err := sanitizeOutboundPayload(body)
+	if err != nil || changed {
+		t.Fatalf("non-prompt payload changed=%t err=%v got=%s", changed, err, got)
+	}
+	if string(got) != string(body) {
+		t.Fatalf("non-prompt fields were modified: %s", got)
+	}
+}
+
+func TestSanitizeOutboundPayloadDoesNotConsumeFollowingText(t *testing.T) {
+	body := []byte(`{"system":"cc_mode=cli keep this sentence"}`)
+	got, changed, err := sanitizeOutboundPayload(body)
+	if err != nil || !changed || !strings.Contains(string(got), "keep this sentence") {
+		t.Fatalf("following text was consumed: changed=%t err=%v got=%s", changed, err, got)
+	}
+}
+
+func TestSanitizeOutboundPayloadLeavesNormalPayloadUntouched(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"hello"}],"temperature":0.2}`)
+	got, changed, err := sanitizeOutboundPayload(body)
+	if err != nil || changed || string(got) != string(body) {
+		t.Fatalf("normal payload changed=%t err=%v got=%s", changed, err, got)
+	}
+}
+
+func TestIsSystemPromptContentBlocked(t *testing.T) {
+	if !isSystemPromptContentBlocked(http.StatusBadRequest, []byte(`{"code":11128,"message":"blocked by security policy"}`)) {
+		t.Fatal("expected content block to be detected")
+	}
+	if isSystemPromptContentBlocked(http.StatusBadRequest, []byte(`{"code":11101,"message":"invalid parameter"}`)) {
+		t.Fatal("ordinary validation error must not trigger degraded retry")
+	}
+	if isSystemPromptContentBlocked(http.StatusBadRequest, []byte(`{"message":"invalid parameter 11128 chars"}`)) {
+		t.Fatal("unrelated 11128 text must not trigger degraded retry")
+	}
+	if !isSystemPromptContentBlockedDetails(0, "11128", "") {
+		t.Fatal("WebSocket error code 11128 must trigger degraded retry")
+	}
+}
+
+func TestWSUpstreamReaderCapturesNumericPromptBlockCode(t *testing.T) {
+	clientConn, serverConn := newTestWSConnPair(t)
+	defer clientConn.Close(websocket.StatusNormalClosure, "")
+	defer serverConn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- serverConn.Write(ctx, websocket.MessageText, []byte(`{"type":"error","status":400,"error":{"code":11128,"message":"blocked by security policy"}}`))
+	}()
+
+	reader := newWSUpstreamReader(&pooledConn{conn: clientConn}, 1, 1)
+	if _, err := reader.ReadEvent(ctx); err == nil {
+		t.Fatal("expected WebSocket error frame")
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("write error frame: %v", err)
+	}
+	if reader.StatusCode() != http.StatusBadRequest || reader.errorCode != "11128" || !isSystemPromptContentBlockedDetails(reader.StatusCode(), reader.errorCode, reader.errorMsg) {
+		t.Fatalf("blocked frame was not normalized: status=%d code=%q message=%q", reader.StatusCode(), reader.errorCode, reader.errorMsg)
+	}
+}
+
+func TestSendRequestRetriesContentBlockOnceWithDegradedPrompt(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":11128,"message":"blocked by security policy"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	internalRequest := &transformerModel.InternalLLMRequest{Model: "upstream-model"}
+	metrics := NewRelayMetrics(0, "group", nil, internalRequest)
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{
+			internalRequest:                  internalRequest,
+			metrics:                          metrics,
+			requestModel:                     "group",
+			systemPromptMode:                 dbmodel.SystemPromptModeOverride,
+			systemPrompt:                     "managed",
+			systemPromptSanitizeFingerprints: true,
+		},
+		channel: &dbmodel.Channel{Type: outbound.OutboundTypeOpenAIChat, BaseUrls: []dbmodel.BaseUrl{{URL: server.URL}}},
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{"messages":[{"role":"developer","content":"client"},{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ra.finalizeOutboundRequest(req); err != nil {
+		t.Fatalf("finalizeOutboundRequest: %v", err)
+	}
+	response, err := ra.sendRequest(req)
+	if err != nil {
+		t.Fatalf("sendRequest: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || len(bodies) != 2 {
+		t.Fatalf("status=%d requests=%d", response.StatusCode, len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"role":"system"`) || !strings.Contains(bodies[0], "managed") {
+		t.Fatalf("first request was not strict system override: %s", bodies[0])
+	}
+	if strings.Contains(bodies[1], "managed") || !strings.Contains(bodies[1], degradedSystemPrompt) {
+		t.Fatalf("retry did not use degraded prompt: %s", bodies[1])
+	}
+	if !metrics.SystemPromptRetry || metrics.SystemPromptRetryReason != "content_blocked" || metrics.UpstreamRequestContent != bodies[1] {
+		t.Fatalf("retry metrics not recorded: %+v", metrics)
 	}
 }
 

@@ -80,6 +80,8 @@ export interface RelayLog {
     request_content: string;     // 请求内容
     upstream_request_content?: string; // 实际发送到上游的请求内容
     upstream_base_url?: string;  // 实际选中的上游 base_url
+    system_prompt_retry?: boolean;
+    system_prompt_retry_reason?: string;
     response_content: string;    // 响应内容
     error: string;               // 错误信息
     attempts?: ChannelAttempt[]; // 所有尝试记录

@@ -105,19 +105,20 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 请求级上下文
 	req := &relayRequest{
-		c:                c,
-		inAdapter:        inAdapter,
-		internalRequest:  internalRequest,
-		metrics:          metrics,
-		apiKeyID:         apiKeyID,
-		requestModel:     requestModel,
-		groupID:          group.ID,
-		groupSessionTTL:  group.SessionKeepTime,
-		systemPromptMode: group.SystemPromptMode,
-		systemPrompt:     group.SystemPrompt,
-		iter:             iter,
-		rawBody:          rawBody,
-		heartbeat:        hb,
+		c:                                c,
+		inAdapter:                        inAdapter,
+		internalRequest:                  internalRequest,
+		metrics:                          metrics,
+		apiKeyID:                         apiKeyID,
+		requestModel:                     requestModel,
+		groupID:                          group.ID,
+		groupSessionTTL:                  group.SessionKeepTime,
+		systemPromptMode:                 group.SystemPromptMode,
+		systemPrompt:                     group.SystemPrompt,
+		systemPromptSanitizeFingerprints: group.SystemPromptSanitizeFingerprints,
+		iter:                             iter,
+		rawBody:                          rawBody,
+		heartbeat:                        hb,
 	}
 
 	var lastErr error
@@ -529,6 +530,13 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		wsUpstreamPool.Put(pc)
 		return http.StatusInternalServerError, fmt.Errorf("system prompt rewrite failed: %w", err)
 	}
+	if ra.systemPromptSanitizeFingerprints {
+		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(reqBody); sanitizeErr != nil {
+			return http.StatusInternalServerError, fmt.Errorf("sanitize outbound fingerprints: %w", sanitizeErr)
+		} else if changed {
+			reqBody = sanitized
+		}
+	}
 	ra.metrics.SetUpstreamRequestPayload(reqBody, ra.channel.GetBaseUrl(), ra.internalRequest.Model)
 
 	// Send response.create message
@@ -565,6 +573,18 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		reader.CloseWithError()
 		log.Debugf("upstream WS stream failed (channel=%s, key=%d, continuation=%t, written=%t, status=%d, err=%v)",
 			ra.channel.Name, ra.usedKey.ID, continuation, ra.getStreamWriter().Written(), reader.StatusCode(), err)
+		if ra.shouldRetryBlockedSystemPrompt(reader.StatusCode(), reader.errorCode, reader.errorMsg) && !ra.streamPayloadWritten.Load() {
+			if degraded, buildErr := ra.prepareDegradedBody(reqBody); buildErr == nil {
+				if status, retryErr, attempted := ra.retryViaFreshUpstreamWSPrompt(ctx, degraded); attempted {
+					if retryErr == nil {
+						log.Infof("retried blocked WebSocket request with degraded system prompt on channel %s", ra.channel.Name)
+					}
+					return status, retryErr
+				}
+			} else {
+				log.Warnf("failed to build degraded WebSocket system prompt retry for channel %s: %v", ra.channel.Name, buildErr)
+			}
+		}
 		if requiresUpstreamWSContinuation(ra.internalRequest) && !ra.streamPayloadWritten.Load() && shouldReconnectUpstreamWSBeforeReplay(err) {
 			log.Debugf("upstream WS stream failure eligible for reconnect before replay (channel=%s, key=%d, previous_response_id=%s)",
 				ra.channel.Name, ra.usedKey.ID, currentPreviousResponseID(ra.internalRequest))
@@ -587,6 +607,31 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 	wsUpstreamPool.RecordWSSuccess(ra.channel.ID)
 	ra.recordSuccessfulWSAffinity(pc)
 	return 200, nil
+}
+
+func (ra *relayAttempt) retryViaFreshUpstreamWSPrompt(ctx context.Context, reqBody []byte) (int, error, bool) {
+	redialed := TryUpstreamWS(ctx, ra.channel, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey, ra.usedKey.ID, ra.clientRequestHeaders(), true)
+	if redialed == nil {
+		return 0, nil, false
+	}
+	if err := wsUpstreamPool.SendResponseCreate(ctx, redialed, reqBody); err != nil {
+		wsUpstreamPool.RemoveConn(redialed)
+		wsUpstreamPool.RecordWSFailure(ra.channel.ID)
+		return 0, nil, false
+	}
+	ra.markSystemPromptRetry(reqBody)
+	reader := newWSUpstreamReader(redialed, ra.channel.ID, ra.usedKey.ID)
+	if err := ra.handleWSStreamResponseV2(ctx, reader); err != nil {
+		reader.CloseWithError()
+		if ra.requestContext().Err() == nil {
+			wsUpstreamPool.RecordWSFailure(ra.channel.ID)
+		}
+		return reader.StatusCode(), err, true
+	}
+	reader.Close()
+	wsUpstreamPool.RecordWSSuccess(ra.channel.ID)
+	ra.recordSuccessfulWSAffinity(redialed)
+	return http.StatusOK, nil, true
 }
 
 func (ra *relayAttempt) retryViaFreshUpstreamWS(ctx context.Context, reqBody []byte) (int, error, bool) {
@@ -1095,6 +1140,35 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 		}
 		ra.closeFirstTokenBudget()
 		return nil, err
+	}
+	if !ra.systemPromptRetry && ra.systemPromptMode != "" && ra.systemPromptMode != dbmodel.SystemPromptModeOff && response.StatusCode == http.StatusBadRequest {
+		errorBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxRelayErrorBodyBytes))
+		_ = response.Body.Close()
+		response.Body = io.NopCloser(bytes.NewReader(errorBody))
+		if readErr == nil && isSystemPromptContentBlocked(response.StatusCode, errorBody) {
+			if retryReq, buildErr := ra.prepareDegradedRequest(req); buildErr == nil {
+				ra.systemPromptRetry = true
+				if ra.metrics != nil {
+					ra.metrics.SystemPromptRetry = true
+					ra.metrics.SystemPromptRetryReason = "content_blocked"
+				}
+				if retryResponse, retryErr := httpClient.Do(retryReq); retryErr == nil {
+					log.Infof("retrying blocked request with degraded system prompt on channel %s", ra.channel.Name)
+					ra.recordOutboundRequest(retryReq)
+					req = retryReq
+					response = retryResponse
+				} else {
+					if timeoutErr := ra.firstTokenTimeoutIfNeeded(retryReq.Context(), retryErr); timeoutErr != nil {
+						ra.closeFirstTokenBudget()
+						return nil, timeoutErr
+					}
+					log.Warnf("degraded system prompt retry failed for channel %s; preserving original upstream response: %v", ra.channel.Name, retryErr)
+					ra.recordOutboundRequest(req)
+				}
+			} else {
+				log.Warnf("failed to build degraded system prompt retry for channel %s: %v", ra.channel.Name, buildErr)
+			}
+		}
 	}
 
 	// AnyRouter currently rejects the remote-compaction item with a generic

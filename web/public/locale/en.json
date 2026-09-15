@@ -771,6 +771,7 @@
             "systemPromptMode": "System Prompt Hijack",
             "systemPrompt": "Custom System Prompt",
             "systemPromptPlaceholder": "Enter the system instructions sent to the upstream model",
+            "systemPromptSanitizeFingerprints": "Sanitize known client fingerprints before sending",
             "systemPromptRequired": "A System Prompt is required when hijacking is enabled",
             "systemPromptOverrideWarning": "Strict override removes every client system/developer instruction and may break Codex or Claude Code agent behavior.",
             "systemPromptModes": {
@@ -947,6 +948,8 @@
             "noUpstreamRequestContent": "(No upstream request content)",
             "noResponseContent": "(No response content)",
             "upstreamBaseURL": "Base URL",
+            "systemPromptRetry": "System Prompt Retry",
+            "systemPromptRetryReasons": {"content_blocked": "content blocked"},
             "firstTokenTime": "First Token Time",
             "tokens": "tokens",
             "retryDetails": "Retry Details",

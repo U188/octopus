@@ -31,6 +31,7 @@ export type GroupEditorValues = {
     max_retries: number;
     system_prompt_mode: SystemPromptMode;
     system_prompt: string;
+    system_prompt_sanitize_fingerprints: boolean;
     members: SelectedMember[];
 };
 
@@ -281,6 +282,7 @@ export function GroupEditor({
     const [maxRetries, setMaxRetries] = useState<number>(initial?.max_retries ?? 3);
     const [systemPromptMode, setSystemPromptMode] = useState<SystemPromptMode>(initial?.system_prompt_mode ?? SystemPromptMode.Off);
     const [systemPrompt, setSystemPrompt] = useState<string>(initial?.system_prompt ?? '');
+    const [systemPromptSanitizeFingerprints, setSystemPromptSanitizeFingerprints] = useState<boolean>(initial?.system_prompt_sanitize_fingerprints ?? false);
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
@@ -370,6 +372,7 @@ export function GroupEditor({
             max_retries: maxRetries,
             system_prompt_mode: systemPromptMode,
             system_prompt: systemPrompt,
+            system_prompt_sanitize_fingerprints: systemPromptSanitizeFingerprints,
             members: selectedMembers,
         });
     };
@@ -582,6 +585,10 @@ export function GroupEditor({
                             {!systemPromptValid && (
                                 <p className="text-xs text-destructive">{t('form.systemPromptRequired')}</p>
                             )}
+                            <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                                <input type="checkbox" checked={systemPromptSanitizeFingerprints} onChange={(event) => setSystemPromptSanitizeFingerprints(event.target.checked)} />
+                                {t('form.systemPromptSanitizeFingerprints')}
+                            </label>
                         </Field>
                     </div>
 

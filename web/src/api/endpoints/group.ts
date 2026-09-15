@@ -46,6 +46,7 @@ export interface Group {
     max_retries?: number;
     system_prompt_mode?: SystemPromptMode;
     system_prompt?: string;
+    system_prompt_sanitize_fingerprints?: boolean;
     pinned?: boolean;
     pinned_at?: string | null;
     active_preset_id?: number | null;
@@ -128,6 +129,7 @@ export interface GroupUpdateRequest {
     max_retries?: number;                 // 仅在最大重试次数变更时发送
     system_prompt_mode?: SystemPromptMode;
     system_prompt?: string;
+    system_prompt_sanitize_fingerprints?: boolean;
     items_to_add?: GroupItemAddRequest[];    // 新增的 items
     items_to_update?: GroupItemUpdateRequest[]; // 更新的 items (priority 变更)
     items_to_delete?: number[];              // 删除的 item IDs
@@ -252,6 +254,7 @@ function applyGroupUpdate(group: Group, req: GroupUpdateRequest): Group {
     if (req.max_retries !== undefined) next.max_retries = req.max_retries;
     if (req.system_prompt_mode !== undefined) next.system_prompt_mode = req.system_prompt_mode;
     if (req.system_prompt !== undefined) next.system_prompt = req.system_prompt;
+    if (req.system_prompt_sanitize_fingerprints !== undefined) next.system_prompt_sanitize_fingerprints = req.system_prompt_sanitize_fingerprints;
 
     let items = [...(group.items ?? [])];
     if (req.items_to_delete?.length) {

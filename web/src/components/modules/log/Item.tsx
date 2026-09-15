@@ -1200,6 +1200,11 @@ export function LogCard({ log, siteTargets }: { log: RelayLog; siteTargets: LogS
                                 <span className="shrink-0 font-medium text-foreground/70">{t('upstreamBaseURL')}</span>
                                 <span className="truncate font-mono" title={displayLog.upstream_base_url || t('upstreamBaseURL')}>{displayLog.upstream_base_url || '-'}</span>
                             </div>
+                            {displayLog.system_prompt_retry ? (
+                                <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                    {t('systemPromptRetry')}: {t(`systemPromptRetryReasons.${displayLog.system_prompt_retry_reason || 'content_blocked'}`)}
+                                </Badge>
+                            ) : null}
                             {detailProxyNode || detailProxyIP ? (
                                 <>
                                     <div className="flex min-w-0 items-center gap-1.5">

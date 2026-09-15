@@ -771,6 +771,7 @@
             "systemPromptMode": "System Prompt 劫持",
             "systemPrompt": "自訂 System Prompt",
             "systemPromptPlaceholder": "輸入傳送給上游模型的系統指令",
+            "systemPromptSanitizeFingerprints": "傳送前清理已知客戶端指紋",
             "systemPromptRequired": "啟用劫持時必須填寫 System Prompt",
             "systemPromptOverrideWarning": "嚴格覆蓋會刪除客戶端全部 system/developer 指令，可能破壞 Codex 或 Claude Code 的 Agent 行為。",
             "systemPromptModes": {
@@ -947,6 +948,8 @@
             "noUpstreamRequestContent": "(無上游請求內容)",
             "noResponseContent": "(無響應內容)",
             "upstreamBaseURL": "Base URL",
+            "systemPromptRetry": "System Prompt 重試",
+            "systemPromptRetryReasons": {"content_blocked": "內容攔截"},
             "firstTokenTime": "首字時間",
             "tokens": "tokens",
             "retryDetails": "重試詳情",

@@ -21,6 +21,8 @@ type wsUpstreamReader struct {
 	done       bool // true after a terminal event has been returned
 	dirty      bool // true when the conn may carry residual events or is broken; must not be reused
 	statusCode int
+	errorCode  string
+	errorMsg   string
 }
 
 func newWSUpstreamReader(pc *pooledConn, channelID, keyID int) *wsUpstreamReader {
@@ -70,14 +72,14 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 		Type   string `json:"type"`
 		Status int    `json:"status"`
 		Error  *struct {
-			Code    string `json:"code"`
+			Code    any    `json:"code"`
 			Message string `json:"message"`
 			Type    string `json:"type"`
 		} `json:"error"`
 		Response *struct {
 			Status string `json:"status"`
 			Error  *struct {
-				Code    string `json:"code"`
+				Code    any    `json:"code"`
 				Message string `json:"message"`
 				Type    string `json:"type"`
 			} `json:"error"`
@@ -102,12 +104,14 @@ func (r *wsUpstreamReader) ReadEvent(ctx context.Context) ([]byte, error) {
 			errMsg := "upstream ws error"
 			if event.Error != nil {
 				errMsg = event.Error.Message
-				errCode = event.Error.Code
+				errCode = normalizeWSUpstreamErrorCode(event.Error.Code)
 			}
 			if event.Response != nil && event.Response.Error != nil {
 				errMsg = event.Response.Error.Message
-				errCode = event.Response.Error.Code
+				errCode = normalizeWSUpstreamErrorCode(event.Response.Error.Code)
 			}
+			r.errorCode = errCode
+			r.errorMsg = errMsg
 			return nil, fmt.Errorf("%s (code=%s, status=%d)", errMsg, errCode, r.statusCode)
 		}
 	}

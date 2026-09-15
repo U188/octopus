@@ -16,20 +16,96 @@ func (ra *relayAttempt) finalizeOutboundRequest(req *http.Request) error {
 	if err := ra.applySystemPrompt(req); err != nil {
 		return fmt.Errorf("system prompt rewrite failed: %w", err)
 	}
-	if ra.metrics != nil {
-		if body, err := readOutboundRequestBody(req); err == nil {
-			modelName := ra.requestModel
-			if ra.internalRequest != nil {
-				modelName = ra.internalRequest.Model
-			}
-			baseURL := ""
-			if ra.channel != nil {
-				baseURL = ra.channel.GetBaseUrl()
-			}
-			ra.metrics.SetUpstreamRequestPayload(body, baseURL, modelName)
+	if ra.systemPromptSanitizeFingerprints {
+		body, err := readOutboundRequestBody(req)
+		if err != nil {
+			return fmt.Errorf("read outbound request for fingerprint sanitization: %w", err)
+		}
+		if sanitized, changed, err := sanitizeOutboundPayload(body); err != nil {
+			return fmt.Errorf("sanitize outbound fingerprints: %w", err)
+		} else if changed {
+			resetRequestBody(req, sanitized)
 		}
 	}
+	ra.recordOutboundRequest(req)
 	return nil
+}
+
+func (ra *relayAttempt) recordOutboundRequest(req *http.Request) {
+	if ra == nil || ra.metrics == nil || req == nil {
+		return
+	}
+	body, err := readOutboundRequestBody(req)
+	if err != nil {
+		return
+	}
+	modelName := ra.requestModel
+	if ra.internalRequest != nil {
+		modelName = ra.internalRequest.Model
+	}
+	baseURL := ""
+	if ra.channel != nil {
+		baseURL = ra.channel.GetBaseUrl()
+	}
+	ra.metrics.SetUpstreamRequestPayload(body, baseURL, modelName)
+}
+
+func (ra *relayAttempt) prepareDegradedRequest(req *http.Request) (*http.Request, error) {
+	if req == nil || ra == nil || ra.channel == nil {
+		return nil, fmt.Errorf("missing request or channel")
+	}
+	body, err := readOutboundRequestBody(req)
+	if err != nil {
+		return nil, err
+	}
+	rewritten, err := ra.prepareDegradedBody(body)
+	if err != nil {
+		return nil, err
+	}
+	retry := req.Clone(req.Context())
+	resetRequestBody(retry, rewritten)
+	return retry, nil
+}
+
+func (ra *relayAttempt) prepareDegradedBody(body []byte) ([]byte, error) {
+	if ra == nil || ra.channel == nil {
+		return nil, fmt.Errorf("missing relay attempt or channel")
+	}
+	rewritten, _, err := rewriteSystemPromptBody(body, ra.channel.Type, ra.channel.CodexMode, dbmodel.SystemPromptModeOverride, degradedSystemPrompt)
+	if err != nil {
+		return nil, err
+	}
+	if ra.systemPromptSanitizeFingerprints {
+		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(rewritten); sanitizeErr != nil {
+			return nil, sanitizeErr
+		} else if changed {
+			rewritten = sanitized
+		}
+	}
+	return rewritten, nil
+}
+
+func (ra *relayAttempt) shouldRetryBlockedSystemPrompt(status int, code, message string) bool {
+	if ra == nil || ra.systemPromptRetry || ra.systemPromptMode == "" || ra.systemPromptMode == dbmodel.SystemPromptModeOff {
+		return false
+	}
+	return isSystemPromptContentBlockedDetails(status, code, message)
+}
+
+func (ra *relayAttempt) markSystemPromptRetry(payload []byte) {
+	ra.systemPromptRetry = true
+	if ra.metrics == nil {
+		return
+	}
+	ra.metrics.SystemPromptRetry = true
+	ra.metrics.SystemPromptRetryReason = "content_blocked"
+	if len(payload) > 0 && ra.channel != nil {
+		modelName := ra.requestModel
+		if ra.internalRequest != nil {
+			modelName = ra.internalRequest.Model
+		}
+		ra.metrics.SetUpstreamRequestPayload(payload, ra.channel.GetBaseUrl(), modelName)
+	}
 }
 
 func (ra *relayAttempt) applySystemPrompt(req *http.Request) error {
@@ -146,6 +222,7 @@ func rewriteChatSystemPrompt(payload map[string]any, mode dbmodel.SystemPromptMo
 	case dbmodel.SystemPromptModeAppend:
 		messages = insertJSONItem(messages, lastInstruction+1, custom)
 	case dbmodel.SystemPromptModeOverride:
+		custom["role"] = "system"
 		filtered := make([]any, 0, len(messages)+1)
 		filtered = append(filtered, custom)
 		for _, message := range messages {

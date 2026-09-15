@@ -72,6 +72,14 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		wsUpstreamPool.Put(pc)
 		return -1, nil
 	}
+	if ra.systemPromptSanitizeFingerprints {
+		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(payload); sanitizeErr != nil {
+			wsUpstreamPool.Put(pc)
+			return http.StatusInternalServerError, sanitizeErr
+		} else if changed {
+			payload = sanitized
+		}
+	}
 	ra.metrics.SetUpstreamRequestPayload(payload, ra.channel.GetBaseUrl(), ra.internalRequest.Model)
 	if err := wsUpstreamPool.SendRaw(ctx, pc, payload); err != nil {
 		log.Warnf("upstream WS passthrough send failed for channel %s: %v", ra.channel.Name, err)
@@ -98,6 +106,18 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 	if err != nil {
 		ra.applyWSPassthroughStats(stats)
 		wsUpstreamPool.RemoveConn(pc)
+		if stats != nil && stats.Error != nil && ra.shouldRetryBlockedSystemPrompt(stats.Error.Status, stats.Error.Code, stats.Error.Message) && !ra.streamPayloadWritten.Load() {
+			if degraded, buildErr := ra.prepareDegradedBody(payload); buildErr == nil {
+				if status, retryErr, attempted := ra.retryViaFreshUpstreamWSPassthroughPrompt(ctx, degraded); attempted {
+					if retryErr == nil {
+						log.Infof("retried blocked WebSocket passthrough request with degraded system prompt on channel %s", ra.channel.Name)
+					}
+					return status, retryErr
+				}
+			} else {
+				log.Warnf("failed to build degraded WebSocket passthrough retry for channel %s: %v", ra.channel.Name, buildErr)
+			}
+		}
 		if continuation && !ra.streamPayloadWritten.Load() && shouldReconnectUpstreamWSBeforeReplay(err) {
 			statusCode, redialErr, recovered := ra.retryViaFreshUpstreamWSPassthrough(ctx, payload)
 			if recovered || redialErr != nil {
@@ -117,6 +137,35 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 	ra.applyWSPassthroughStats(stats)
 	ra.recordSuccessfulWSAffinity(pc)
 	return http.StatusOK, nil
+}
+
+func (ra *relayAttempt) retryViaFreshUpstreamWSPassthroughPrompt(ctx context.Context, payload []byte) (int, error, bool) {
+	redialed := TryUpstreamWSWithPreference(ctx, ra.channel, ra.channel.GetBaseUrl(), ra.usedKey.ChannelKey, ra.usedKey.ID, ra.clientRequestHeaders(), "", true)
+	if redialed == nil {
+		return 0, nil, false
+	}
+	if err := wsUpstreamPool.SendRaw(ctx, redialed, payload); err != nil {
+		wsUpstreamPool.RemoveConn(redialed)
+		wsUpstreamPool.RecordWSFailure(ra.channel.ID)
+		return 0, nil, false
+	}
+	ra.markSystemPromptRetry(payload)
+	stats, err := ra.handleWSPassthroughStream(ctx, redialed)
+	ra.applyWSPassthroughStats(stats)
+	if err != nil {
+		wsUpstreamPool.RemoveConn(redialed)
+		if ra.requestContext().Err() == nil {
+			wsUpstreamPool.RecordWSFailure(ra.channel.ID)
+		}
+		if stats != nil && stats.Error != nil && stats.Error.Status > 0 {
+			return stats.Error.Status, err, true
+		}
+		return http.StatusBadGateway, err, true
+	}
+	wsUpstreamPool.Put(redialed)
+	wsUpstreamPool.RecordWSSuccess(ra.channel.ID)
+	ra.recordSuccessfulWSAffinity(redialed)
+	return http.StatusOK, nil, true
 }
 
 func (ra *relayAttempt) retryViaFreshUpstreamWSPassthrough(ctx context.Context, payload []byte) (int, error, bool) {
@@ -211,6 +260,9 @@ func (ra *relayAttempt) handleWSPassthroughStream(ctx context.Context, pc *poole
 		}
 		observeWSPassthroughEvent(stats, data)
 		if stats.Error != nil {
+			if ra.shouldRetryBlockedSystemPrompt(stats.Error.Status, stats.Error.Code, stats.Error.Message) {
+				return stats, stats.Error
+			}
 			if !dropDownstream {
 				out := ra.rewriteWSPassthroughDownstreamModel(data)
 				if writeErr := writeWSPassthroughDownstream(ctx, writer, out); writeErr != nil {
