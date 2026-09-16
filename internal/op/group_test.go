@@ -1,12 +1,63 @@
 package op
 
 import (
+	"strings"
 	"testing"
 
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
 	"github.com/U188/octopus/internal/transformer/outbound"
 )
+
+func TestGroupFingerprintRulesCreateAndUpdate(t *testing.T) {
+	ctx := setupSiteOpTestDB(t)
+	groupCache.Clear()
+	groupMap.Clear()
+
+	group := &model.Group{
+		Name:                             "fingerprint-rules-group",
+		Mode:                             model.GroupModeFailover,
+		SystemPromptSanitizeFingerprints: true,
+		SystemPromptFingerprintRules:     "old => new",
+		ConversationRewriteRules:         "[content] old => new",
+	}
+	if err := GroupCreate(group, ctx); err != nil {
+		t.Fatalf("GroupCreate failed: %v", err)
+	}
+	next := "remove-me"
+	nextConversation := "[reasoning_content] * => weather"
+	updated, err := GroupUpdate(&model.GroupUpdateRequest{ID: group.ID, SystemPromptFingerprintRules: &next, ConversationRewriteRules: &nextConversation}, ctx)
+	if err != nil {
+		t.Fatalf("GroupUpdate failed: %v", err)
+	}
+	if updated.SystemPromptFingerprintRules != next {
+		t.Fatalf("updated rules = %q", updated.SystemPromptFingerprintRules)
+	}
+	if updated.ConversationRewriteRules != nextConversation {
+		t.Fatalf("updated conversation rules = %q", updated.ConversationRewriteRules)
+	}
+	cached, err := GroupGet(group.ID, ctx)
+	if err != nil || cached.SystemPromptFingerprintRules != next || cached.ConversationRewriteRules != nextConversation {
+		t.Fatalf("cached rules = %q, err=%v", cached.SystemPromptFingerprintRules, err)
+	}
+	invalidConversation := "[system] old => new"
+	if _, err := GroupUpdate(&model.GroupUpdateRequest{ID: group.ID, ConversationRewriteRules: &invalidConversation}, ctx); err == nil {
+		t.Fatal("expected invalid conversation rules to be rejected")
+	}
+	tooLarge := strings.Repeat("a", model.SystemPromptFingerprintRulesMaxBytes+1)
+	if _, err := GroupUpdate(&model.GroupUpdateRequest{ID: group.ID, SystemPromptFingerprintRules: &tooLarge}, ctx); err == nil {
+		t.Fatal("expected oversized rules to be rejected")
+	}
+	disabled := false
+	inactiveInvalid := "[content] old => new"
+	if _, err := GroupUpdate(&model.GroupUpdateRequest{ID: group.ID, SystemPromptSanitizeFingerprints: &disabled, SystemPromptFingerprintRules: &inactiveInvalid}, ctx); err != nil {
+		t.Fatalf("inactive fingerprint rules should not block update: %v", err)
+	}
+	enabled := true
+	if _, err := GroupUpdate(&model.GroupUpdateRequest{ID: group.ID, SystemPromptSanitizeFingerprints: &enabled}, ctx); err == nil {
+		t.Fatal("expected invalid fingerprint rules to block enabling sanitization")
+	}
+}
 
 func TestGroupGetEnabledMapMatchesRegexWhenExactGroupMissing(t *testing.T) {
 	ctx := setupSiteOpTestDB(t)

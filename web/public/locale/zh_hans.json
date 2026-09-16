@@ -772,6 +772,12 @@
             "systemPrompt": "自定义 System Prompt",
             "systemPromptPlaceholder": "输入发送给上游模型的系统指令",
             "systemPromptSanitizeFingerprints": "发送前清理已知客户端指纹",
+            "systemPromptFingerprintRules": "自定义指纹清洗规则",
+            "systemPromptFingerprintRulesPlaceholder": "要删除的 System 文本\n旧 System 文本 => 新文本",
+            "systemPromptFingerprintRulesInvalid": "最多 256 条、64000 字节；匹配文本不能为空，仅支持 System 文本",
+            "conversationRewriteRules": "对话字段替换规则",
+            "conversationRewriteRulesPlaceholder": "[content] 旧文本 => 新文本\n[reasoning_content] * => 今天天气真好",
+            "conversationRewriteRulesInvalid": "最多 256 条、64000 字节；必须使用 content 或 reasoning_content 作用域，匹配文本不能为空",
             "systemPromptRequired": "启用劫持时必须填写 System Prompt",
             "systemPromptOverrideWarning": "严格覆盖会删除客户端全部 system/developer 指令，可能破坏 Codex 或 Claude Code 的 Agent 行为。",
             "systemPromptModes": {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,196 @@ func TestSanitizeOutboundPayloadDoesNotConsumeFollowingText(t *testing.T) {
 	if err != nil || !changed || !strings.Contains(string(got), "keep this sentence") {
 		t.Fatalf("following text was consumed: changed=%t err=%v got=%s", changed, err, got)
 	}
+}
+
+func TestSanitizeOutboundPayloadAppliesCustomLiteralRules(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"system","content":"remove-me old-value keep"},{"role":"user","content":"remove-me old-value"}]}`)
+	got, changed, err := sanitizeOutboundPayloadWithRules(body, "remove-me\nold-value => new-value")
+	if err != nil || !changed {
+		t.Fatalf("custom rules changed=%t err=%v", changed, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(got, &payload); err != nil {
+		t.Fatal(err)
+	}
+	messages := payload["messages"].([]any)
+	if content := messages[0].(map[string]any)["content"]; content != "new-value keep" {
+		t.Fatalf("system content = %q", content)
+	}
+	if content := messages[1].(map[string]any)["content"]; content != "remove-me old-value" {
+		t.Fatalf("user content was modified: %q", content)
+	}
+}
+
+func TestScopedTextRulesPreserveToolsAndOtherFields(t *testing.T) {
+	body := []byte(`{"model":"old","metadata":{"content":"old"},"messages":[{"role":"system","content":"old"},{"role":"user","content":"old"},{"role":"assistant","content":"old","reasoning_content":"try writing the file again","tool_calls":[{"id":"call_old","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo old\"}"}}]},{"role":"assistant","content":"old"},{"role":"tool","content":"old"}],"tools":[{"type":"function","function":{"name":"old","parameters":{"content":"old"}}}]}`)
+	got, changed, err := rewriteOutboundPayload(body, false, "", "[content] old => new\n[reasoning_content] * => 今天天气真好", true)
+	if err != nil || !changed {
+		t.Fatalf("scoped rules changed=%t err=%v", changed, err)
+	}
+	var before, after map[string]any
+	if err := json.Unmarshal(body, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got, &after); err != nil {
+		t.Fatal(err)
+	}
+	messages := before["messages"].([]any)
+	messages[1].(map[string]any)["content"] = "new"
+	messages[2].(map[string]any)["content"] = "new"
+	messages[2].(map[string]any)["reasoning_content"] = "今天天气真好"
+	messages[3].(map[string]any)["content"] = "new"
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("unexpected fields modified: %s", got)
+	}
+}
+
+func TestScopedContentRulesForResponsesAndGeminiTextBlocks(t *testing.T) {
+	for _, body := range []string{
+		`{"instructions":"old","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"old","metadata":"old"},{"type":"input_image","image_url":"old"}]},{"type":"function_call","name":"old","arguments":"old"}]}`,
+		`{"systemInstruction":{"parts":[{"text":"old"}]},"contents":[{"role":"model","parts":[{"text":"old"},{"functionCall":{"name":"old","args":{"text":"old"}}}]}]}`,
+		`{"input":"old"}`,
+	} {
+		got, changed, err := rewriteOutboundPayload([]byte(body), false, "", "[content] old => new", true)
+		if err != nil || !changed || !strings.Contains(string(got), "new") {
+			t.Fatalf("text blocks changed=%t err=%v got=%s", changed, err, got)
+		}
+		if strings.Contains(string(got), `"name":"new"`) || strings.Contains(string(got), `"instructions":"new"`) || strings.Contains(string(got), `"image_url":"new"`) {
+			t.Fatalf("non-content fields were modified: %s", got)
+		}
+	}
+}
+
+func TestFingerprintAndConversationRulesRemainIndependent(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"system","content":"old"},{"role":"user","content":"old"},{"role":"assistant","content":"old","reasoning_content":"old"}]}`)
+	got, changed, err := rewriteOutboundPayload(body, true, "old => system-new", "[content] old => content-new\n[reasoning_content] * => weather", true)
+	if err != nil || !changed {
+		t.Fatalf("rewrite changed=%t err=%v", changed, err)
+	}
+	var payload struct {
+		Messages []struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(got, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Messages[0].Content != "system-new" || payload.Messages[1].Content != "content-new" ||
+		payload.Messages[2].Content != "content-new" || payload.Messages[2].ReasoningContent != "weather" {
+		t.Fatalf("rules crossed boundaries: %s", got)
+	}
+}
+
+func TestReasoningRulesCoverProviderWireFormats(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "responses", body: `{"input":[{"type":"reasoning","summary":[{"type":"summary_text","text":"old"}]}]}`},
+		{name: "anthropic", body: `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"old"}]}]}`},
+		{name: "gemini", body: `{"contents":[{"role":"model","parts":[{"thought":true,"text":"old"}]}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed, err := rewriteOutboundPayload([]byte(tt.body), false, "", "[reasoning_content] * => weather", true)
+			if err != nil || !changed || !strings.Contains(string(got), `"weather"`) || strings.Contains(string(got), `"old"`) {
+				t.Fatalf("reasoning rewrite changed=%t err=%v body=%s", changed, err, got)
+			}
+		})
+	}
+}
+
+func TestReasoningRulesPreserveSignedProviderBlocks(t *testing.T) {
+	for _, body := range []string{
+		`{"messages":[{"role":"assistant","reasoning_content":"old","reasoning_signature":"sig"}]}`,
+		`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"old","signature":"sig"}]}]}`,
+		`{"contents":[{"role":"model","parts":[{"thought":true,"text":"old","thoughtSignature":"sig"}]}]}`,
+	} {
+		got, changed, err := rewriteOutboundPayload([]byte(body), false, "", "[reasoning_content] * => weather", true)
+		if err != nil || changed || string(got) != body {
+			t.Fatalf("signed reasoning changed=%t err=%v body=%s", changed, err, got)
+		}
+	}
+}
+
+func TestConversationRulesSkipEmbeddingInput(t *testing.T) {
+	body := []byte(`{"model":"embedding-model","input":"old"}`)
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{conversationRewriteRules: "[content] old => new"},
+		channel:      &dbmodel.Channel{Type: outbound.OutboundTypeOpenAIEmbedding},
+	}
+	got, changed, err := ra.rewriteConfiguredOutboundPayload(body, true)
+	if err != nil || changed || string(got) != string(body) {
+		t.Fatalf("embedding input changed=%t err=%v body=%s", changed, err, got)
+	}
+}
+
+func TestDegradedRetryDoesNotApplyConversationRulesTwice(t *testing.T) {
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{
+			systemPromptMode:         dbmodel.SystemPromptModeOverride,
+			systemPrompt:             "managed",
+			conversationRewriteRules: "[content] a => aa",
+		},
+		channel: &dbmodel.Channel{Type: outbound.OutboundTypeOpenAIChat},
+	}
+	req, err := http.NewRequest(http.MethodPost, "http://example.com", strings.NewReader(`{"messages":[{"role":"system","content":"original"},{"role":"user","content":"a"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ra.finalizeOutboundRequest(req); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := ra.prepareDegradedRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := readOutboundRequestBody(retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"content":"aaaa"`) || !strings.Contains(string(body), `"content":"aa"`) {
+		t.Fatalf("conversation rules were applied twice: %s", body)
+	}
+}
+
+func TestOutboundRequestAppliesReasoningRuleBeforeSending(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		if len(payload.Messages) != 1 || payload.Messages[0].ReasoningContent != "weather" {
+			t.Errorf("upstream received unexpected reasoning: %#v", payload.Messages)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	ra := &relayAttempt{
+		relayRequest: &relayRequest{
+			systemPromptMode:                 dbmodel.SystemPromptModeOff,
+			systemPromptSanitizeFingerprints: false,
+			conversationRewriteRules:         "[reasoning_content] * => weather",
+		},
+		channel: &dbmodel.Channel{Type: outbound.OutboundTypeOpenAIChat, BaseUrls: []dbmodel.BaseUrl{{URL: server.URL}}},
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{"messages":[{"role":"assistant","content":"","reasoning_content":"old"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ra.finalizeOutboundRequest(req); err != nil {
+		t.Fatal(err)
+	}
+	response, err := ra.sendRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
 }
 
 func TestSanitizeOutboundPayloadLeavesNormalPayloadUntouched(t *testing.T) {

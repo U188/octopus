@@ -16,13 +16,13 @@ func (ra *relayAttempt) finalizeOutboundRequest(req *http.Request) error {
 	if err := ra.applySystemPrompt(req); err != nil {
 		return fmt.Errorf("system prompt rewrite failed: %w", err)
 	}
-	if ra.systemPromptSanitizeFingerprints {
+	if ra.systemPromptSanitizeFingerprints || ra.conversationRewriteEnabled() {
 		body, err := readOutboundRequestBody(req)
 		if err != nil {
-			return fmt.Errorf("read outbound request for fingerprint sanitization: %w", err)
+			return fmt.Errorf("read outbound request for text rewrite: %w", err)
 		}
-		if sanitized, changed, err := sanitizeOutboundPayload(body); err != nil {
-			return fmt.Errorf("sanitize outbound fingerprints: %w", err)
+		if sanitized, changed, err := ra.rewriteConfiguredOutboundPayload(body, true); err != nil {
+			return fmt.Errorf("rewrite outbound request text: %w", err)
 		} else if changed {
 			resetRequestBody(req, sanitized)
 		}
@@ -75,14 +75,28 @@ func (ra *relayAttempt) prepareDegradedBody(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ra.systemPromptSanitizeFingerprints {
-		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(rewritten); sanitizeErr != nil {
+	if ra.systemPromptSanitizeFingerprints || ra.conversationRewriteEnabled() {
+		if sanitized, changed, sanitizeErr := ra.rewriteConfiguredOutboundPayload(rewritten, false); sanitizeErr != nil {
 			return nil, sanitizeErr
 		} else if changed {
 			rewritten = sanitized
 		}
 	}
 	return rewritten, nil
+}
+
+func (ra *relayAttempt) conversationRewriteEnabled() bool {
+	return ra != nil && ra.channel != nil && ra.channel.Type != outbound.OutboundTypeOpenAIEmbedding && strings.TrimSpace(ra.conversationRewriteRules) != ""
+}
+
+func (ra *relayAttempt) rewriteConfiguredOutboundPayload(body []byte, includeConversation bool) ([]byte, bool, error) {
+	conversationRules := ""
+	rewriteTopLevelInput := false
+	if includeConversation && ra.conversationRewriteEnabled() {
+		conversationRules = ra.conversationRewriteRules
+		rewriteTopLevelInput = ra.channel.Type == outbound.OutboundTypeOpenAIResponse || ra.channel.Type == outbound.OutboundTypeVolcengine
+	}
+	return rewriteOutboundPayload(body, ra.systemPromptSanitizeFingerprints, ra.systemPromptFingerprintRules, conversationRules, rewriteTopLevelInput)
 }
 
 func (ra *relayAttempt) shouldRetryBlockedSystemPrompt(status int, code, message string) bool {

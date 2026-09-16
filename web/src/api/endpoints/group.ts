@@ -47,6 +47,8 @@ export interface Group {
     system_prompt_mode?: SystemPromptMode;
     system_prompt?: string;
     system_prompt_sanitize_fingerprints?: boolean;
+    system_prompt_fingerprint_rules?: string;
+    conversation_rewrite_rules?: string;
     pinned?: boolean;
     pinned_at?: string | null;
     active_preset_id?: number | null;
@@ -130,6 +132,8 @@ export interface GroupUpdateRequest {
     system_prompt_mode?: SystemPromptMode;
     system_prompt?: string;
     system_prompt_sanitize_fingerprints?: boolean;
+    system_prompt_fingerprint_rules?: string;
+    conversation_rewrite_rules?: string;
     items_to_add?: GroupItemAddRequest[];    // 新增的 items
     items_to_update?: GroupItemUpdateRequest[]; // 更新的 items (priority 变更)
     items_to_delete?: number[];              // 删除的 item IDs
@@ -255,6 +259,8 @@ function applyGroupUpdate(group: Group, req: GroupUpdateRequest): Group {
     if (req.system_prompt_mode !== undefined) next.system_prompt_mode = req.system_prompt_mode;
     if (req.system_prompt !== undefined) next.system_prompt = req.system_prompt;
     if (req.system_prompt_sanitize_fingerprints !== undefined) next.system_prompt_sanitize_fingerprints = req.system_prompt_sanitize_fingerprints;
+    if (req.system_prompt_fingerprint_rules !== undefined) next.system_prompt_fingerprint_rules = req.system_prompt_fingerprint_rules;
+    if (req.conversation_rewrite_rules !== undefined) next.conversation_rewrite_rules = req.conversation_rewrite_rules;
 
     let items = [...(group.items ?? [])];
     if (req.items_to_delete?.length) {

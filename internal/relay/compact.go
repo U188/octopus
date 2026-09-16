@@ -255,6 +255,8 @@ func forwardResponsesCompact(c *gin.Context, metrics *RelayMetrics, iter *balanc
 			systemPromptMode:                 group.SystemPromptMode,
 			systemPrompt:                     group.SystemPrompt,
 			systemPromptSanitizeFingerprints: group.SystemPromptSanitizeFingerprints,
+			systemPromptFingerprintRules:     group.SystemPromptFingerprintRules,
+			conversationRewriteRules:         group.ConversationRewriteRules,
 		},
 		channel: channel,
 		usedKey: usedKey,

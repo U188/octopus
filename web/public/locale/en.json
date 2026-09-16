@@ -772,6 +772,12 @@
             "systemPrompt": "Custom System Prompt",
             "systemPromptPlaceholder": "Enter the system instructions sent to the upstream model",
             "systemPromptSanitizeFingerprints": "Sanitize known client fingerprints before sending",
+            "systemPromptFingerprintRules": "Custom fingerprint rules",
+            "systemPromptFingerprintRulesPlaceholder": "System text to remove\nOld System text => New text",
+            "systemPromptFingerprintRulesInvalid": "Maximum 256 rules and 64000 bytes; match text is required and only System text is supported",
+            "conversationRewriteRules": "Conversation field rewrite rules",
+            "conversationRewriteRulesPlaceholder": "[content] old text => new text\n[reasoning_content] * => The weather is nice today",
+            "conversationRewriteRulesInvalid": "Maximum 256 rules and 64000 bytes; use content or reasoning_content scope with nonempty match text",
             "systemPromptRequired": "A System Prompt is required when hijacking is enabled",
             "systemPromptOverrideWarning": "Strict override removes every client system/developer instruction and may break Codex or Claude Code agent behavior.",
             "systemPromptModes": {

@@ -425,6 +425,8 @@ func newWSRelayRequest(
 		systemPromptMode:                 group.SystemPromptMode,
 		systemPrompt:                     group.SystemPrompt,
 		systemPromptSanitizeFingerprints: group.SystemPromptSanitizeFingerprints,
+		systemPromptFingerprintRules:     group.SystemPromptFingerprintRules,
+		conversationRewriteRules:         group.ConversationRewriteRules,
 		iter:                             iter,
 		streamWriter:                     NewWSStreamWriter(ctx, conn),
 	}, &group, nil

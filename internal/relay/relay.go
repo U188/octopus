@@ -116,6 +116,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		systemPromptMode:                 group.SystemPromptMode,
 		systemPrompt:                     group.SystemPrompt,
 		systemPromptSanitizeFingerprints: group.SystemPromptSanitizeFingerprints,
+		systemPromptFingerprintRules:     group.SystemPromptFingerprintRules,
+		conversationRewriteRules:         group.ConversationRewriteRules,
 		iter:                             iter,
 		rawBody:                          rawBody,
 		heartbeat:                        hb,
@@ -530,9 +532,9 @@ func (ra *relayAttempt) forwardViaWS(ctx context.Context) (int, error) {
 		wsUpstreamPool.Put(pc)
 		return http.StatusInternalServerError, fmt.Errorf("system prompt rewrite failed: %w", err)
 	}
-	if ra.systemPromptSanitizeFingerprints {
-		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(reqBody); sanitizeErr != nil {
-			return http.StatusInternalServerError, fmt.Errorf("sanitize outbound fingerprints: %w", sanitizeErr)
+	if ra.systemPromptSanitizeFingerprints || ra.conversationRewriteEnabled() {
+		if sanitized, changed, sanitizeErr := ra.rewriteConfiguredOutboundPayload(reqBody, true); sanitizeErr != nil {
+			return http.StatusInternalServerError, fmt.Errorf("rewrite outbound request text: %w", sanitizeErr)
 		} else if changed {
 			reqBody = sanitized
 		}

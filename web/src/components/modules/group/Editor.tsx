@@ -32,6 +32,8 @@ export type GroupEditorValues = {
     system_prompt_mode: SystemPromptMode;
     system_prompt: string;
     system_prompt_sanitize_fingerprints: boolean;
+    system_prompt_fingerprint_rules: string;
+    conversation_rewrite_rules: string;
     members: SelectedMember[];
 };
 
@@ -283,6 +285,8 @@ export function GroupEditor({
     const [systemPromptMode, setSystemPromptMode] = useState<SystemPromptMode>(initial?.system_prompt_mode ?? SystemPromptMode.Off);
     const [systemPrompt, setSystemPrompt] = useState<string>(initial?.system_prompt ?? '');
     const [systemPromptSanitizeFingerprints, setSystemPromptSanitizeFingerprints] = useState<boolean>(initial?.system_prompt_sanitize_fingerprints ?? false);
+    const [systemPromptFingerprintRules, setSystemPromptFingerprintRules] = useState<string>(initial?.system_prompt_fingerprint_rules ?? '');
+    const [conversationRewriteRules, setConversationRewriteRules] = useState<string>(initial?.conversation_rewrite_rules ?? '');
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
@@ -357,7 +361,25 @@ export function GroupEditor({
 
     const systemPromptBytes = new TextEncoder().encode(systemPrompt).length;
     const systemPromptValid = systemPromptMode === SystemPromptMode.Off || (systemPrompt.trim().length > 0 && systemPromptBytes <= 64000);
-    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError && systemPromptValid;
+    const fingerprintRuleLines = systemPromptFingerprintRules.split('\n').map((line) => line.trim()).filter(Boolean);
+    const fingerprintRulesBytes = new TextEncoder().encode(systemPromptFingerprintRules).length;
+    const fingerprintRulesValid = fingerprintRulesBytes <= 64000 && fingerprintRuleLines.length <= 256 && fingerprintRuleLines.every((line) => {
+        let ruleText = line;
+        if (line.startsWith('[')) {
+            const end = line.indexOf(']');
+            if (end <= 1 || line.slice(1, end).trim() !== 'system') return false;
+            ruleText = line.slice(end + 1).trim();
+        }
+        return ruleText.split('=>', 1)[0].trim().length > 0;
+    });
+    const conversationRuleLines = conversationRewriteRules.split('\n').map((line) => line.trim()).filter(Boolean);
+    const conversationRulesBytes = new TextEncoder().encode(conversationRewriteRules).length;
+    const conversationRulesValid = conversationRulesBytes <= 64000 && conversationRuleLines.length <= 256 && conversationRuleLines.every((line) => {
+        const end = line.indexOf(']');
+        if (!line.startsWith('[') || end <= 1 || !['content', 'reasoning_content'].includes(line.slice(1, end).trim())) return false;
+        return line.slice(end + 1).trim().split('=>', 1)[0].trim().length > 0;
+    });
+    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError && systemPromptValid && (!systemPromptSanitizeFingerprints || fingerprintRulesValid) && conversationRulesValid;
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -373,6 +395,8 @@ export function GroupEditor({
             system_prompt_mode: systemPromptMode,
             system_prompt: systemPrompt,
             system_prompt_sanitize_fingerprints: systemPromptSanitizeFingerprints,
+            system_prompt_fingerprint_rules: systemPromptFingerprintRules,
+            conversation_rewrite_rules: conversationRewriteRules,
             members: selectedMembers,
         });
     };
@@ -589,6 +613,46 @@ export function GroupEditor({
                                 <input type="checkbox" checked={systemPromptSanitizeFingerprints} onChange={(event) => setSystemPromptSanitizeFingerprints(event.target.checked)} />
                                 {t('form.systemPromptSanitizeFingerprints')}
                             </label>
+                            {systemPromptSanitizeFingerprints ? (
+                                <details className="group/fingerprint mt-2">
+                                    <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium outline-none transition-colors hover:bg-muted/80 focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                                        <span className="min-w-0 flex-1 truncate">{t('form.systemPromptFingerprintRules')}</span>
+                                        <span className="shrink-0 font-normal text-muted-foreground">{fingerprintRuleLines.length}/256 · {fingerprintRulesBytes}/64000 B</span>
+                                        <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open/fingerprint:rotate-180" />
+                                    </summary>
+                                    <textarea
+                                        id="group-system-prompt-fingerprint-rules"
+                                        aria-label={t('form.systemPromptFingerprintRules')}
+                                        value={systemPromptFingerprintRules}
+                                        onChange={(event) => setSystemPromptFingerprintRules(event.target.value)}
+                                        placeholder={t('form.systemPromptFingerprintRulesPlaceholder')}
+                                        className="mt-2 min-h-20 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                                    />
+                                </details>
+                            ) : null}
+                            {systemPromptSanitizeFingerprints && !fingerprintRulesValid ? (
+                                <p className="text-xs text-destructive">{t('form.systemPromptFingerprintRulesInvalid')}</p>
+                            ) : null}
+                        </Field>
+                        <Field>
+                            <details className="group/conversation mt-2">
+                                <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium outline-none transition-colors hover:bg-muted/80 focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                                    <span className="min-w-0 flex-1 truncate">{t('form.conversationRewriteRules')}</span>
+                                    <span className="shrink-0 font-normal text-muted-foreground">{conversationRuleLines.length}/256 · {conversationRulesBytes}/64000 B</span>
+                                    <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open/conversation:rotate-180" />
+                                </summary>
+                                <textarea
+                                    id="group-conversation-rewrite-rules"
+                                    aria-label={t('form.conversationRewriteRules')}
+                                    value={conversationRewriteRules}
+                                    onChange={(event) => setConversationRewriteRules(event.target.value)}
+                                    placeholder={t('form.conversationRewriteRulesPlaceholder')}
+                                    className="mt-2 min-h-20 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                                />
+                            </details>
+                            {!conversationRulesValid ? (
+                                <p className="text-xs text-destructive">{t('form.conversationRewriteRulesInvalid')}</p>
+                            ) : null}
                         </Field>
                     </div>
 

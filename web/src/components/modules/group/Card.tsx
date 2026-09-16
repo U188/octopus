@@ -62,6 +62,8 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                         system_prompt_mode: group.system_prompt_mode,
                         system_prompt: group.system_prompt ?? '',
                         system_prompt_sanitize_fingerprints: group.system_prompt_sanitize_fingerprints ?? false,
+                        system_prompt_fingerprint_rules: group.system_prompt_fingerprint_rules ?? '',
+                        conversation_rewrite_rules: group.conversation_rewrite_rules ?? '',
                         members: displayMembers,
                     }}
                     submitText={t('detail.actions.save')}
@@ -275,6 +277,8 @@ export function GroupCard({ group }: { group: Group }) {
         if (values.system_prompt_mode !== (group.system_prompt_mode ?? 'off')) payload.system_prompt_mode = values.system_prompt_mode;
         if (values.system_prompt !== (group.system_prompt ?? '')) payload.system_prompt = values.system_prompt;
         if (values.system_prompt_sanitize_fingerprints !== (group.system_prompt_sanitize_fingerprints ?? false)) payload.system_prompt_sanitize_fingerprints = values.system_prompt_sanitize_fingerprints;
+        if (values.system_prompt_fingerprint_rules !== (group.system_prompt_fingerprint_rules ?? '')) payload.system_prompt_fingerprint_rules = values.system_prompt_fingerprint_rules;
+        if (values.conversation_rewrite_rules !== (group.conversation_rewrite_rules ?? '')) payload.conversation_rewrite_rules = values.conversation_rewrite_rules;
         if (items_to_add.length) payload.items_to_add = items_to_add;
         if (items_to_update.length) payload.items_to_update = items_to_update;
         if (items_to_delete.length) payload.items_to_delete = items_to_delete;
@@ -291,7 +295,7 @@ export function GroupCard({ group }: { group: Group }) {
             },
             onError,
         });
-    }, [group.first_token_time_out, group.session_keep_time, group.retry_enabled, group.max_retries, group.system_prompt_mode, group.system_prompt, group.system_prompt_sanitize_fingerprints, group.id, group.items, group.match_regex, group.mode, group.name, onSuccess, onError, updateGroup]);
+    }, [group.first_token_time_out, group.session_keep_time, group.retry_enabled, group.max_retries, group.system_prompt_mode, group.system_prompt, group.system_prompt_sanitize_fingerprints, group.system_prompt_fingerprint_rules, group.conversation_rewrite_rules, group.id, group.items, group.match_regex, group.mode, group.name, onSuccess, onError, updateGroup]);
 
     return (
         <article className="relative group/card flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4 custom-shadow">

@@ -31,3 +31,49 @@ func TestValidateSystemPromptConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSystemPromptFingerprintRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		rules   string
+		wantErr bool
+	}{
+		{name: "empty"},
+		{name: "delete and replace", rules: "remove me\nold => new"},
+		{name: "optional system scope", rules: "[system] old => new"},
+		{name: "conversation scope rejected", rules: "[content] old => new", wantErr: true},
+		{name: "empty match", rules: "=> replacement", wantErr: true},
+		{name: "too many", rules: strings.Repeat("rule\n", SystemPromptFingerprintRulesMaxCount+1), wantErr: true},
+		{name: "too large", rules: strings.Repeat("a", SystemPromptFingerprintRulesMaxBytes+1), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateSystemPromptFingerprintRules(tt.rules); (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateSystemPromptFingerprintRules() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateConversationRewriteRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		rules   string
+		wantErr bool
+	}{
+		{name: "empty"},
+		{name: "content and reasoning", rules: "[content] old => new\n[reasoning_content] * => weather"},
+		{name: "scope required", rules: "old => new", wantErr: true},
+		{name: "system rejected", rules: "[system] old => new", wantErr: true},
+		{name: "empty match", rules: "[content] => replacement", wantErr: true},
+		{name: "too many", rules: strings.Repeat("[content] rule\n", ConversationRewriteRulesMaxCount+1), wantErr: true},
+		{name: "too large", rules: strings.Repeat("a", ConversationRewriteRulesMaxBytes+1), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateConversationRewriteRules(tt.rules); (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateConversationRewriteRules() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

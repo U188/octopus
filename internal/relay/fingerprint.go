@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	dbmodel "github.com/U188/octopus/internal/model"
 )
 
 const degradedSystemPrompt = "You are a helpful assistant. Respond in the user's language, follow the user's instructions, and be direct and concise."
@@ -25,13 +27,33 @@ var (
 )
 
 func sanitizeOutboundPayload(body []byte) ([]byte, bool, error) {
+	return rewriteOutboundPayload(body, true, "", "", true)
+}
+
+func sanitizeOutboundPayloadWithRules(body []byte, customRules string) ([]byte, bool, error) {
+	return rewriteOutboundPayload(body, true, customRules, "", true)
+}
+
+func rewriteOutboundPayload(body []byte, sanitizeFingerprints bool, fingerprintRules, conversationRules string, rewriteTopLevelInput bool) ([]byte, bool, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
 		return nil, false, err
 	}
-	changed := sanitizeOutboundValue(&value, false)
+	var systemRules []customFingerprintRule
+	if sanitizeFingerprints {
+		var err error
+		systemRules, err = parseCustomFingerprintRules(fingerprintRules)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	messageRules, err := parseConversationRewriteRules(conversationRules)
+	if err != nil {
+		return nil, false, err
+	}
+	changed := sanitizeOutboundMessages(value, sanitizeFingerprints, systemRules, messageRules, rewriteTopLevelInput)
 	if !changed {
 		return body, false, nil
 	}
@@ -39,14 +61,109 @@ func sanitizeOutboundPayload(body []byte) ([]byte, bool, error) {
 	return out, true, err
 }
 
-func sanitizeOutboundValue(value *any, promptContext bool) bool {
+type customFingerprintRule struct {
+	scope       string
+	match       string
+	replacement string
+}
+
+func sanitizeOutboundMessages(value any, sanitizeFingerprints bool, systemRules, conversationRules []customFingerprintRule, rewriteTopLevelInput bool) bool {
+	payload, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	if sanitizeFingerprints {
+		for _, key := range []string{"system", "instructions", "systemInstruction"} {
+			item, exists := payload[key]
+			if exists && sanitizeOutboundValue(&item, "system", systemRules, true) {
+				payload[key] = item
+				changed = true
+			}
+		}
+	}
+	for _, key := range []string{"messages", "input", "contents"} {
+		if text, ok := payload[key].(string); ok && key == "input" && rewriteTopLevelInput {
+			item := any(text)
+			if sanitizeOutboundValue(&item, "content", conversationRules, false) {
+				payload[key] = item
+				changed = true
+			}
+			continue
+		}
+		messages, _ := payload[key].([]any)
+		for _, raw := range messages {
+			message, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if key == "input" {
+				if blockType, _ := message["type"].(string); blockType == "reasoning" {
+					item := any(message)
+					if sanitizeOutboundValue(&item, "reasoning_content", conversationRules, false) {
+						changed = true
+					}
+					continue
+				}
+			}
+			role, _ := message["role"].(string)
+			scope := ""
+			switch role {
+			case "system", "developer":
+				scope = "system"
+			case "user", "assistant", "model":
+				scope = "content"
+			}
+			if scope == "" || (scope == "system" && !sanitizeFingerprints) {
+				continue
+			}
+			for _, field := range []string{"content", "parts", "reasoning_content"} {
+				fieldScope := scope
+				if field == "reasoning_content" {
+					if role != "assistant" && role != "model" {
+						continue
+					}
+					if signature, _ := message["reasoning_signature"].(string); signature != "" {
+						continue
+					}
+					fieldScope = "reasoning_content"
+				}
+				item, exists := message[field]
+				rules := conversationRules
+				applyBuiltins := false
+				if fieldScope == "system" {
+					rules = systemRules
+					applyBuiltins = true
+				}
+				if exists && sanitizeOutboundValue(&item, fieldScope, rules, applyBuiltins) {
+					message[field] = item
+					changed = true
+				}
+			}
+		}
+	}
+	return changed
+}
+
+func sanitizeOutboundValue(value *any, scope string, customRules []customFingerprintRule, applyBuiltins bool) bool {
 	switch v := (*value).(type) {
 	case string:
-		if !promptContext {
-			return false
-		}
 		original := v
-		if !strings.Contains(v, "You are Claude Code") &&
+		for _, replacement := range customRules {
+			if replacement.scope != scope {
+				continue
+			}
+			if replacement.match == "*" {
+				v = replacement.replacement
+			} else {
+				v = strings.ReplaceAll(v, replacement.match, replacement.replacement)
+			}
+		}
+		if !applyBuiltins {
+			*value = v
+			return original != v
+		}
+		if v == original && !strings.Contains(v, "You are Claude Code") &&
 			!strings.Contains(v, "Main branch (") &&
 			!strings.Contains(v, "You are a coding agent running in the Codex CLI") &&
 			!strings.Contains(v, "https://github.com/anthropics/claude-code/issues") &&
@@ -70,21 +187,39 @@ func sanitizeOutboundValue(value *any, promptContext bool) bool {
 		changed := false
 		for i := range v {
 			item := any(v[i])
-			if sanitizeOutboundValue(&item, promptContext) {
+			if sanitizeOutboundValue(&item, scope, customRules, applyBuiltins) {
 				v[i] = item
 				changed = true
 			}
 		}
 		return changed
 	case map[string]any:
+		if blockType, ok := v["type"].(string); ok {
+			switch blockType {
+			case "thinking":
+				if signature, _ := v["signature"].(string); signature != "" {
+					return false
+				}
+				return sanitizeOutboundMapField(v, "thinking", "reasoning_content", customRules)
+			case "reasoning":
+				return sanitizeOutboundMapField(v, "summary", "reasoning_content", customRules)
+			case "summary_text":
+				return sanitizeOutboundMapField(v, "text", "reasoning_content", customRules)
+			case "text", "input_text", "output_text", "message":
+			default:
+				return false
+			}
+		}
+		if thought, _ := v["thought"].(bool); thought {
+			if signature, _ := v["thoughtSignature"].(string); signature != "" {
+				return false
+			}
+			return sanitizeOutboundMapField(v, "text", "reasoning_content", customRules)
+		}
 		changed := false
-		role, _ := v["role"].(string)
-		instructionMessage := role == "system" || role == "developer"
-		for key, item := range v {
-			childContext := key == "system" || key == "instructions" || key == "systemInstruction" ||
-				(instructionMessage && key == "content") ||
-				(promptContext && (key == "text" || key == "content" || key == "parts"))
-			if sanitizeOutboundValue(&item, childContext) {
+		for _, key := range []string{"text", "content", "parts"} {
+			item, exists := v[key]
+			if exists && sanitizeOutboundValue(&item, scope, customRules, applyBuiltins) {
 				v[key] = item
 				changed = true
 			}
@@ -93,6 +228,47 @@ func sanitizeOutboundValue(value *any, promptContext bool) bool {
 	default:
 		return false
 	}
+}
+
+func sanitizeOutboundMapField(value map[string]any, key, scope string, rules []customFingerprintRule) bool {
+	item, exists := value[key]
+	if !exists || !sanitizeOutboundValue(&item, scope, rules, false) {
+		return false
+	}
+	value[key] = item
+	return true
+}
+
+func parseCustomFingerprintRules(raw string) ([]customFingerprintRule, error) {
+	rules := make([]customFingerprintRule, 0)
+	for _, rawLine := range strings.Split(raw, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		match, replacement, err := dbmodel.ParseSystemPromptFingerprintRuleLine(line)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, customFingerprintRule{scope: "system", match: match, replacement: replacement})
+	}
+	return rules, nil
+}
+
+func parseConversationRewriteRules(raw string) ([]customFingerprintRule, error) {
+	rules := make([]customFingerprintRule, 0)
+	for _, rawLine := range strings.Split(raw, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		scope, match, replacement, err := dbmodel.ParseConversationRewriteRuleLine(line)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, customFingerprintRule{scope: scope, match: match, replacement: replacement})
+	}
+	return rules, nil
 }
 
 func isSystemPromptContentBlocked(statusCode int, body []byte) bool {

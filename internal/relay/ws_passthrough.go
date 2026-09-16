@@ -72,8 +72,8 @@ func (ra *relayAttempt) forwardViaWSPassthrough(ctx context.Context) (int, error
 		wsUpstreamPool.Put(pc)
 		return -1, nil
 	}
-	if ra.systemPromptSanitizeFingerprints {
-		if sanitized, changed, sanitizeErr := sanitizeOutboundPayload(payload); sanitizeErr != nil {
+	if ra.systemPromptSanitizeFingerprints || ra.conversationRewriteEnabled() {
+		if sanitized, changed, sanitizeErr := ra.rewriteConfiguredOutboundPayload(payload, true); sanitizeErr != nil {
 			wsUpstreamPool.Put(pc)
 			return http.StatusInternalServerError, sanitizeErr
 		} else if changed {

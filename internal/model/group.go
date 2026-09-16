@@ -19,14 +19,23 @@ const (
 type SystemPromptMode string
 
 const (
-	SystemPromptModeOff      SystemPromptMode = "off"
-	SystemPromptModePrepend  SystemPromptMode = "prepend"
-	SystemPromptModeAppend   SystemPromptMode = "append"
-	SystemPromptModeOverride SystemPromptMode = "override"
-	SystemPromptMaxBytes                      = 64_000
+	SystemPromptModeOff                  SystemPromptMode = "off"
+	SystemPromptModePrepend              SystemPromptMode = "prepend"
+	SystemPromptModeAppend               SystemPromptMode = "append"
+	SystemPromptModeOverride             SystemPromptMode = "override"
+	SystemPromptMaxBytes                                  = 64_000
+	SystemPromptFingerprintRulesMaxBytes                  = 64_000
+	SystemPromptFingerprintRulesMaxCount                  = 256
+	ConversationRewriteRulesMaxBytes                      = 64_000
+	ConversationRewriteRulesMaxCount                      = 256
 )
 
 var ErrInvalidSystemPromptConfig = errors.New("invalid system prompt config")
+
+var conversationRewriteRuleScopes = map[string]struct{}{
+	"content":           {},
+	"reasoning_content": {},
+}
 
 func ValidateSystemPromptConfig(mode SystemPromptMode, prompt string) error {
 	switch mode {
@@ -44,6 +53,90 @@ func ValidateSystemPromptConfig(mode SystemPromptMode, prompt string) error {
 	return nil
 }
 
+func ValidateSystemPromptFingerprintRules(rules string) error {
+	if len(rules) > SystemPromptFingerprintRulesMaxBytes {
+		return fmt.Errorf("%w: fingerprint rules exceed %d bytes", ErrInvalidSystemPromptConfig, SystemPromptFingerprintRulesMaxBytes)
+	}
+	count := 0
+	for _, raw := range strings.Split(rules, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		count++
+		if _, _, err := ParseSystemPromptFingerprintRuleLine(line); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidSystemPromptConfig, err)
+		}
+	}
+	if count > SystemPromptFingerprintRulesMaxCount {
+		return fmt.Errorf("%w: fingerprint rules exceed %d entries", ErrInvalidSystemPromptConfig, SystemPromptFingerprintRulesMaxCount)
+	}
+	return nil
+}
+
+func ParseSystemPromptFingerprintRuleLine(line string) (string, string, error) {
+	if strings.HasPrefix(line, "[") {
+		end := strings.IndexByte(line, ']')
+		if end <= 1 || strings.TrimSpace(line[1:end]) != "system" {
+			return "", "", fmt.Errorf("fingerprint rule scope must be system")
+		}
+		line = strings.TrimSpace(line[end+1:])
+	}
+	match, replacement, hasReplacement := strings.Cut(line, "=>")
+	match = strings.TrimSpace(match)
+	if match == "" {
+		return "", "", fmt.Errorf("fingerprint rule match text is required")
+	}
+	if !hasReplacement {
+		replacement = ""
+	}
+	return match, strings.TrimSpace(replacement), nil
+}
+
+func ValidateConversationRewriteRules(rules string) error {
+	if len(rules) > ConversationRewriteRulesMaxBytes {
+		return fmt.Errorf("%w: conversation rewrite rules exceed %d bytes", ErrInvalidSystemPromptConfig, ConversationRewriteRulesMaxBytes)
+	}
+	count := 0
+	for _, raw := range strings.Split(rules, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		count++
+		if _, _, _, err := ParseConversationRewriteRuleLine(line); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidSystemPromptConfig, err)
+		}
+	}
+	if count > ConversationRewriteRulesMaxCount {
+		return fmt.Errorf("%w: conversation rewrite rules exceed %d entries", ErrInvalidSystemPromptConfig, ConversationRewriteRulesMaxCount)
+	}
+	return nil
+}
+
+func ParseConversationRewriteRuleLine(line string) (string, string, string, error) {
+	if !strings.HasPrefix(line, "[") {
+		return "", "", "", fmt.Errorf("conversation rewrite rule scope is required")
+	}
+	end := strings.IndexByte(line, ']')
+	if end <= 1 {
+		return "", "", "", fmt.Errorf("conversation rewrite rule scope is invalid")
+	}
+	scope := strings.TrimSpace(line[1:end])
+	if _, ok := conversationRewriteRuleScopes[scope]; !ok {
+		return "", "", "", fmt.Errorf("unsupported conversation rewrite rule scope %q", scope)
+	}
+	match, replacement, hasReplacement := strings.Cut(strings.TrimSpace(line[end+1:]), "=>")
+	match = strings.TrimSpace(match)
+	if match == "" {
+		return "", "", "", fmt.Errorf("conversation rewrite rule match text is required")
+	}
+	if !hasReplacement {
+		replacement = ""
+	}
+	return scope, match, strings.TrimSpace(replacement), nil
+}
+
 type Group struct {
 	ID                               int              `json:"id" gorm:"primaryKey"`
 	Name                             string           `json:"name" gorm:"unique;not null"`
@@ -56,6 +149,8 @@ type Group struct {
 	SystemPromptMode                 SystemPromptMode `json:"system_prompt_mode" gorm:"type:varchar(16);not null;default:'off'"`
 	SystemPrompt                     string           `json:"system_prompt" gorm:"type:text;not null"`
 	SystemPromptSanitizeFingerprints bool             `json:"system_prompt_sanitize_fingerprints" gorm:"not null;default:false"`
+	SystemPromptFingerprintRules     string           `json:"system_prompt_fingerprint_rules" gorm:"type:text;not null;default:''"`
+	ConversationRewriteRules         string           `json:"conversation_rewrite_rules" gorm:"type:text;not null;default:''"`
 	Pinned                           bool             `json:"pinned" gorm:"default:false;index"` // 置顶
 	PinnedAt                         *time.Time       `json:"pinned_at,omitempty"`               // 置顶时间，置顶时写入，取消置顶时置空
 	ActivePresetID                   *int             `json:"active_preset_id,omitempty"`        // 当前激活的预设ID，仅 UI 标记，不参与路由
@@ -110,6 +205,8 @@ type GroupUpdateRequest struct {
 	SystemPromptMode                 *SystemPromptMode        `json:"system_prompt_mode,omitempty"`
 	SystemPrompt                     *string                  `json:"system_prompt,omitempty"`
 	SystemPromptSanitizeFingerprints *bool                    `json:"system_prompt_sanitize_fingerprints,omitempty"`
+	SystemPromptFingerprintRules     *string                  `json:"system_prompt_fingerprint_rules,omitempty"`
+	ConversationRewriteRules         *string                  `json:"conversation_rewrite_rules,omitempty"`
 	ItemsToAdd                       []GroupItemAddRequest    `json:"items_to_add,omitempty"`    // 新增的 items
 	ItemsToUpdate                    []GroupItemUpdateRequest `json:"items_to_update,omitempty"` // 更新的 items (priority 变更)
 	ItemsToDelete                    []int                    `json:"items_to_delete,omitempty"` // 删除的 item IDs

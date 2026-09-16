@@ -179,6 +179,14 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 	if err := model.ValidateSystemPromptConfig(group.SystemPromptMode, group.SystemPrompt); err != nil {
 		return err
 	}
+	if group.SystemPromptSanitizeFingerprints {
+		if err := model.ValidateSystemPromptFingerprintRules(group.SystemPromptFingerprintRules); err != nil {
+			return err
+		}
+	}
+	if err := model.ValidateConversationRewriteRules(group.ConversationRewriteRules); err != nil {
+		return err
+	}
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
@@ -205,6 +213,26 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		nextSystemPrompt = *req.SystemPrompt
 	}
 	if err := model.ValidateSystemPromptConfig(nextSystemPromptMode, nextSystemPrompt); err != nil {
+		return nil, err
+	}
+	nextFingerprintRules := oldGroup.SystemPromptFingerprintRules
+	if req.SystemPromptFingerprintRules != nil {
+		nextFingerprintRules = *req.SystemPromptFingerprintRules
+	}
+	nextSanitizeFingerprints := oldGroup.SystemPromptSanitizeFingerprints
+	if req.SystemPromptSanitizeFingerprints != nil {
+		nextSanitizeFingerprints = *req.SystemPromptSanitizeFingerprints
+	}
+	if nextSanitizeFingerprints {
+		if err := model.ValidateSystemPromptFingerprintRules(nextFingerprintRules); err != nil {
+			return nil, err
+		}
+	}
+	nextConversationRewriteRules := oldGroup.ConversationRewriteRules
+	if req.ConversationRewriteRules != nil {
+		nextConversationRewriteRules = *req.ConversationRewriteRules
+	}
+	if err := model.ValidateConversationRewriteRules(nextConversationRewriteRules); err != nil {
 		return nil, err
 	}
 	affectedChannelIDs := groupUpdateAffectedChannelIDs(oldGroup, req)
@@ -262,6 +290,14 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 	if req.SystemPromptSanitizeFingerprints != nil {
 		selectFields = append(selectFields, "system_prompt_sanitize_fingerprints")
 		updates.SystemPromptSanitizeFingerprints = *req.SystemPromptSanitizeFingerprints
+	}
+	if req.SystemPromptFingerprintRules != nil {
+		selectFields = append(selectFields, "system_prompt_fingerprint_rules")
+		updates.SystemPromptFingerprintRules = *req.SystemPromptFingerprintRules
+	}
+	if req.ConversationRewriteRules != nil {
+		selectFields = append(selectFields, "conversation_rewrite_rules")
+		updates.ConversationRewriteRules = *req.ConversationRewriteRules
 	}
 
 	if len(selectFields) > 0 {

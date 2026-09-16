@@ -99,6 +99,8 @@ type relayRequest struct {
 	systemPromptMode                 dbmodel.SystemPromptMode
 	systemPrompt                     string
 	systemPromptSanitizeFingerprints bool
+	systemPromptFingerprintRules     string
+	conversationRewriteRules         string
 	systemPromptRetry                bool
 	iter                             *balancer.Iterator
 
