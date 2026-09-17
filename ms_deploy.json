@@ -9,12 +9,20 @@
       "value": "Asia/Shanghai"
     },
     {
+      "name": "OCTOPUS_INTERNAL_HOST",
+      "value": "127.0.0.1"
+    },
+    {
+      "name": "OCTOPUS_INTERNAL_PORT",
+      "value": "8080"
+    },
+    {
       "name": "OCTOPUS_SERVER_HOST",
-      "value": "0.0.0.0"
+      "value": "127.0.0.1"
     },
     {
       "name": "OCTOPUS_SERVER_PORT",
-      "value": "7860"
+      "value": "8080"
     },
     {
       "name": "OCTOPUS_DATABASE_TYPE",
@@ -23,6 +31,18 @@
     {
       "name": "OCTOPUS_DATABASE_PATH",
       "value": "/mnt/workspace/octopus-v5.db"
+    },
+    {
+      "name": "UPSTREAM",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "name": "LISTEN",
+      "value": ":7860"
+    },
+    {
+      "name": "FRAME_ANCESTORS",
+      "value": "https://www.modelscope.ai https://*.modelscope.ai https://*.modelscope.cn"
     }
   ]
 }
