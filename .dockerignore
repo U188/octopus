@@ -1,9 +1,5 @@
 # Keep the build context small while retaining every input used by the
 # repository release Dockerfiles and the root ModelScope wrapper.
-#
-# Note: a directory excluded by `**` cannot have its contents re-included
-# unless the directory itself is whitelisted first, so each path appears twice
-# (once for the directory, once for its contents).
 **
 !Dockerfile
 !build/
@@ -14,5 +10,3 @@
 !scripts/
 !scripts/dockerfiles/
 !scripts/dockerfiles/**
-!scripts/ms-proxy/
-!scripts/ms-proxy/**
