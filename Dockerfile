@@ -1,6 +1,6 @@
 # Override OCTOPUS_IMAGE when rebuilding the wrapper for a newer published
 # release; keep the default pinned for reproducible ModelScope builds.
-ARG OCTOPUS_IMAGE=ghcr.io/u188/octopus:v0.3.54
+ARG OCTOPUS_IMAGE=ghcr.io/u188/octopus:v4.0.8
 FROM ${OCTOPUS_IMAGE}
 
 LABEL org.opencontainers.image.title="Octopus" \
