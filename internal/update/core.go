@@ -89,11 +89,92 @@ func runUpdateCore() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if runtime.GOOS == "windows" {
+		return "", fmt.Errorf("automatic self-update on Windows is not supported; use the release installer")
+	}
+	rollbackCompanions, err := installUpdateCompanions(stageDir, execPath)
+	if err != nil {
+		return "", err
+	}
 	if err := installStagedBinary(stagedBinary, execPath); err != nil {
+		if rollbackErr := rollbackCompanions(); rollbackErr != nil {
+			return "", fmt.Errorf("replace executable: %w; restore sing-box files: %v", err, rollbackErr)
+		}
 		return "", err
 	}
 
 	return execPath, nil
+}
+
+// Install companion files before replacing Octopus so a failed main-binary
+// replacement can still restore the previous working runtime.
+func installUpdateCompanions(stageDir, execPath string) (func() error, error) {
+	baseDir := filepath.Dir(execPath)
+	files := []struct {
+		staged string
+		target string
+		mode   os.FileMode
+	}{
+		{filepath.Join(stageDir, "bin", "sing-box"), filepath.Join(baseDir, "bin", "sing-box"), 0755},
+		{filepath.Join(stageDir, "licenses", "sing-box-LICENSE"), filepath.Join(baseDir, "licenses", "sing-box-LICENSE"), 0644},
+	}
+	for _, file := range files {
+		info, err := os.Stat(file.staged)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("update archive missing companion file %s", file.staged)
+		}
+	}
+	type installedFile struct {
+		target string
+		backup string
+	}
+	installed := make([]installedFile, 0, len(files))
+	rollback := func() error {
+		var restoreErr error
+		for i := len(installed) - 1; i >= 0; i-- {
+			file := installed[i]
+			if err := os.Remove(file.target); err != nil && !os.IsNotExist(err) {
+				restoreErr = fmt.Errorf("remove new %s: %w", file.target, err)
+				continue
+			}
+			if file.backup != "" {
+				if err := os.Rename(file.backup, file.target); err != nil {
+					restoreErr = fmt.Errorf("restore %s: %w", file.target, err)
+				}
+			}
+		}
+		return restoreErr
+	}
+	for i, file := range files {
+		if err := os.MkdirAll(filepath.Dir(file.target), 0755); err != nil {
+			_ = rollback()
+			return nil, err
+		}
+		if err := os.Chmod(file.staged, file.mode); err != nil {
+			_ = rollback()
+			return nil, err
+		}
+		backup := ""
+		if _, err := os.Lstat(file.target); err == nil {
+			backup = filepath.Join(stageDir, fmt.Sprintf(".previous-companion-%d", i))
+			if err := os.Rename(file.target, backup); err != nil {
+				_ = rollback()
+				return nil, err
+			}
+		} else if !os.IsNotExist(err) {
+			_ = rollback()
+			return nil, err
+		}
+		if err := os.Rename(file.staged, file.target); err != nil {
+			if backup != "" {
+				_ = os.Rename(backup, file.target)
+			}
+			_ = rollback()
+			return nil, err
+		}
+		installed = append(installed, installedFile{target: file.target, backup: backup})
+	}
+	return rollback, nil
 }
 
 func downloadUpdateAsset(filename string, maxBytes int64) ([]byte, error) {

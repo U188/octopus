@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/U188/octopus/internal/singbox"
 )
 
 type proxyTraceContextKey struct{}
@@ -215,6 +217,9 @@ func redactProxyError(err error, proxyURL string) error {
 }
 
 func sanitizedProxyNode(raw string) string {
+	if display, ok := singbox.Default.DisplayForEndpoint(strings.TrimSpace(raw)); ok {
+		raw = display
+	}
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Hostname() == "" {
 		return ""

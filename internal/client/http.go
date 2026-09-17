@@ -113,32 +113,41 @@ func GetHTTPClientProxyPoolScoped(ctx context.Context, proxyConfigID int, perReq
 		if requestCtx == nil {
 			requestCtx = ctx
 		}
-		if !perRequestRoundRobin {
-			return op.ProxyURLsForConfigStable(proxyConfigID, requestCtx)
-		}
-		return op.ProxyURLsForConfigScoped(proxyConfigID, scope, requestCtx)
+		return op.ProxyURLsForConfigPolicy(proxyConfigID, scope, perRequestRoundRobin, requestCtx)
 	}
 
 	// Resolve once at construction to validate the configuration and seed the
 	// transport cache, but do not advance a round-robin cursor here. The first
 	// cursor step belongs to the first actual RoundTrip below.
-	proxyURLs, err := op.ProxyURLsForConfigStable(proxyConfigID, ctx)
+	configType, strategy, err := op.ProxyPolicyForConfig(proxyConfigID, ctx)
+	if err != nil {
+		return nil, err
+	}
+	var proxyURLs []string
+	if strategy == model.ProxySelectionSticky && !perRequestRoundRobin {
+		proxyURLs, err = op.ProxyURLsForConfigPolicy(proxyConfigID, scope, false, ctx)
+	} else {
+		proxyURLs, err = op.ProxyURLsForConfigStable(proxyConfigID, ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
 	reportFailure := func(proxyURL string, failure error) {
 		_ = op.ProxySubscriptionNodeReportFailure(proxyConfigID, proxyURL, failure, ctx)
 	}
-	if !perRequestRoundRobin {
-		return GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs, reportFailure)
+	reportSuccess := func(proxyURL string) {
+		_ = op.ProxySubscriptionNodeReportSuccess(proxyConfigID, proxyURL, ctx)
 	}
-
+	if configType != model.ProxyConfigurationTypeSubscription && !perRequestRoundRobin {
+		return GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs, reportFailure, reportSuccess)
+	}
 	return newHTTPClientDynamicProxyPoolWithFailureReporter(
 		proxyURLs,
 		func(requestCtx context.Context) ([]string, error) {
 			return resolveProxyURLs(requestCtx)
 		},
 		reportFailure,
+		reportSuccess,
 	)
 }
 
@@ -149,21 +158,22 @@ func GetHTTPClientCustomProxyPool(proxyURLs []string) (*http.Client, error) {
 }
 
 type ProxyFailureReporter func(proxyURL string, failure error)
+type ProxySuccessReporter func(proxyURL string)
 
 type proxyURLResolver func(ctx context.Context) ([]string, error)
 
-func GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs []string, reportFailure ProxyFailureReporter) (*http.Client, error) {
+func GetHTTPClientCustomProxyPoolWithFailureReporter(proxyURLs []string, reportFailure ProxyFailureReporter, reportSuccess ...ProxySuccessReporter) (*http.Client, error) {
 	endpoints, err := newProxyTransportEndpoints(proxyURLs)
 	if err != nil {
 		return nil, err
 	}
 	return &http.Client{
-		Transport:     &proxyFailoverTransport{endpoints: endpoints, reportFailure: reportFailure},
+		Transport:     &proxyFailoverTransport{endpoints: endpoints, reportFailure: reportFailure, reportSuccess: firstProxySuccessReporter(reportSuccess)},
 		CheckRedirect: outboundurl.CheckRedirect,
 	}, nil
 }
 
-func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string, resolve proxyURLResolver, reportFailure ProxyFailureReporter) (*http.Client, error) {
+func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string, resolve proxyURLResolver, reportFailure ProxyFailureReporter, reportSuccess ...ProxySuccessReporter) (*http.Client, error) {
 	if resolve == nil {
 		return nil, fmt.Errorf("proxy url resolver is nil")
 	}
@@ -176,6 +186,7 @@ func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string,
 		endpoints:     initialEndpoints,
 		endpointCache: endpointCache,
 		reportFailure: reportFailure,
+		reportSuccess: firstProxySuccessReporter(reportSuccess),
 	}
 	transport.resolveEndpoints = func(ctx context.Context) ([]proxyTransportEndpoint, error) {
 		proxyURLs, err := resolve(ctx)
@@ -188,6 +199,13 @@ func newHTTPClientDynamicProxyPoolWithFailureReporter(initialProxyURLs []string,
 		Transport:     transport,
 		CheckRedirect: outboundurl.CheckRedirect,
 	}, nil
+}
+
+func firstProxySuccessReporter(reporters []ProxySuccessReporter) ProxySuccessReporter {
+	if len(reporters) == 0 {
+		return nil
+	}
+	return reporters[0]
 }
 
 func newProxyTransportEndpoints(proxyURLs []string) ([]proxyTransportEndpoint, error) {
@@ -265,6 +283,7 @@ type proxyFailoverTransport struct {
 	resolveEndpoints func(ctx context.Context) ([]proxyTransportEndpoint, error)
 	endpointCache    *proxyEndpointCache
 	reportFailure    ProxyFailureReporter
+	reportSuccess    ProxySuccessReporter
 }
 
 func (t *proxyFailoverTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -287,6 +306,9 @@ func (t *proxyFailoverTransport) RoundTrip(req *http.Request) (*http.Response, e
 		}
 		resp, rawErr := roundTripWithProxyTrace(endpoint.proxyURL, endpoint.primary, attemptReq)
 		if rawErr == nil {
+			if t.reportSuccess != nil {
+				t.reportSuccess(endpoint.proxyURL)
+			}
 			return resp, nil
 		}
 		redactedErr := redactProxyError(rawErr, endpoint.proxyURL)
@@ -309,6 +331,9 @@ func (t *proxyFailoverTransport) RoundTrip(req *http.Request) (*http.Response, e
 			if canFallback {
 				fallbackResp, rawFallbackErr := roundTripWithProxyTrace(endpoint.proxyURL, endpoint.http1, fallbackReq)
 				if rawFallbackErr == nil {
+					if t.reportSuccess != nil {
+						t.reportSuccess(endpoint.proxyURL)
+					}
 					return fallbackResp, nil
 				}
 				fallbackErr := redactProxyError(rawFallbackErr, endpoint.proxyURL)

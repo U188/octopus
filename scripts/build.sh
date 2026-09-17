@@ -310,6 +310,14 @@ build_standard() {
     log_success "Built ${os}/${arch} → bin/$(basename "${output_file}")"
 }
 
+prepare_singbox_binary() {
+    local os="$1"
+    local arch="$2"
+    local destination="${OUTPUT_DIR}/sing-box/${os}-${arch}"
+    log_info "Downloading pinned sing-box for ${os}/${arch}..."
+    bash scripts/fetch-sing-box.sh "$os" "$arch" "$destination"
+}
+
 # =============================================================================
 # Post-build Functions
 # =============================================================================
@@ -342,13 +350,33 @@ create_archives() {
             continue
         fi
 
-        if (cd "${archives_dir}" && zip -q "${basename_file}.zip" "${APP_NAME}${extension}" README.md LICENSE 2>/dev/null); then
+        local target="${basename_file#${APP_NAME}-}"
+        local bundled="sing-box"
+        if [[ "$target" == windows-* ]]; then
+            bundled="sing-box.exe"
+        fi
+        if [ ! -f "${OUTPUT_DIR}/sing-box/${target}/${bundled}" ]; then
+            log_error "Missing sing-box binary for ${target}"
+            return 1
+        fi
+        if [ ! -f "${OUTPUT_DIR}/sing-box/${target}/LICENSE" ]; then
+            log_error "Missing sing-box license for ${target}"
+            return 1
+        fi
+        mkdir -p "${archives_dir}/bin" "${archives_dir}/licenses"
+        cp "${OUTPUT_DIR}/sing-box/${target}/${bundled}" "${archives_dir}/bin/${bundled}"
+        cp "${OUTPUT_DIR}/sing-box/${target}/LICENSE" "${archives_dir}/licenses/sing-box-LICENSE"
+        if (cd "${archives_dir}" && zip -q "${basename_file}.zip" "${APP_NAME}${extension}" "bin/${bundled}" "licenses/sing-box-LICENSE" README.md LICENSE); then
             rm -f "${archives_dir}/${APP_NAME}${extension}"
+            rm -f "${archives_dir}/bin/${bundled}"
+            rm -f "${archives_dir}/licenses/sing-box-LICENSE"
             archive_count=$((archive_count + 1))
             log_success "Archived: archives/${basename_file}.zip"
         else
             log_error "Failed to create archive: ${basename_file}.zip"
             rm -f "${archives_dir}/${APP_NAME}${extension}"
+            rm -f "${archives_dir}/bin/${bundled}"
+            rm -f "${archives_dir}/licenses/sing-box-LICENSE"
         fi
     done < <(find "${OUTPUT_DIR}/bin/" -name "${APP_NAME}-*" -type f -print0 2>/dev/null)
 
@@ -438,8 +466,9 @@ prepare_docker_binaries() {
         local docker_platform="${platform#*:}"
         local binary_name="${APP_NAME}-linux-${arch}"
         local platform_dir="${docker_dir}/${docker_platform}"
+        local alpine_dir="${OUTPUT_DIR}/docker-alpine/${docker_platform}"
 
-        if ! mkdir -p "${platform_dir}"; then
+        if ! mkdir -p "${platform_dir}" "${alpine_dir}"; then
             log_error "Failed to create directory: ${platform_dir}"
             log_error "Docker platform: ${docker_platform}"
             continue
@@ -448,8 +477,18 @@ prepare_docker_binaries() {
         # Try to copy from binary file first
         if [ -f "${OUTPUT_DIR}/bin/${binary_name}" ]; then
             if cp "${OUTPUT_DIR}/bin/${binary_name}" "${platform_dir}/${APP_NAME}" 2>/dev/null; then
+                if ! cp "${OUTPUT_DIR}/sing-box/linux-${arch}/sing-box" "${platform_dir}/sing-box"; then
+                    log_error "Missing Docker sing-box for ${docker_platform}"
+                    return 1
+                fi
+                if ! cp "${OUTPUT_DIR}/sing-box/linux-musl-${arch}/sing-box" "${alpine_dir}/sing-box"; then
+                    log_error "Missing Alpine sing-box for ${docker_platform}"
+                    return 1
+                fi
+                cp "${OUTPUT_DIR}/sing-box/linux-${arch}/LICENSE" "${platform_dir}/sing-box-LICENSE"
+                cp "${OUTPUT_DIR}/sing-box/linux-musl-${arch}/LICENSE" "${alpine_dir}/sing-box-LICENSE"
                 log_success "Copied bin/${binary_name} → docker/${docker_platform}/${APP_NAME}"
-                ((copied_count++))
+                ((copied_count += 1))
             else
                 log_error "Failed to copy bin/${binary_name} to ${platform_dir}/${APP_NAME}"
             fi
@@ -564,6 +603,10 @@ main() {
             log_error "Failed to build ${os}/${arch}"
             exit 1
         fi
+        if ! prepare_singbox_binary "$os" "$arch"; then
+            log_error "Failed to bundle sing-box for ${os}/${arch}"
+            exit 1
+        fi
 
         log_step "Build completed"
         log_success "Binary ready: ${OUTPUT_DIR}/bin/${APP_NAME}-${os}-${arch}"
@@ -614,6 +657,14 @@ main() {
                 log_error "Release build stopped at ${os}/${arch}"
                 exit 1
             fi
+            if ! prepare_singbox_binary "${os}" "${arch}"; then
+                log_error "Release build stopped while fetching sing-box for ${os}/${arch}"
+                exit 1
+            fi
+            if [ "${os}" = "linux" ] && ! prepare_singbox_binary "linux-musl" "${arch}"; then
+                log_error "Release build stopped while fetching Alpine sing-box for ${arch}"
+                exit 1
+            fi
         done
 
         # Post-processing
@@ -654,4 +705,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

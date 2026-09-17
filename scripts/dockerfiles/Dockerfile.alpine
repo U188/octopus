@@ -10,8 +10,10 @@ RUN apk add --no-cache alpine-conf ca-certificates su-exec && \
     mkdir -p /app
 
 COPY build/docker/${TARGETPLATFORM}/octopus /app/octopus
+COPY build/docker-alpine/${TARGETPLATFORM}/sing-box /app/bin/sing-box
+COPY build/docker-alpine/${TARGETPLATFORM}/sing-box-LICENSE /usr/share/licenses/sing-box/LICENSE
 COPY scripts/dockerfiles/entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh /app/bin/sing-box
 
 CMD ["/entrypoint.sh"]

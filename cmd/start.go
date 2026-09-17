@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/U188/octopus/internal/conf"
@@ -58,6 +59,16 @@ var startCmd = &cobra.Command{
 			shutdown.Shutdown()
 			os.Exit(1)
 		}
+		proxyDataDir := "data"
+		if conf.AppConfig.Database.Type == "sqlite" && conf.AppConfig.Database.Path != "" {
+			proxyDataDir = filepath.Dir(conf.AppConfig.Database.Path)
+		}
+		proxyRuntimeCtx, cancelProxyRuntime := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := op.ProxyRuntimeInit(proxyRuntimeCtx, proxyDataDir); err != nil {
+			log.Warnf("proxy sing-box runtime unavailable: %v", err)
+		}
+		cancelProxyRuntime()
+		shutdown.Register(op.ProxyRuntimeStop)
 		relayLogWriterCtx, stopRelayLogWriter := context.WithCancel(context.Background())
 		shutdown.Register(func() error {
 			stopRelayLogWriter()

@@ -5,6 +5,8 @@
 !build/
 !build/docker/
 !build/docker/**
+!build/docker-alpine/
+!build/docker-alpine/**
 !scripts/
 !scripts/dockerfiles/
 !scripts/dockerfiles/**

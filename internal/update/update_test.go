@@ -6,9 +6,101 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestInstallUpdateCompanionsAndRollback(t *testing.T) {
+	baseDir := t.TempDir()
+	stageDir := filepath.Join(baseDir, "stage")
+	execPath := filepath.Join(baseDir, "octopus")
+	for _, entry := range []struct{ relative, content string }{
+		{"bin/sing-box", "new binary"}, {"licenses/sing-box-LICENSE", "new license"},
+	} {
+		path := filepath.Join(stageDir, entry.relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(entry.content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldBinary := filepath.Join(baseDir, "bin", "sing-box")
+	if err := os.MkdirAll(filepath.Dir(oldBinary), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldBinary, []byte("old binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := installUpdateCompanions(stageDir, execPath)
+	if err != nil {
+		t.Fatalf("install companion files: %v", err)
+	}
+	if data, err := os.ReadFile(oldBinary); err != nil || string(data) != "new binary" {
+		t.Fatalf("new binary not installed: %q, %v", data, err)
+	}
+	if info, err := os.Stat(oldBinary); err != nil || info.Mode().Perm() != 0755 {
+		t.Fatalf("installed binary mode: %v, %v", info, err)
+	}
+	if err := rollback(); err != nil {
+		t.Fatalf("restore old companion files: %v", err)
+	}
+	if data, err := os.ReadFile(oldBinary); err != nil || string(data) != "old binary" {
+		t.Fatalf("old binary was not restored: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "licenses", "sing-box-LICENSE")); !os.IsNotExist(err) {
+		t.Fatalf("new license remained after rollback: %v", err)
+	}
+}
+
+func TestInstallUpdateCompanionsRejectsIncompleteArchive(t *testing.T) {
+	baseDir := t.TempDir()
+	stageDir := filepath.Join(baseDir, "stage")
+	if err := os.MkdirAll(filepath.Join(stageDir, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stageDir, "bin", "sing-box"), []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installUpdateCompanions(stageDir, filepath.Join(baseDir, "octopus")); err == nil {
+		t.Fatal("incomplete release archive was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "bin", "sing-box")); !os.IsNotExist(err) {
+		t.Fatalf("partial update installed a binary: %v", err)
+	}
+}
+
+func TestInstallUpdateCompanionsRestoresBinaryOnLicenseInstallFailure(t *testing.T) {
+	baseDir := t.TempDir()
+	stageDir := filepath.Join(baseDir, "stage")
+	for _, relative := range []string{"bin/sing-box", "licenses/sing-box-LICENSE"} {
+		path := filepath.Join(stageDir, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("new"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldBinary := filepath.Join(baseDir, "bin", "sing-box")
+	if err := os.MkdirAll(filepath.Dir(oldBinary), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldBinary, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "licenses"), []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installUpdateCompanions(stageDir, filepath.Join(baseDir, "octopus")); err == nil {
+		t.Fatal("license install unexpectedly succeeded")
+	}
+	if data, err := os.ReadFile(oldBinary); err != nil || string(data) != "old" {
+		t.Fatalf("binary not restored after companion install failure: %q, %v", data, err)
+	}
+}
 
 func TestBuildDownloadURL(t *testing.T) {
 	const filename = "octopus-linux-x86_64.zip"

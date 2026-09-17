@@ -48,9 +48,9 @@ func ProxyConfigurationList(ctx context.Context) ([]model.ProxyConfiguration, er
 		Select(`proxy_configuration_id,
 			count(*) as node_count,
 			sum(case when health_status = ? then 1 else 0 end) as healthy_node_count,
-			sum(case when health_status = ? and (quarantined_until is null or quarantined_until <= ?) then 1 else 0 end) as available_node_count,
+				sum(case when health_status = ? and user_enabled = ? and conversion_status in ? and (quarantined_until is null or quarantined_until <= ?) then 1 else 0 end) as available_node_count,
 			sum(case when quarantined_until > ? then 1 else 0 end) as quarantined_node_count`,
-			model.ProxyTestHealthHealthy, model.ProxyTestHealthHealthy, now, now).
+			model.ProxyTestHealthHealthy, model.ProxyTestHealthHealthy, true, []model.ProxyNodeConversionStatus{model.ProxyNodeConversionDirect, model.ProxyNodeConversionReady}, now, now).
 		Where("active = ?", true).
 		Group("proxy_configuration_id").Scan(&nodeCounts).Error; err != nil {
 		return nil, err
@@ -136,6 +136,14 @@ func ProxyConfigurationUpdate(req *model.ProxyConfigurationUpdateRequest, ctx co
 		merged.RefreshIntervalMinutes = *req.RefreshIntervalMinutes
 		selectFields = append(selectFields, "refresh_interval_minutes")
 	}
+	if req.HealthCheckURL != nil {
+		merged.HealthCheckURL = *req.HealthCheckURL
+		selectFields = append(selectFields, "health_check_url")
+	}
+	if req.SelectionStrategy != nil {
+		merged.SelectionStrategy = *req.SelectionStrategy
+		selectFields = append(selectFields, "selection_strategy")
+	}
 	if len(selectFields) > 0 {
 		if err := merged.Validate(); err != nil {
 			return nil, err
@@ -160,6 +168,12 @@ func ProxyConfigurationUpdate(req *model.ProxyConfigurationUpdateRequest, ctx co
 	}
 	if req.RefreshIntervalMinutes != nil {
 		updates.RefreshIntervalMinutes = merged.RefreshIntervalMinutes
+	}
+	if req.HealthCheckURL != nil {
+		updates.HealthCheckURL = merged.HealthCheckURL
+	}
+	if req.SelectionStrategy != nil {
+		updates.SelectionStrategy = merged.SelectionStrategy
 	}
 	resetSubscription := req.URL != nil && existing.Type == model.ProxyConfigurationTypeSubscription && merged.URL != existing.URL
 	if resetSubscription {
@@ -188,6 +202,9 @@ func ProxyConfigurationUpdate(req *model.ProxyConfigurationUpdateRequest, ctx co
 		return nil, err
 	}
 	proxyConfigurationCache.Set(item.ID, *item)
+	if req.Enabled != nil && item.Type == model.ProxyConfigurationTypeSubscription {
+		_ = ProxyRuntimeReload(context.WithoutCancel(ctx))
+	}
 	return item, nil
 }
 
@@ -205,6 +222,11 @@ func ProxyConfigurationDelete(id int, ctx context.Context) error {
 	if count > 0 {
 		return fmt.Errorf("proxy configuration is still referenced")
 	}
+	var encryptedNodeCount int64
+	if err := db.GetDB().WithContext(ctx).Model(&model.ProxySubscriptionNode{}).
+		Where("proxy_configuration_id = ? AND runtime_type = ?", id, model.ProxyNodeRuntimeSingBox).Count(&encryptedNodeCount).Error; err != nil {
+		return err
+	}
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("proxy_configuration_id = ?", id).Delete(&model.ProxySubscriptionNode{}).Error; err != nil {
 			return err
@@ -215,6 +237,9 @@ func ProxyConfigurationDelete(id int, ctx context.Context) error {
 	}
 	proxyConfigurationCache.Del(id)
 	forgetProxySubscriptionState(id)
+	if encryptedNodeCount > 0 {
+		_ = ProxyRuntimeReload(context.WithoutCancel(ctx))
+	}
 	return nil
 }
 

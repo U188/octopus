@@ -234,10 +234,24 @@ func TestInitDBMigratesLegacyProxyConfigurationsForSubscriptions(t *testing.T) {
 	if config.LastSyncStatus != model.ProxySubscriptionSyncIdle {
 		t.Fatalf("migrated sync status = %q, want idle", config.LastSyncStatus)
 	}
+	if config.SelectionStrategy != model.ProxySelectionLatency {
+		t.Fatalf("migrated selection strategy = %q, want latency", config.SelectionStrategy)
+	}
+	for _, field := range []string{"health_check_url", "selection_strategy"} {
+		if !db.Migrator().HasColumn(&model.ProxyConfiguration{}, field) {
+			t.Fatalf("proxy configurations column %s was not migrated", field)
+		}
+	}
 	if !db.Migrator().HasTable(&model.ProxySubscriptionNode{}) {
 		t.Fatal("proxy subscription nodes table was not created")
 	}
-	for _, field := range []string{"runtime_failure_count", "quarantined_until", "last_runtime_failure_at", "last_runtime_error"} {
+	for _, field := range []string{
+		"node_key", "name", "display_address", "protocol", "runtime_type", "config_json", "conversion_status", "user_enabled",
+		"exit_ip", "exit_country", "exit_city", "connectivity_checked", "connectivity_status", "connectivity_latency_ms", "connectivity_last_error",
+		"upstream_checked", "upstream_url", "upstream_status", "upstream_latency_ms", "upstream_last_error",
+		"model_probe_url", "model_probe_model", "model_probe_status", "model_probe_latency_ms", "model_probe_checked_at", "model_probe_last_error",
+		"runtime_failure_count", "quarantined_until", "last_runtime_failure_at", "last_runtime_error",
+	} {
 		if !db.Migrator().HasColumn(&model.ProxySubscriptionNode{}, field) {
 			t.Fatalf("proxy subscription nodes column %s was not migrated", field)
 		}

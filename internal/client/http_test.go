@@ -598,6 +598,37 @@ func TestGetHTTPClientProxyPoolHonorsPerRequestOption(t *testing.T) {
 	}
 }
 
+func TestGetHTTPClientProxyPoolRefreshesSubscriptionCandidatesWithoutRoundRobin(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "proxy-subscription-dynamic.db")
+	if err := dbpkg.InitDB("sqlite", dbPath, false); err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	t.Cleanup(func() { _ = dbpkg.Close() })
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("InitCache failed: %v", err)
+	}
+	ctx := context.Background()
+	proxyConfig := model.ProxyConfiguration{
+		Name: "dynamic-latency-subscription", URL: "https://example.com/dynamic.txt", Type: model.ProxyConfigurationTypeSubscription,
+		Enabled: true, RefreshIntervalMinutes: 30, SelectionStrategy: model.ProxySelectionLatency,
+	}
+	if err := op.ProxyConfigurationCreate(&proxyConfig, ctx); err != nil {
+		t.Fatalf("create proxy subscription: %v", err)
+	}
+	node := model.ProxySubscriptionNode{ProxyConfigurationID: proxyConfig.ID, URL: "http://proxy.example:8080", Active: true, HealthStatus: model.ProxyTestHealthHealthy}
+	if err := dbpkg.GetDB().Create(&node).Error; err != nil {
+		t.Fatalf("create proxy node: %v", err)
+	}
+	httpClient, err := GetHTTPClientProxyPool(ctx, proxyConfig.ID, false)
+	if err != nil {
+		t.Fatalf("create subscription proxy client: %v", err)
+	}
+	transport, ok := httpClient.Transport.(*proxyFailoverTransport)
+	if !ok || transport.resolveEndpoints == nil {
+		t.Fatalf("subscription must refresh isolated candidates per request, got %T", httpClient.Transport)
+	}
+}
+
 func TestGetHTTPClientProxyPoolScopedAdvancesCursorOnRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "proxy-round-trip-cursor.db")
 	if err := dbpkg.InitDB("sqlite", dbPath, false); err != nil {

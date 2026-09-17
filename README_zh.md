@@ -120,6 +120,8 @@ docker compose pull
 docker compose up -d
 ```
 
+新镜像已按架构内置 sing-box（Alpine 镜像使用 musl 版本），代理池的加密订阅节点无需在容器中另行安装。升级现有容器时保留原数据卷即可。
+
 启动完成后访问 `http://localhost:8080`。
 
 ### 📦 方式二：Release 二进制安装
@@ -132,6 +134,10 @@ docker compose up -d
 **1. 下载并解压**
 
 从 [Releases](https://github.com/U188/octopus/releases) 下载对应平台的压缩包，例如 Linux AMD64、Windows AMD64 或 macOS ARM64。
+
+压缩包内的 `bin/sing-box`（Windows 为 `bin/sing-box.exe`）需和 Octopus 主程序一起解压；`licenses/sing-box-LICENSE` 为其 GPLv3 授权文本。更新旧部署时覆盖主程序及 `bin` 目录，保留 `data` 目录。默认先使用随包版本；设置中明确指定的 sing-box 路径优先，随后兼容系统 PATH 和数据目录中的旧版本。直接从源码启动时没有随包程序，需安装 sing-box 或填写可执行文件路径。
+
+旧版后台在线更新仅替换主程序，因此首次迁移到内置 sing-box 的版本需完整解压新版包；新版更新器会在后续在线更新时同步安装运行时及许可证。Docker 部署始终通过升级镜像更新；Windows 仍需手动替换发布包。
 
 **2. 创建数据目录**
 

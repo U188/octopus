@@ -120,6 +120,8 @@ docker compose pull
 docker compose up -d
 ```
 
+New images bundle sing-box for each architecture (the Alpine image uses the musl build). Existing installations can keep their data volume when upgrading; encrypted subscription nodes need no separate sing-box installation.
+
 Open `http://localhost:8080` after the service starts.
 
 ### 📦 Option 2: Release Binary Installation
@@ -132,6 +134,10 @@ Open `http://localhost:8080` after the service starts.
 **1. Download and extract**
 
 Download the matching archive from [Releases](https://github.com/U188/octopus/releases), for example Linux AMD64, Windows AMD64, or macOS ARM64.
+
+Extract `bin/sing-box` (`bin/sing-box.exe` on Windows) together with the Octopus executable; `licenses/sing-box-LICENSE` contains its GPLv3 license. To upgrade an existing installation, replace the executable and `bin` directory while preserving `data`. The bundled binary is used by default; an explicitly configured sing-box path takes precedence, followed by PATH and the legacy data-directory location. Source builds still need a separate sing-box installation or executable path.
+
+Older online updaters replace only the main executable: extract the complete release package for the first migration to bundled sing-box. The new updater installs companion files during subsequent online updates. Docker installations should update the image; Windows still requires manual release-package replacement.
 
 **2. Create a data directory**
 

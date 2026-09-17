@@ -10,8 +10,10 @@ RUN apt-get update && apt-get install -y ca-certificates tzdata gosu && \
     mkdir -p /app
 
 COPY build/docker/${TARGETPLATFORM}/octopus /app/octopus
+COPY build/docker/${TARGETPLATFORM}/sing-box /app/bin/sing-box
+COPY build/docker/${TARGETPLATFORM}/sing-box-LICENSE /usr/share/doc/sing-box/LICENSE
 COPY scripts/dockerfiles/entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh /app/bin/sing-box
 
 CMD ["/entrypoint.sh"]

@@ -6,6 +6,9 @@ import { logger } from '@/lib/logger';
 export type ProxyMode = 'direct' | 'system' | 'pool' | 'inherit';
 export type ProxyConfigurationType = 'single' | 'subscription';
 export type ProxySubscriptionSyncStatus = 'idle' | 'success' | 'failed';
+export type ProxySelectionStrategy = 'latency' | 'round_robin' | 'sticky';
+export type ProxyNodeRuntimeType = 'direct' | 'singbox';
+export type ProxyNodeConversionStatus = 'direct' | 'pending' | 'ready' | 'failed';
 
 export type ProxyConfiguration = {
     id: number;
@@ -15,6 +18,8 @@ export type ProxyConfiguration = {
     enabled: boolean;
     remark: string;
     refresh_interval_minutes: number;
+    health_check_url: string;
+    selection_strategy: ProxySelectionStrategy;
     last_sync_at?: string;
     last_sync_status: ProxySubscriptionSyncStatus;
     last_sync_message: string;
@@ -31,9 +36,33 @@ export type ProxySubscriptionNode = {
     id: number;
     proxy_configuration_id: number;
     url: string;
+    name: string;
+    display_address: string;
+    protocol: string;
+    runtime_type: ProxyNodeRuntimeType;
+    conversion_status: ProxyNodeConversionStatus;
+    exit_ip: string;
+    exit_country: string;
+    exit_city: string;
+    user_enabled: boolean;
     active: boolean;
     health_status: ProxyTestHealthStatus;
     latency_ms: number;
+    connectivity_checked: boolean;
+    connectivity_status: ProxyTestHealthStatus;
+    connectivity_latency_ms: number;
+    connectivity_last_error: string;
+    upstream_checked: boolean;
+    upstream_url: string;
+    upstream_status: ProxyTestHealthStatus;
+    upstream_latency_ms: number;
+    upstream_last_error: string;
+    model_probe_url: string;
+    model_probe_model: string;
+    model_probe_status: ProxyTestHealthStatus;
+    model_probe_latency_ms: number;
+    model_probe_checked_at?: string;
+    model_probe_last_error: string;
     last_checked_at?: string;
     last_error: string;
     runtime_failure_count: number;
@@ -74,6 +103,17 @@ export type ProxyTestRequest = {
 
 export type ProxyTestHealthStatus = 'healthy' | 'degraded' | 'failed';
 
+export type ProxyRuntimeStatus = {
+    enabled: boolean;
+    available: boolean;
+    running: boolean;
+    version: string;
+    binary_path: string;
+    node_count: number;
+    started_at?: string;
+    last_error: string;
+};
+
 export type ProxyTestAttemptResult = {
     attempt: number;
     success: boolean;
@@ -91,6 +131,13 @@ export type ProxyTestResult = {
     attempt_count: number;
     success_count: number;
     attempts: ProxyTestAttemptResult[];
+    message: string;
+};
+
+export type ProxyModelProbeResult = {
+    status: ProxyTestHealthStatus;
+    status_code: number;
+    duration_ms: number;
     message: string;
 };
 
@@ -131,7 +178,7 @@ export function useCreateProxyConfiguration() {
     const queryClient = useQueryClient();
     const t = useTranslations('proxyPool');
     return useMutation({
-        mutationFn: async (data: Pick<ProxyConfiguration, 'name' | 'url' | 'type' | 'enabled' | 'remark' | 'refresh_interval_minutes'>) =>
+        mutationFn: async (data: Pick<ProxyConfiguration, 'name' | 'url' | 'type' | 'enabled' | 'remark' | 'refresh_interval_minutes' | 'health_check_url' | 'selection_strategy'>) =>
             apiClient.post<ProxyConfiguration>('/api/v1/proxy-pool/create', data),
         onSuccess: () => invalidateProxyPool(queryClient),
         onError: (error) => logger.error(t('createFailed'), error),
@@ -142,10 +189,61 @@ export function useUpdateProxyConfiguration() {
     const queryClient = useQueryClient();
     const t = useTranslations('proxyPool');
     return useMutation({
-        mutationFn: async (data: Partial<Pick<ProxyConfiguration, 'name' | 'url' | 'enabled' | 'remark' | 'refresh_interval_minutes'>> & { id: number }) =>
+        mutationFn: async (data: Partial<Pick<ProxyConfiguration, 'name' | 'url' | 'enabled' | 'remark' | 'refresh_interval_minutes' | 'health_check_url' | 'selection_strategy'>> & { id: number }) =>
             apiClient.post<ProxyConfiguration>('/api/v1/proxy-pool/update', data),
         onSuccess: () => invalidateProxyPool(queryClient),
         onError: (error) => logger.error(t('updateFailed'), error),
+    });
+}
+
+export function useProxyRuntimeStatus(enabled = true) {
+    return useQuery({
+        queryKey: ['proxy-pool', 'runtime'],
+        queryFn: async () => apiClient.get<ProxyRuntimeStatus>('/api/v1/proxy-pool/runtime'),
+        enabled,
+        refetchInterval: 10000,
+    });
+}
+
+export function useRestartProxyRuntime() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () => apiClient.post<ProxyRuntimeStatus>('/api/v1/proxy-pool/runtime/restart'),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['proxy-pool'] });
+        },
+    });
+}
+
+export function useRecoverProxySubscriptionNode() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => apiClient.post<null>(`/api/v1/proxy-pool/node/${id}/recover`),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['proxy-pool'] }),
+    });
+}
+
+export function useTestProxySubscriptionNode() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (id: number) => apiClient.post<ProxyTestResult>(`/api/v1/proxy-pool/node/${id}/test`),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['proxy-pool'] }),
+    });
+}
+
+export function useProxySubscriptionNodeModelProbe() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { id: number; url: string; model: string; api_key: string }) => apiClient.post<ProxyModelProbeResult>(`/api/v1/proxy-pool/node/${data.id}/model-probe`, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['proxy-pool'] }),
+    });
+}
+
+export function useSetProxySubscriptionNodeEnabled() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { id: number; enabled: boolean }) => apiClient.post<null>(`/api/v1/proxy-pool/node/${data.id}/enabled`, { enabled: data.enabled }),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['proxy-pool'] }),
     });
 }
 

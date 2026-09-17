@@ -162,6 +162,14 @@ func setSetting(c *gin.Context) {
 				}
 			})
 		}
+	case model.SettingKeySingBoxEnabled, model.SettingKeySingBoxPath:
+		safe.Go("proxy-sing-box-reconfigure", func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := op.ProxyRuntimeApplySettings(ctx); err != nil {
+				log.Warnf("failed to reconfigure sing-box runtime: %v", err)
+			}
+		})
 	}
 	recordAudit(c, "setting.set", op.AuditStatusSuccess, map[string]any{
 		"key":   setting.Key,

@@ -21,7 +21,11 @@ func init() {
 		AddRoute(router.NewRoute("/list", http.MethodGet).Handle(listProxyConfigurations)).
 		AddRoute(router.NewRoute("/references/:id", http.MethodGet).Handle(listProxyConfigurationReferences)).
 		AddRoute(router.NewRoute("/nodes/:id", http.MethodGet).Handle(listProxySubscriptionNodes)).
+		AddRoute(router.NewRoute("/runtime", http.MethodGet).Handle(getProxyRuntimeStatus)).
 		AddRoute(router.NewRoute("/sync/:id", http.MethodPost).Handle(syncProxySubscription)).
+		AddRoute(router.NewRoute("/runtime/restart", http.MethodPost).Handle(restartProxyRuntime)).
+		AddRoute(router.NewRoute("/node/:id/recover", http.MethodPost).Handle(recoverProxySubscriptionNode)).
+		AddRoute(router.NewRoute("/node/:id/test", http.MethodPost).Handle(testProxySubscriptionNode)).
 		AddRoute(router.NewRoute("/delete/:id", http.MethodDelete).Handle(deleteProxyConfiguration))
 
 	router.NewGroupRouter("/api/v1/proxy-pool").
@@ -29,6 +33,8 @@ func init() {
 		Use(middleware.RequireJSON()).
 		AddRoute(router.NewRoute("/create", http.MethodPost).Handle(createProxyConfiguration)).
 		AddRoute(router.NewRoute("/update", http.MethodPost).Handle(updateProxyConfiguration)).
+		AddRoute(router.NewRoute("/node/:id/enabled", http.MethodPost).Handle(setProxySubscriptionNodeEnabled)).
+		AddRoute(router.NewRoute("/node/:id/model-probe", http.MethodPost).Handle(probeProxySubscriptionNodeModel)).
 		AddRoute(router.NewRoute("/test", http.MethodPost).Handle(testProxyConfiguration))
 }
 
@@ -104,6 +110,8 @@ func createProxyConfiguration(c *gin.Context) {
 		Enabled                *bool                        `json:"enabled,omitempty"`
 		Remark                 string                       `json:"remark,omitempty"`
 		RefreshIntervalMinutes int                          `json:"refresh_interval_minutes,omitempty"`
+		HealthCheckURL         string                       `json:"health_check_url,omitempty"`
+		SelectionStrategy      model.ProxySelectionStrategy `json:"selection_strategy,omitempty"`
 	}
 
 	var req proxyConfigurationCreateRequest
@@ -122,6 +130,8 @@ func createProxyConfiguration(c *gin.Context) {
 		Enabled:                enabled,
 		Remark:                 req.Remark,
 		RefreshIntervalMinutes: req.RefreshIntervalMinutes,
+		HealthCheckURL:         req.HealthCheckURL,
+		SelectionStrategy:      req.SelectionStrategy,
 	}
 	if err := op.ProxyConfigurationCreate(&item, c.Request.Context()); err != nil {
 		recordAuditFailure(c, "proxy_pool.create", map[string]any{
@@ -137,6 +147,89 @@ func createProxyConfiguration(c *gin.Context) {
 		"enabled": item.Enabled,
 	})
 	resp.Success(c, item)
+}
+
+func getProxyRuntimeStatus(c *gin.Context) {
+	resp.Success(c, op.ProxyRuntimeStatus(c.Request.Context()))
+}
+
+func restartProxyRuntime(c *gin.Context) {
+	if err := op.ProxyRuntimeReload(c.Request.Context()); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "proxy_pool.runtime.restart", nil)
+	resp.Success(c, op.ProxyRuntimeStatus(c.Request.Context()))
+}
+
+func recoverProxySubscriptionNode(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	if err := op.ProxySubscriptionNodeRecover(id, c.Request.Context()); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "proxy_pool.node.recover", map[string]any{"id": id})
+	resp.Success(c, nil)
+}
+
+func testProxySubscriptionNode(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	result, err := op.ProxySubscriptionNodeTest(id, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "proxy_pool.node.test", map[string]any{"id": id, "health_status": result.HealthStatus})
+	resp.Success(c, result)
+}
+
+func probeProxySubscriptionNodeModel(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	var request op.ProxyModelProbeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	result, err := op.ProxySubscriptionNodeModelProbe(id, request, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "proxy_pool.node.model_probe", map[string]any{"id": id, "model": request.Model, "status": result.Status})
+	resp.Success(c, result)
+}
+
+func setProxySubscriptionNodeEnabled(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.InvalidParam(c)
+		return
+	}
+	var request struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.InvalidJSON(c)
+		return
+	}
+	if err := op.ProxySubscriptionNodeSetEnabled(id, request.Enabled, c.Request.Context()); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	recordAuditSuccess(c, "proxy_pool.node.enabled", map[string]any{"id": id, "enabled": request.Enabled})
+	resp.Success(c, nil)
 }
 
 func updateProxyConfiguration(c *gin.Context) {

@@ -11,9 +11,33 @@ type ProxyUsageMode string
 
 type ProxyConfigurationType string
 
+type ProxySelectionStrategy string
+
+type ProxyNodeRuntimeType string
+
+type ProxyNodeConversionStatus string
+
 const (
 	ProxyConfigurationTypeSingle       ProxyConfigurationType = "single"
 	ProxyConfigurationTypeSubscription ProxyConfigurationType = "subscription"
+)
+
+const (
+	ProxySelectionLatency    ProxySelectionStrategy = "latency"
+	ProxySelectionRoundRobin ProxySelectionStrategy = "round_robin"
+	ProxySelectionSticky     ProxySelectionStrategy = "sticky"
+)
+
+const (
+	ProxyNodeRuntimeDirect  ProxyNodeRuntimeType = "direct"
+	ProxyNodeRuntimeSingBox ProxyNodeRuntimeType = "singbox"
+)
+
+const (
+	ProxyNodeConversionDirect  ProxyNodeConversionStatus = "direct"
+	ProxyNodeConversionPending ProxyNodeConversionStatus = "pending"
+	ProxyNodeConversionReady   ProxyNodeConversionStatus = "ready"
+	ProxyNodeConversionFailed  ProxyNodeConversionStatus = "failed"
 )
 
 type ProxySubscriptionSyncStatus string
@@ -45,6 +69,8 @@ type ProxyConfiguration struct {
 	Enabled                bool                        `json:"enabled" gorm:"default:true"`
 	Remark                 string                      `json:"remark"`
 	RefreshIntervalMinutes int                         `json:"refresh_interval_minutes" gorm:"not null;default:30"`
+	HealthCheckURL         string                      `json:"health_check_url"`
+	SelectionStrategy      ProxySelectionStrategy      `json:"selection_strategy" gorm:"size:20;not null;default:latency"`
 	LastSyncAt             *time.Time                  `json:"last_sync_at,omitempty"`
 	LastSyncStatus         ProxySubscriptionSyncStatus `json:"last_sync_status" gorm:"size:16;not null;default:idle"`
 	LastSyncMessage        string                      `json:"last_sync_message"`
@@ -58,29 +84,119 @@ type ProxyConfiguration struct {
 }
 
 type ProxyConfigurationUpdateRequest struct {
-	ID                     int     `json:"id" binding:"required"`
-	Name                   *string `json:"name,omitempty"`
-	URL                    *string `json:"url,omitempty"`
-	Enabled                *bool   `json:"enabled,omitempty"`
-	Remark                 *string `json:"remark,omitempty"`
-	RefreshIntervalMinutes *int    `json:"refresh_interval_minutes,omitempty"`
+	ID                     int                     `json:"id" binding:"required"`
+	Name                   *string                 `json:"name,omitempty"`
+	URL                    *string                 `json:"url,omitempty"`
+	Enabled                *bool                   `json:"enabled,omitempty"`
+	Remark                 *string                 `json:"remark,omitempty"`
+	RefreshIntervalMinutes *int                    `json:"refresh_interval_minutes,omitempty"`
+	HealthCheckURL         *string                 `json:"health_check_url,omitempty"`
+	SelectionStrategy      *ProxySelectionStrategy `json:"selection_strategy,omitempty"`
 }
 
 type ProxySubscriptionNode struct {
-	ID                   int                   `json:"id" gorm:"primaryKey"`
-	ProxyConfigurationID int                   `json:"proxy_configuration_id" gorm:"not null;uniqueIndex:idx_proxy_subscription_node_url;index"`
-	URL                  string                `json:"url" gorm:"not null;uniqueIndex:idx_proxy_subscription_node_url"`
-	Active               bool                  `json:"active" gorm:"not null;index"`
-	HealthStatus         ProxyTestHealthStatus `json:"health_status" gorm:"size:16;not null;default:failed;index"`
-	LatencyMS            int64                 `json:"latency_ms"`
-	LastCheckedAt        *time.Time            `json:"last_checked_at,omitempty"`
-	LastError            string                `json:"last_error"`
-	RuntimeFailureCount  int                   `json:"runtime_failure_count"`
-	QuarantinedUntil     *time.Time            `json:"quarantined_until,omitempty" gorm:"index"`
-	LastRuntimeFailureAt *time.Time            `json:"last_runtime_failure_at,omitempty"`
-	LastRuntimeError     string                `json:"last_runtime_error"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
+	ID                    int                       `json:"id" gorm:"primaryKey"`
+	ProxyConfigurationID  int                       `json:"proxy_configuration_id" gorm:"not null;uniqueIndex:idx_proxy_subscription_node_url;index"`
+	URL                   string                    `json:"url" gorm:"not null;uniqueIndex:idx_proxy_subscription_node_url"`
+	NodeKey               string                    `json:"node_key" gorm:"size:64;index"`
+	Name                  string                    `json:"name"`
+	DisplayAddress        string                    `json:"display_address"`
+	Protocol              string                    `json:"protocol" gorm:"size:20;index"`
+	RuntimeType           ProxyNodeRuntimeType      `json:"runtime_type" gorm:"size:16;not null;default:direct;index"`
+	ConfigJSON            string                    `json:"config_json,omitempty" gorm:"type:text"`
+	ConversionStatus      ProxyNodeConversionStatus `json:"conversion_status" gorm:"size:16;not null;default:direct;index"`
+	UserEnabled           bool                      `json:"user_enabled" gorm:"not null;default:true;index"`
+	ExitIP                string                    `json:"exit_ip" gorm:"size:64;index"`
+	ExitCountry           string                    `json:"exit_country" gorm:"size:8"`
+	ExitCity              string                    `json:"exit_city"`
+	Active                bool                      `json:"active" gorm:"not null;index"`
+	HealthStatus          ProxyTestHealthStatus     `json:"health_status" gorm:"size:16;not null;default:failed;index"`
+	LatencyMS             int64                     `json:"latency_ms"`
+	ConnectivityChecked   bool                      `json:"connectivity_checked" gorm:"not null;default:false"`
+	ConnectivityStatus    ProxyTestHealthStatus     `json:"connectivity_status" gorm:"size:16;not null;default:failed"`
+	ConnectivityLatencyMS int64                     `json:"connectivity_latency_ms"`
+	ConnectivityLastError string                    `json:"connectivity_last_error"`
+	UpstreamChecked       bool                      `json:"upstream_checked" gorm:"not null;default:false"`
+	UpstreamURL           string                    `json:"upstream_url"`
+	UpstreamStatus        ProxyTestHealthStatus     `json:"upstream_status" gorm:"size:16;not null;default:failed"`
+	UpstreamLatencyMS     int64                     `json:"upstream_latency_ms"`
+	UpstreamLastError     string                    `json:"upstream_last_error"`
+	ModelProbeURL         string                    `json:"model_probe_url"`
+	ModelProbeModel       string                    `json:"model_probe_model"`
+	ModelProbeStatus      ProxyTestHealthStatus     `json:"model_probe_status" gorm:"size:16;not null;default:failed"`
+	ModelProbeLatencyMS   int64                     `json:"model_probe_latency_ms"`
+	ModelProbeCheckedAt   *time.Time                `json:"model_probe_checked_at,omitempty"`
+	ModelProbeLastError   string                    `json:"model_probe_last_error"`
+	LastCheckedAt         *time.Time                `json:"last_checked_at,omitempty"`
+	LastError             string                    `json:"last_error"`
+	RuntimeFailureCount   int                       `json:"runtime_failure_count"`
+	QuarantinedUntil      *time.Time                `json:"quarantined_until,omitempty" gorm:"index"`
+	LastRuntimeFailureAt  *time.Time                `json:"last_runtime_failure_at,omitempty"`
+	LastRuntimeError      string                    `json:"last_runtime_error"`
+	CreatedAt             time.Time                 `json:"created_at"`
+	UpdatedAt             time.Time                 `json:"updated_at"`
+}
+
+type ProxySubscriptionNodeView struct {
+	ID                    int                       `json:"id"`
+	ProxyConfigurationID  int                       `json:"proxy_configuration_id"`
+	URL                   string                    `json:"url"`
+	NodeKey               string                    `json:"node_key"`
+	Name                  string                    `json:"name"`
+	DisplayAddress        string                    `json:"display_address"`
+	Protocol              string                    `json:"protocol"`
+	RuntimeType           ProxyNodeRuntimeType      `json:"runtime_type"`
+	ConversionStatus      ProxyNodeConversionStatus `json:"conversion_status"`
+	ExitIP                string                    `json:"exit_ip"`
+	ExitCountry           string                    `json:"exit_country"`
+	ExitCity              string                    `json:"exit_city"`
+	UserEnabled           bool                      `json:"user_enabled"`
+	Active                bool                      `json:"active"`
+	HealthStatus          ProxyTestHealthStatus     `json:"health_status"`
+	LatencyMS             int64                     `json:"latency_ms"`
+	ConnectivityChecked   bool                      `json:"connectivity_checked"`
+	ConnectivityStatus    ProxyTestHealthStatus     `json:"connectivity_status"`
+	ConnectivityLatencyMS int64                     `json:"connectivity_latency_ms"`
+	ConnectivityLastError string                    `json:"connectivity_last_error"`
+	UpstreamChecked       bool                      `json:"upstream_checked"`
+	UpstreamURL           string                    `json:"upstream_url"`
+	UpstreamStatus        ProxyTestHealthStatus     `json:"upstream_status"`
+	UpstreamLatencyMS     int64                     `json:"upstream_latency_ms"`
+	UpstreamLastError     string                    `json:"upstream_last_error"`
+	ModelProbeURL         string                    `json:"model_probe_url"`
+	ModelProbeModel       string                    `json:"model_probe_model"`
+	ModelProbeStatus      ProxyTestHealthStatus     `json:"model_probe_status"`
+	ModelProbeLatencyMS   int64                     `json:"model_probe_latency_ms"`
+	ModelProbeCheckedAt   *time.Time                `json:"model_probe_checked_at,omitempty"`
+	ModelProbeLastError   string                    `json:"model_probe_last_error"`
+	LastCheckedAt         *time.Time                `json:"last_checked_at,omitempty"`
+	LastError             string                    `json:"last_error"`
+	RuntimeFailureCount   int                       `json:"runtime_failure_count"`
+	QuarantinedUntil      *time.Time                `json:"quarantined_until,omitempty"`
+	LastRuntimeFailureAt  *time.Time                `json:"last_runtime_failure_at,omitempty"`
+	LastRuntimeError      string                    `json:"last_runtime_error"`
+}
+
+func (n ProxySubscriptionNode) View() ProxySubscriptionNodeView {
+	urlValue := n.URL
+	if n.DisplayAddress != "" {
+		urlValue = n.DisplayAddress
+	}
+	return ProxySubscriptionNodeView{
+		ID: n.ID, ProxyConfigurationID: n.ProxyConfigurationID, URL: urlValue, NodeKey: n.NodeKey,
+		Name: n.Name, DisplayAddress: n.DisplayAddress, Protocol: n.Protocol, RuntimeType: n.RuntimeType,
+		ConversionStatus: n.ConversionStatus, ExitIP: n.ExitIP, ExitCountry: n.ExitCountry, ExitCity: n.ExitCity,
+		UserEnabled: n.UserEnabled, Active: n.Active, HealthStatus: n.HealthStatus, LatencyMS: n.LatencyMS,
+		ConnectivityChecked: n.ConnectivityChecked, ConnectivityStatus: n.ConnectivityStatus,
+		ConnectivityLatencyMS: n.ConnectivityLatencyMS, ConnectivityLastError: n.ConnectivityLastError,
+		UpstreamChecked: n.UpstreamChecked, UpstreamURL: n.UpstreamURL, UpstreamStatus: n.UpstreamStatus,
+		UpstreamLatencyMS: n.UpstreamLatencyMS, UpstreamLastError: n.UpstreamLastError,
+		ModelProbeURL: n.ModelProbeURL, ModelProbeModel: n.ModelProbeModel, ModelProbeStatus: n.ModelProbeStatus,
+		ModelProbeLatencyMS: n.ModelProbeLatencyMS, ModelProbeCheckedAt: n.ModelProbeCheckedAt,
+		ModelProbeLastError: n.ModelProbeLastError,
+		LastCheckedAt:       n.LastCheckedAt, LastError: n.LastError, RuntimeFailureCount: n.RuntimeFailureCount,
+		QuarantinedUntil: n.QuarantinedUntil, LastRuntimeFailureAt: n.LastRuntimeFailureAt, LastRuntimeError: n.LastRuntimeError,
+	}
 }
 
 type ProxySubscriptionSyncResult struct {
@@ -219,6 +335,21 @@ func (p *ProxyConfiguration) Normalize() error {
 	}
 	if p.LastSyncStatus == "" {
 		p.LastSyncStatus = ProxySubscriptionSyncIdle
+	}
+	if p.SelectionStrategy == "" {
+		p.SelectionStrategy = ProxySelectionLatency
+	}
+	switch p.SelectionStrategy {
+	case ProxySelectionLatency, ProxySelectionRoundRobin, ProxySelectionSticky:
+	default:
+		return fmt.Errorf("unsupported proxy selection strategy: %s", p.SelectionStrategy)
+	}
+	p.HealthCheckURL = strings.TrimSpace(p.HealthCheckURL)
+	if p.HealthCheckURL != "" {
+		parsed, err := url.Parse(p.HealthCheckURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+			return fmt.Errorf("health check url must be a valid http or https url")
+		}
 	}
 	return nil
 }

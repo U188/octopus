@@ -69,6 +69,8 @@ const (
 	SettingKeyWebDAVAutoBackupPassword         SettingKey = "webdav_auto_backup_password"           // WebDAV 自动备份密码
 	SettingKeyWebDAVAutoBackupIntervalHours    SettingKey = "webdav_auto_backup_interval_hours"     // WebDAV 自动备份间隔（小时）
 	SettingKeyWebDAVAutoBackupRetention        SettingKey = "webdav_auto_backup_retention"          // WebDAV 自动备份保留份数
+	SettingKeySingBoxEnabled                   SettingKey = "sing_box_enabled"                      // 是否启用加密订阅节点转换
+	SettingKeySingBoxPath                      SettingKey = "sing_box_path"                         // sing-box 可执行文件路径
 )
 
 type Setting struct {
@@ -136,6 +138,8 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyWebDAVAutoBackupPassword, Value: ""},
 		{Key: SettingKeyWebDAVAutoBackupIntervalHours, Value: "24"},
 		{Key: SettingKeyWebDAVAutoBackupRetention, Value: "7"},
+		{Key: SettingKeySingBoxEnabled, Value: "true"},
+		{Key: SettingKeySingBoxPath, Value: "sing-box"},
 	}
 }
 
@@ -180,9 +184,14 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("setting value must be non-negative")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled, SettingKeyIPWhitelistEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled, SettingKeyTelegramReportEnabled, SettingKeyTelegramAlertEnabled, SettingKeyWebDAVAutoBackupEnabled:
+	case SettingKeyRelayLogKeepEnabled, SettingKeyIPWhitelistEnabled, SettingKeyResponsesWSEnabled, SettingKeyGroupHealthEnabled, SettingKeyStatsSiteModelBackfilled, SettingKeyOutlierRetireEnabled, SettingKeyTelegramBotEnabled, SettingKeyTelegramReportEnabled, SettingKeyTelegramAlertEnabled, SettingKeyWebDAVAutoBackupEnabled, SettingKeySingBoxEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("setting value must be true or false")
+		}
+		return nil
+	case SettingKeySingBoxPath:
+		if strings.TrimSpace(s.Value) == "" {
+			return fmt.Errorf("sing-box path is required")
 		}
 		return nil
 	case SettingKeyIPWhitelist:

@@ -2,11 +2,15 @@ package op
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +20,7 @@ import (
 
 	dbpkg "github.com/U188/octopus/internal/db"
 	"github.com/U188/octopus/internal/model"
+	"github.com/U188/octopus/internal/singbox"
 )
 
 func newSequencedTestProxy(t *testing.T, statusCodes []int) (*httptest.Server, *atomic.Int64) {
@@ -182,17 +187,11 @@ func initProxySubscriptionTestDB(t *testing.T) {
 	}
 	proxyConfigurationCache.Clear()
 	proxySubscriptionNodeCache.Clear()
-	proxySubscriptionCounters.Range(func(key, _ any) bool {
-		proxySubscriptionCounters.Delete(key)
-		return true
-	})
+	clearAllProxySubscriptionCounters()
 	t.Cleanup(func() {
 		proxyConfigurationCache.Clear()
 		proxySubscriptionNodeCache.Clear()
-		proxySubscriptionCounters.Range(func(key, _ any) bool {
-			proxySubscriptionCounters.Delete(key)
-			return true
-		})
+		clearAllProxySubscriptionCounters()
 		_ = dbpkg.Close()
 	})
 }
@@ -232,6 +231,109 @@ func TestParseProxySubscriptionExtractsJSONFormat2(t *testing.T) {
 		if urls[i] != want[i] {
 			t.Fatalf("parsed JSON URLs = %#v, want %#v", urls, want)
 		}
+	}
+}
+
+func TestParseProxySubscriptionSupportsClashAndBase64EncryptedNodes(t *testing.T) {
+	clash := `proxies:
+  - name: edge-vless
+    type: vless
+    server: proxy.example.com
+    port: 443
+    uuid: secret-uuid
+    tls: true
+  - name: edge-socks
+    type: socks5
+    server: 127.0.0.1
+    port: 1080
+`
+	nodes, err := parseProxySubscriptionNodes(base64.StdEncoding.EncodeToString([]byte(clash)))
+	if err != nil {
+		t.Fatalf("parse base64 Clash subscription: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("parsed nodes = %+v, want 2", nodes)
+	}
+	if nodes[0].RuntimeType != model.ProxyNodeRuntimeSingBox || nodes[0].Protocol != "vless" || !strings.HasPrefix(nodes[0].URL, "singbox://") {
+		t.Fatalf("encrypted node was not converted to sing-box metadata: %+v", nodes[0])
+	}
+	if strings.Contains(nodes[0].DisplayValue, "secret-uuid") || nodes[0].ConfigJSON == "" {
+		t.Fatalf("encrypted node display/config separation failed: %+v", nodes[0])
+	}
+	if nodes[1].RuntimeType != model.ProxyNodeRuntimeDirect || nodes[1].URL != "socks5://127.0.0.1:1080" {
+		t.Fatalf("direct Clash node parsed incorrectly: %+v", nodes[1])
+	}
+}
+
+func TestProxySubscriptionModelProbePersistsStatusWithoutCredential(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{Name: "model probe subscription", URL: "https://example.com/probe.txt", Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create configuration: %v", err)
+	}
+	secret := "test-secret-only-in-request"
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+secret || r.URL.Path != "/v1/chat/completions" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(proxy.Close)
+	node := model.ProxySubscriptionNode{ProxyConfigurationID: config.ID, URL: proxy.URL, Active: true, UserEnabled: true, HealthStatus: model.ProxyTestHealthHealthy}
+	if err := dbpkg.GetDB().Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	result, err := ProxySubscriptionNodeModelProbe(node.ID, ProxyModelProbeRequest{
+		URL: "http://example.com/v1/chat/completions", Model: "fixture-model", APIKey: secret,
+	}, ctx)
+	if err != nil || result.Status != model.ProxyTestHealthHealthy {
+		t.Fatalf("model probe failed: result=%+v err=%v", result, err)
+	}
+	var persisted model.ProxySubscriptionNode
+	if err := dbpkg.GetDB().First(&persisted, node.ID).Error; err != nil {
+		t.Fatalf("read node probe: %v", err)
+	}
+	encoded, _ := json.Marshal(persisted)
+	if strings.Contains(string(encoded), secret) || persisted.ModelProbeURL != "http://example.com/v1/chat/completions" || persisted.ModelProbeModel != "fixture-model" {
+		t.Fatalf("model probe persisted unexpected fields: %+v", persisted.View())
+	}
+}
+
+func TestProxySubscriptionModelProbeDoesNotForwardKeyOnRedirect(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{Name: "model probe redirect", URL: "https://example.com/probe.txt", Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create configuration: %v", err)
+	}
+	requests := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Location", "http://example.com/redirected")
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(proxy.Close)
+	node := model.ProxySubscriptionNode{ProxyConfigurationID: config.ID, URL: proxy.URL, Active: true, UserEnabled: true, HealthStatus: model.ProxyTestHealthHealthy}
+	if err := dbpkg.GetDB().Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	result, err := ProxySubscriptionNodeModelProbe(node.ID, ProxyModelProbeRequest{URL: "http://example.com/v1/chat/completions", Model: "fixture-model", APIKey: "one-time-key"}, ctx)
+	if err != nil || result.StatusCode != http.StatusFound || result.Status != model.ProxyTestHealthFailed || requests != 1 {
+		t.Fatalf("redirect probe followed or incorrectly passed: result=%+v requests=%d err=%v", result, requests, err)
+	}
+}
+
+func TestProxyUpstreamProbeTreatsAuthAndMissingRouteAsReachable(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			proxy, _ := newSequencedTestProxy(t, []int{status})
+			result := proxyUpstreamProbe(context.Background(), proxy.URL, "http://example.com/v1")
+			if !result.Success || result.StatusCode != status {
+				t.Fatalf("auth/path HTTP status incorrectly flagged as proxy failure: %+v", result)
+			}
+		})
 	}
 }
 
@@ -329,6 +431,45 @@ func TestProxyURLsForConfigStableAndScopedRotation(t *testing.T) {
 	if siteFirst[0] != nodes[0].URL || otherSiteFirst[0] != nodes[0].URL ||
 		siteSecond[0] != nodes[1].URL || otherSiteSecond[0] != nodes[1].URL {
 		t.Fatalf("scoped rotations were not independent: site=%#v/%#v other=%#v/%#v", siteFirst, siteSecond, otherSiteFirst, otherSiteSecond)
+	}
+}
+
+func TestProxyURLsForConfigStickyMovesAfterSelectedNodeFails(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{
+		Name: "sticky subscription", URL: "https://example.com/sticky.txt", Type: model.ProxyConfigurationTypeSubscription,
+		Enabled: true, RefreshIntervalMinutes: 30, SelectionStrategy: model.ProxySelectionSticky,
+	}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatalf("create sticky proxy subscription: %v", err)
+	}
+	nodes := []model.ProxySubscriptionNode{
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1201", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 10},
+		{ProxyConfigurationID: config.ID, URL: "socks5://127.0.0.1:1202", Active: true, HealthStatus: model.ProxyTestHealthHealthy, LatencyMS: 20},
+	}
+	if err := dbpkg.GetDB().Create(&nodes).Error; err != nil {
+		t.Fatalf("create sticky subscription nodes: %v", err)
+	}
+	first, err := ProxyURLsForConfigPolicy(config.ID, "site:sticky", false, ctx)
+	if err != nil || first[0] != nodes[0].URL {
+		t.Fatalf("initial sticky candidate = %#v, err=%v", first, err)
+	}
+	if err := ProxySubscriptionNodeReportFailure(config.ID, nodes[0].URL, errors.New("connection refused"), ctx); err != nil {
+		t.Fatalf("report sticky node failure: %v", err)
+	}
+	fallback, err := ProxyURLsForConfigPolicy(config.ID, "site:sticky", false, ctx)
+	if err != nil || fallback[0] != nodes[1].URL {
+		t.Fatalf("sticky fallback candidate = %#v, err=%v", fallback, err)
+	}
+	if err := dbpkg.GetDB().Model(&model.ProxySubscriptionNode{}).Where("id = ?", nodes[0].ID).
+		Updates(map[string]any{"runtime_failure_count": 0, "quarantined_until": nil}).Error; err != nil {
+		t.Fatalf("restore first sticky node: %v", err)
+	}
+	proxySubscriptionNodeCache.Del(config.ID)
+	remained, err := ProxyURLsForConfigPolicy(config.ID, "site:sticky", false, ctx)
+	if err != nil || remained[0] != nodes[1].URL {
+		t.Fatalf("sticky scope jumped back after recovery: %#v, err=%v", remained, err)
 	}
 }
 
@@ -515,6 +656,13 @@ func TestProxySubscriptionRuntimeFailureQuarantinesAndAutomaticallyRestoresNode(
 	if len(restored) != 2 {
 		t.Fatalf("node did not automatically return after quarantine: %#v", restored)
 	}
+	halfOpenContender, err := ProxyURLsForConfig(config.ID, ctx)
+	if err != nil {
+		t.Fatalf("resolve candidates while half-open probe is leased: %v", err)
+	}
+	if len(halfOpenContender) != 1 || halfOpenContender[0] != nodes[1].URL {
+		t.Fatalf("half-open node was handed to concurrent request: %#v", halfOpenContender)
+	}
 	configs, err = ProxyConfigurationList(ctx)
 	if err != nil {
 		t.Fatalf("list proxy configurations after quarantine: %v", err)
@@ -578,6 +726,123 @@ func TestProxySubscriptionSyncUpsertsAndDeactivatesMissingNodes(t *testing.T) {
 	}
 	if activeByURL[proxyA.URL] || !activeByURL[proxyB.URL] {
 		t.Fatalf("expected old node inactive and new node active, got %#v", activeByURL)
+	}
+}
+
+func TestProxySubscriptionNodeTestUsesConfiguredHealthURL(t *testing.T) {
+	previousHealthURL := proxySubscriptionHealthURL
+	previousExitURL := proxyExitLookupURL
+	proxySubscriptionHealthURL = "https://www.google.com/generate_204"
+	t.Cleanup(func() {
+		proxySubscriptionHealthURL = previousHealthURL
+		proxyExitLookupURL = previousExitURL
+	})
+	var customChecks atomic.Int64
+	var statusCode atomic.Int64
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/custom-health" {
+			customChecks.Add(1)
+			w.WriteHeader(int(statusCode.Load()))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/json/") {
+			_, _ = w.Write([]byte(`{"status":"success","query":"198.51.100.10","countryCode":"ZZ","city":"Test"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(proxy.Close)
+	proxyExitLookupURL = "http://ip-api.test/json/"
+
+	for _, code := range []int{204, 401, 403, 404, 502} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			statusCode.Store(int64(code))
+			customChecks.Store(0)
+			checks, err := testProxySubscriptionNodes(context.Background(), 1, []string{proxy.URL}, "http://example.com/custom-health")
+			if err != nil {
+				t.Fatalf("test subscription node: %v", err)
+			}
+			want := model.ProxyTestHealthHealthy
+			if code == 502 {
+				want = model.ProxyTestHealthFailed
+			}
+			if len(checks) != 1 || checks[0].HealthStatus != want {
+				t.Fatalf("custom health result = %+v, want %s", checks, want)
+			}
+			if customChecks.Load() != proxyTestAttemptCount {
+				t.Fatalf("custom health target requests = %d, want %d", customChecks.Load(), proxyTestAttemptCount)
+			}
+			if checks[0].UpstreamURL != "http://example.com/custom-health" || checks[0].UpstreamStatus != want {
+				t.Fatalf("custom upstream result not recorded: %+v", checks[0])
+			}
+			if checks[0].ConnectivityChecked {
+				t.Fatalf("default connectivity target was not checked: %+v", checks[0])
+			}
+		})
+	}
+}
+
+func TestProxySubscriptionCanceledSyncKeepsCommittedRuntime(t *testing.T) {
+	binary := os.Getenv("SINGBOX_BIN")
+	if binary == "" {
+		t.Skip("SINGBOX_BIN not set")
+	}
+	initProxySubscriptionTestDB(t)
+	previousRuntime := singbox.Default
+	previousHealthURL := proxySubscriptionHealthURL
+	singbox.Default = &singbox.Manager{}
+	singbox.Default.Configure(true, binary, t.TempDir())
+	proxySubscriptionHealthURL = "http://example.com/health"
+	t.Cleanup(func() {
+		_ = singbox.Default.Stop()
+		singbox.Default = previousRuntime
+		proxySubscriptionHealthURL = previousHealthURL
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		cancel()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(proxy.Close)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "vless://new-uuid@two.example:443\n%s\n", proxy.URL)
+	}))
+	t.Cleanup(source.Close)
+	config := model.ProxyConfiguration{Name: "canceled sync", URL: source.URL, Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	oldNodes, err := parseProxySubscriptionNodes("vless://old-uuid@one.example:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := oldNodes[0]
+	node := model.ProxySubscriptionNode{ProxyConfigurationID: config.ID, URL: old.URL, NodeKey: old.NodeKey, Protocol: old.Protocol, ConfigJSON: old.ConfigJSON, RuntimeType: old.RuntimeType, Active: true, UserEnabled: true, HealthStatus: model.ProxyTestHealthHealthy, ConversionStatus: model.ProxyNodeConversionReady}
+	if err := dbpkg.GetDB().Create(&node).Error; err != nil {
+		t.Fatal(err)
+	}
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStart()
+	if err := ProxyRuntimeReload(startCtx); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := singbox.Default.Resolve(old.NodeKey)
+	if _, err := ProxySubscriptionSync(config.ID, ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("sync error = %v, want context.Canceled", err)
+	}
+	if actual, ok := singbox.Default.Resolve(old.NodeKey); !ok || actual != endpoint {
+		t.Fatalf("canceled sync replaced old endpoint: %q -> %q", endpoint, actual)
+	}
+	parsed, _ := url.Parse(endpoint)
+	connection, err := net.DialTimeout("tcp", parsed.Host, time.Second)
+	if err != nil {
+		t.Fatalf("committed listener stopped: %v", err)
+	}
+	_ = connection.Close()
+	var activeCount int64
+	if err := dbpkg.GetDB().Model(&model.ProxySubscriptionNode{}).Where("proxy_configuration_id = ? AND active = ?", config.ID, true).Count(&activeCount).Error; err != nil || activeCount != 1 {
+		t.Fatalf("committed nodes changed: count=%d, err=%v", activeCount, err)
 	}
 }
 

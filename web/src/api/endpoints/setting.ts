@@ -66,6 +66,8 @@ export const SettingKey = {
     WebDAVAutoBackupPassword: 'webdav_auto_backup_password',
     WebDAVAutoBackupIntervalHours: 'webdav_auto_backup_interval_hours',
     WebDAVAutoBackupRetention: 'webdav_auto_backup_retention',
+    SingBoxEnabled: 'sing_box_enabled',
+    SingBoxPath: 'sing_box_path',
 } as const;
 
 /**
