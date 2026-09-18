@@ -192,13 +192,6 @@ func ProxySubscriptionNodeTest(nodeID int, ctx context.Context) (model.ProxyTest
 		}
 	}
 	target := config.HealthCheckURL
-	if target == "" {
-		var err error
-		target, err = proxyReferencedUpstreamURL(ctx, config.ID)
-		if err != nil {
-			return model.ProxyTestResult{}, err
-		}
-	}
 	checks, err := testProxySubscriptionNodes(ctx, config.ID, []string{runtimeURL}, target)
 	if err != nil {
 		return model.ProxyTestResult{}, err

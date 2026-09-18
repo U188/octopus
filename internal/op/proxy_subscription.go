@@ -442,13 +442,13 @@ func ProxySubscriptionSync(configID int, ctx context.Context) (model.ProxySubscr
 		syncStatus = model.ProxySubscriptionSyncFailed
 		syncErr = fmt.Errorf("subscription sync found no healthy nodes: %d degraded, %d failed", result.DegradedCount, result.FailedCount)
 		message = syncErr.Error()
-		var lastKnownGood int64
+		var activeNodes int64
 		if err := db.GetDB().WithContext(ctx).Model(&model.ProxySubscriptionNode{}).
-			Where("proxy_configuration_id = ? AND active = ? AND user_enabled = ? AND health_status = ?", configID, true, true, model.ProxyTestHealthHealthy).
-			Count(&lastKnownGood).Error; err != nil {
+			Where("proxy_configuration_id = ? AND active = ? AND user_enabled = ?", configID, true, true).
+			Count(&activeNodes).Error; err != nil {
 			return result, err
 		}
-		if lastKnownGood > 0 {
+		if activeNodes > 0 {
 			markProxySubscriptionSyncFailed(configID, syncErr, ctx)
 			return result, syncErr
 		}
@@ -567,13 +567,6 @@ func parseProxySubscription(content string) ([]string, error) {
 }
 
 func prepareProxySubscriptionNodes(ctx context.Context, configID int, candidates []parsedProxySubscriptionNode, healthURL string) ([]model.ProxySubscriptionNode, error) {
-	if healthURL == "" {
-		var err error
-		healthURL, err = proxyReferencedUpstreamURL(ctx, configID)
-		if err != nil {
-			return nil, err
-		}
-	}
 	encrypted := make([]singbox.Node, 0)
 	for _, candidate := range candidates {
 		if candidate.RuntimeType == model.ProxyNodeRuntimeSingBox {
@@ -645,7 +638,8 @@ func proxySingBoxNodes(ctx context.Context, excludingConfigID int, current []sin
 	var persisted []model.ProxySubscriptionNode
 	query := db.GetDB().WithContext(ctx).
 		Joins("JOIN proxy_configurations ON proxy_configurations.id = proxy_subscription_nodes.proxy_configuration_id AND proxy_configurations.enabled = ?", true).
-		Where("proxy_subscription_nodes.runtime_type = ? AND proxy_subscription_nodes.active = ? AND proxy_subscription_nodes.user_enabled = ?", model.ProxyNodeRuntimeSingBox, true, true)
+		Where("proxy_subscription_nodes.runtime_type = ? AND proxy_subscription_nodes.conversion_status = ? AND proxy_subscription_nodes.active = ? AND proxy_subscription_nodes.user_enabled = ?",
+			model.ProxyNodeRuntimeSingBox, model.ProxyNodeConversionReady, true, true)
 	if excludingConfigID > 0 {
 		query = query.Where("proxy_subscription_nodes.proxy_configuration_id <> ?", excludingConfigID)
 	}
@@ -668,25 +662,6 @@ func proxySingBoxNodes(ctx context.Context, excludingConfigID int, current []sin
 		nodes = append(nodes, node)
 	}
 	return nodes, nil
-}
-
-func proxyReferencedUpstreamURL(ctx context.Context, configID int) (string, error) {
-	var site model.Site
-	if err := db.GetDB().WithContext(ctx).Select("base_url").
-		Where("proxy_mode = ? AND proxy_config_id = ? AND enabled = ?", model.ProxyUsageModePool, configID, true).
-		Order("id ASC").Limit(1).Find(&site).Error; err != nil {
-		return "", err
-	}
-	if site.BaseURL != "" {
-		return site.BaseURL, nil
-	}
-	var channel model.Channel
-	if err := db.GetDB().WithContext(ctx).Select("base_urls").
-		Where("proxy_mode = ? AND proxy_config_id = ? AND enabled = ?", model.ProxyUsageModePool, configID, true).
-		Order("id ASC").Limit(1).Find(&channel).Error; err != nil {
-		return "", err
-	}
-	return channel.GetBaseUrl(), nil
 }
 
 func proxyUpstreamProbe(ctx context.Context, proxyURL, targetURL string) model.ProxyTestAttemptResult {

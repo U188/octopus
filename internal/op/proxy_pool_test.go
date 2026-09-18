@@ -782,6 +782,61 @@ func TestProxySubscriptionNodeTestUsesConfiguredHealthURL(t *testing.T) {
 	}
 }
 
+func TestProxySubscriptionSyncUsesTestTargetInsteadOfReferencedUpstream(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	previousHealthURL := proxySubscriptionHealthURL
+	previousExitURL := proxyExitLookupURL
+	proxySubscriptionHealthURL = "http://example.com/health"
+	proxyExitLookupURL = "http://example.com/exit"
+	t.Cleanup(func() {
+		proxySubscriptionHealthURL = previousHealthURL
+		proxyExitLookupURL = previousExitURL
+	})
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/exit" {
+			_, _ = w.Write([]byte(`{"status":"success","query":"198.51.100.10","countryCode":"ZZ","city":"Test"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(proxy.Close)
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintln(w, proxy.URL)
+	}))
+	t.Cleanup(source.Close)
+
+	ctx := context.Background()
+	config := model.ProxyConfiguration{Name: "test target only", URL: source.URL, Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatal(err)
+	}
+	configID := config.ID
+	site := model.Site{Name: "referenced upstream", Platform: model.SitePlatformAPI, BaseURL: "https://api.example.com/v1", Enabled: true, ProxyMode: model.ProxyUsageModePool, ProxyConfigID: &configID}
+	if err := dbpkg.GetDB().Create(&site).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ProxySubscriptionSync(config.ID, ctx)
+	if err != nil || result.HealthyCount != 1 {
+		t.Fatalf("subscription sync failed: result=%+v err=%v", result, err)
+	}
+	nodes, err := ProxySubscriptionNodes(config.ID, ctx)
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("subscription nodes = %+v, err=%v", nodes, err)
+	}
+	if !nodes[0].ConnectivityChecked || nodes[0].UpstreamChecked || nodes[0].UpstreamURL != "" {
+		t.Fatalf("sync used referenced upstream instead of test target: %+v", nodes[0])
+	}
+	if _, err := ProxySubscriptionNodeTest(nodes[0].ID, ctx); err != nil {
+		t.Fatalf("test subscription node: %v", err)
+	}
+	nodes, err = ProxySubscriptionNodes(config.ID, ctx)
+	if err != nil || !nodes[0].ConnectivityChecked || nodes[0].UpstreamChecked || nodes[0].UpstreamURL != "" {
+		t.Fatalf("node test used referenced upstream instead of test target: nodes=%+v err=%v", nodes, err)
+	}
+}
+
 func TestProxySubscriptionCanceledSyncKeepsCommittedRuntime(t *testing.T) {
 	binary := os.Getenv("SINGBOX_BIN")
 	if binary == "" {
@@ -892,6 +947,68 @@ func TestProxySubscriptionSyncRetainsLastKnownGoodNodesWhenAllChecksFail(t *test
 	}
 	if updated.LastSyncStatus != model.ProxySubscriptionSyncFailed {
 		t.Fatalf("sync status = %q, want failed", updated.LastSyncStatus)
+	}
+}
+
+func TestProxySubscriptionSyncRetainsActiveFailedNodesWhenAllChecksFail(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	previousHealthURL := proxySubscriptionHealthURL
+	proxySubscriptionHealthURL = "http://example.com/health"
+	t.Cleanup(func() { proxySubscriptionHealthURL = previousHealthURL })
+	failedProxy, _ := newSequencedTestProxy(t, []int{http.StatusBadGateway})
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintln(w, failedProxy.URL)
+	}))
+	t.Cleanup(source.Close)
+
+	ctx := context.Background()
+	config := model.ProxyConfiguration{Name: "failed runtime fallback", URL: source.URL, Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := model.ProxySubscriptionNode{ProxyConfigurationID: config.ID, URL: "http://old.example", Active: true, UserEnabled: true, HealthStatus: model.ProxyTestHealthFailed, ConversionStatus: model.ProxyNodeConversionDirect}
+	if err := dbpkg.GetDB().Create(&old).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ProxySubscriptionSync(config.ID, ctx); err == nil {
+		t.Fatal("all-failed subscription sync unexpectedly succeeded")
+	}
+	var nodes []model.ProxySubscriptionNode
+	if err := dbpkg.GetDB().Where("proxy_configuration_id = ?", config.ID).Find(&nodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].ID != old.ID || !nodes[0].Active {
+		t.Fatalf("active nodes were replaced by failed candidates: %+v", nodes)
+	}
+}
+
+func TestProxySingBoxNodesLoadsOnlyReadyNodes(t *testing.T) {
+	initProxySubscriptionTestDB(t)
+	ctx := context.Background()
+	config := model.ProxyConfiguration{Name: "runtime filter", URL: "https://example.com/runtime.txt", Type: model.ProxyConfigurationTypeSubscription, Enabled: true, RefreshIntervalMinutes: 30}
+	if err := ProxyConfigurationCreate(&config, ctx); err != nil {
+		t.Fatal(err)
+	}
+	nodes := []model.ProxySubscriptionNode{
+		{ProxyConfigurationID: config.ID, URL: "singbox://ready", NodeKey: "ready", Protocol: "vless", RuntimeType: model.ProxyNodeRuntimeSingBox, ConfigJSON: `{}`, ConversionStatus: model.ProxyNodeConversionReady, Active: true, UserEnabled: true},
+		{ProxyConfigurationID: config.ID, URL: "singbox://failed", NodeKey: "failed", Protocol: "vless", RuntimeType: model.ProxyNodeRuntimeSingBox, ConfigJSON: `{}`, ConversionStatus: model.ProxyNodeConversionFailed, Active: true, UserEnabled: true},
+		{ProxyConfigurationID: config.ID, URL: "singbox://pending", NodeKey: "pending", Protocol: "vless", RuntimeType: model.ProxyNodeRuntimeSingBox, ConfigJSON: `{}`, ConversionStatus: model.ProxyNodeConversionPending, Active: true, UserEnabled: true},
+		{ProxyConfigurationID: config.ID, URL: "singbox://disabled", NodeKey: "disabled", Protocol: "vless", RuntimeType: model.ProxyNodeRuntimeSingBox, ConfigJSON: `{}`, ConversionStatus: model.ProxyNodeConversionReady, Active: true, UserEnabled: false},
+	}
+	if err := dbpkg.GetDB().Create(&nodes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.GetDB().Model(&nodes[3]).Update("user_enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	runtimeNodes, err := proxySingBoxNodes(ctx, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeNodes) != 1 || runtimeNodes[0].Key != "ready" {
+		t.Fatalf("sing-box runtime nodes = %+v, want only ready node", runtimeNodes)
 	}
 }
 
