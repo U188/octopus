@@ -39,3 +39,15 @@ func TestBuildProbeRequestForEmbeddings(t *testing.T) {
 		t.Fatalf("expected /v1/embeddings, got %s", req.URL.Path)
 	}
 }
+
+func TestBuildProbeRequestNoAuth(t *testing.T) {
+	channel := &model.Channel{Type: outbound.OutboundTypeOpenAIChat, NoAuth: true, BaseUrls: []model.BaseUrl{{URL: "https://example.com/gemini/v1"}}}
+	req, err := buildProbeRequest(context.Background(), channel, &model.ChannelKey{}, "gemini-3.6-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel.StripUpstreamAuth(req.Header)
+	if req.URL.Path != "/gemini/v1/chat/completions" || len(req.Header.Values("Authorization")) != 0 {
+		t.Fatalf("unexpected probe request %s headers=%v", req.URL, req.Header)
+	}
+}

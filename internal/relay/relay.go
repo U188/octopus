@@ -198,26 +198,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			requestModel, group.Mode, channel.Name, item.ModelName,
 			iter.Index()+1, iter.Len(), iter.IsSticky())
 
-		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
-		}
-		var usedKey dbmodel.ChannelKey
-		for {
-			usedKey = channel.GetChannelKey(selectOpts)
-			if usedKey.ChannelKey == "" {
-				break
-			}
-			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				break
-			}
-			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-			usedKey = dbmodel.ChannelKey{}
-		}
-		if usedKey.ChannelKey == "" {
-			if len(selectOpts.ExcludeKeyIDs) == 0 {
-				iter.Skip(channel.ID, 0, channel.Name, "no available key")
-			}
+		usedKey, ok := selectChannelKey(iter, channel)
+		if !ok {
 			continue
 		}
 
@@ -360,7 +342,9 @@ func (ra *relayAttempt) attempt() attemptResult {
 		// ====== 成功 ======
 		// Passthrough handlers collect response at stream end via PassthroughConfig.CollectMetrics
 		ra.collectResponse()
-		op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, ra.metrics.Stats.InputCost+ra.metrics.Stats.OutputCost, statusCode, lastUse)
+		if ra.usedKey.ID > 0 {
+			op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, ra.metrics.Stats.InputCost+ra.metrics.Stats.OutputCost, statusCode, lastUse)
+		}
 
 		span.End(dbmodel.AttemptSuccess, statusCode, ra.attemptMessage(""))
 
@@ -384,7 +368,9 @@ func (ra *relayAttempt) attempt() attemptResult {
 		if written {
 			ra.collectResponse()
 		}
-		op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
+		if ra.usedKey.ID > 0 {
+			op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
+		}
 		span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 		return attemptResult{
 			Success:    false,
@@ -395,7 +381,9 @@ func (ra *relayAttempt) attempt() attemptResult {
 		}
 	}
 
-	op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
+	if ra.usedKey.ID > 0 {
+		op.ChannelKeyAddUsage(ra.channel.ID, ra.usedKey.ID, 0, statusCode, lastUse)
+	}
 	span.End(dbmodel.AttemptFailed, statusCode, ra.attemptMessage(fwdErr.Error()))
 
 	// Channel 维度统计
@@ -1087,6 +1075,7 @@ func (ra *relayAttempt) copyHeaders(outboundRequest *http.Request) {
 			outboundRequest.Header.Set(header.HeaderKey, header.HeaderValue)
 		}
 	}
+	ra.channel.StripUpstreamAuth(outboundRequest.Header)
 }
 
 // mergeBetaHeader 合并两个逗号分隔的 anthropic-beta 字段值，去重并保留先后顺序。

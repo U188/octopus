@@ -62,6 +62,7 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 	)
 	applyDefaultModelRequestHeaders(req, request)
 	req.Header.Set("Authorization", "Bearer "+request.GetChannelKey().ChannelKey)
+	request.StripUpstreamAuth(req.Header)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -95,6 +96,7 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 		)
 		applyDefaultModelRequestHeaders(req, request)
 		req.Header.Set("X-Goog-Api-Key", request.GetChannelKey().ChannelKey)
+		request.StripUpstreamAuth(req.Header)
 		if pageToken != "" {
 			q := req.URL.Query()
 			q.Add("pageToken", pageToken)
@@ -142,6 +144,7 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		)
 		applyDefaultModelRequestHeaders(req, request)
 		req.Header.Set("X-Api-Key", request.GetChannelKey().ChannelKey)
+		request.StripUpstreamAuth(req.Header)
 		req.Header.Set("Anthropic-Version", "2023-06-01")
 		q := req.URL.Query()
 		if afterID != "" {

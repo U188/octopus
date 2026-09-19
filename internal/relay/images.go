@@ -160,7 +160,7 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		usedKey := channel.GetChannelKey()
-		if usedKey.ChannelKey == "" {
+		if !channel.NoAuth && usedKey.ChannelKey == "" {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
 		}
@@ -194,7 +194,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 			}
 			metrics.ResponseContent = buildImagesResponseContentForLog(stream, upstreamCT, usage)
 
-			op.ChannelKeyAddUsage(channel.ID, usedKey.ID, metrics.Stats.InputCost+metrics.Stats.OutputCost, statusCode, lastUse)
+			if usedKey.ID > 0 {
+				op.ChannelKeyAddUsage(channel.ID, usedKey.ID, metrics.Stats.InputCost+metrics.Stats.OutputCost, statusCode, lastUse)
+			}
 
 			span.End(model.AttemptSuccess, statusCode, "")
 
@@ -214,7 +216,9 @@ func ImagesHandler(endpoint string, c *gin.Context) {
 		}
 
 		// ====== 失败 ======
-		op.ChannelKeyAddUsage(channel.ID, usedKey.ID, 0, statusCode, lastUse)
+		if usedKey.ID > 0 {
+			op.ChannelKeyAddUsage(channel.ID, usedKey.ID, 0, statusCode, lastUse)
+		}
 		span.End(model.AttemptFailed, statusCode, fwdErr.Error())
 
 		// Channel 维度统计
@@ -685,6 +689,7 @@ func copyHeadersToUpstream(req *http.Request, c *gin.Context, channel *model.Cha
 			req.Header.Set(h.HeaderKey, h.HeaderValue)
 		}
 	}
+	channel.StripUpstreamAuth(req.Header)
 }
 
 func copyMultipartReplaceModel(src io.Reader, boundary string, dst *multipart.Writer, newModel string) error {

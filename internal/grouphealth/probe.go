@@ -52,6 +52,7 @@ func (p *Prober) RunCandidate(ctx context.Context, channel model.Channel, usedKe
 	}
 
 	applyCustomHeaders(request, channel.CustomHeader)
+	channel.StripUpstreamAuth(request.Header)
 	// 防止 Go 默认 User-Agent 泄露到上游
 	if request.Header.Get("User-Agent") == "" {
 		request.Header.Set("User-Agent", "")
@@ -102,7 +103,7 @@ func buildProbeRequest(ctx context.Context, channel *model.Channel, usedKey *mod
 	if usedKey == nil {
 		return nil, fmt.Errorf("channel key is nil")
 	}
-	if strings.TrimSpace(usedKey.ChannelKey) == "" {
+	if !channel.NoAuth && strings.TrimSpace(usedKey.ChannelKey) == "" {
 		return nil, fmt.Errorf("channel key is empty")
 	}
 	if strings.TrimSpace(modelName) == "" {

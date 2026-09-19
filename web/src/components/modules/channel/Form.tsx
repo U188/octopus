@@ -29,6 +29,7 @@ export interface ChannelKeyFormItem {
 export interface ChannelFormData {
     name: string;
     type: ChannelType;
+    no_auth: boolean;
     base_urls: Channel['base_urls'];
     custom_header: Channel['custom_header'];
     ws_mode: ChannelWSMode;
@@ -122,10 +123,11 @@ export function ChannelForm({
     };
 
     const handleRefreshModels = async () => {
-        if (!formData.base_urls?.[0]?.url || !effectiveKey) return;
+        if (!formData.base_urls?.[0]?.url || (!formData.no_auth && !effectiveKey)) return;
         fetchModel.mutate(
             {
                 type: formData.type,
+                no_auth: formData.no_auth,
                 base_urls: formData.base_urls,
                 keys: formData.keys
                     .filter((k) => k.channel_key.trim())
@@ -254,7 +256,7 @@ export function ChannelForm({
                     </label>
                     <Select
                         value={String(formData.type)}
-                        onValueChange={(value) => onFormDataChange({ ...formData, type: Number(value) as ChannelType })}
+                        onValueChange={(value) => onFormDataChange({ ...formData, type: Number(value) as ChannelType, no_auth: Number(value) === ChannelType.OpenAIChat && formData.no_auth })}
                     >
                         <SelectTrigger id={`${idPrefix}-type`} className="rounded-xl w-full border border-border px-4 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <SelectValue />
@@ -315,12 +317,19 @@ export function ChannelForm({
                 </div>
             </div>
 
+            {formData.type === ChannelType.OpenAIChat && (
+                <div className="flex items-center justify-between">
+                    <label htmlFor={`${idPrefix}-no-auth`} className="text-sm font-medium text-card-foreground">{t('noAuth')}</label>
+                    <Switch id={`${idPrefix}-no-auth`} checked={formData.no_auth} onCheckedChange={(no_auth) => onFormDataChange({ ...formData, no_auth })} />
+                </div>
+            )}
+
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <label className="text-sm font-medium text-card-foreground">
-                        {t('apiKey')} {formData.keys.length > 0 ? `(${formData.keys.length})` : ''}
+                        {t('apiKey')} {!formData.no_auth && formData.keys.length > 0 ? `(${formData.keys.length})` : ''}
                     </label>
-                    <Button
+                    {!formData.no_auth && <Button
                         type="button"
                         variant="ghost"
                         size="sm"
@@ -329,9 +338,9 @@ export function ChannelForm({
                     >
                         <Plus className="h-3 w-3 mr-1" />
                         {t('add')}
-                    </Button>
+                    </Button>}
                 </div>
-                <div className="space-y-2">
+                {!formData.no_auth && <div className="space-y-2">
                     {(formData.keys ?? []).map((k, idx) => (
                         <div key={k.id ?? `new-${idx}`} className="flex items-center gap-2">
                             <Input
@@ -366,7 +375,7 @@ export function ChannelForm({
                             </Button>
                         </div>
                     ))}
-                </div>
+                </div>}
             </div>
 
             <div className="space-y-2">
@@ -377,7 +386,7 @@ export function ChannelForm({
                         variant="ghost"
                         size="sm"
                         onClick={handleRefreshModels}
-                        disabled={!formData.base_urls?.[0]?.url || !effectiveKey || fetchModel.isPending}
+                        disabled={!formData.base_urls?.[0]?.url || (!formData.no_auth && !effectiveKey) || fetchModel.isPending}
                         className="h-6 px-2 text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-transparent"
                     >
                         <RefreshCw className={`h-3 w-3 mr-1 ${fetchModel.isPending ? 'animate-spin' : ''}`} />

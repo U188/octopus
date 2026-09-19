@@ -142,7 +142,7 @@ func (s *Service) RunGroupHealth(ctx context.Context, groupID int, probeModes ..
 		}
 
 		usedKey := channel.GetChannelKey()
-		if usedKey.ID == 0 || strings.TrimSpace(usedKey.ChannelKey) == "" {
+		if !channel.NoAuth && (usedKey.ID == 0 || strings.TrimSpace(usedKey.ChannelKey) == "") {
 			attemptedCount++
 			appendErr := s.repo.AppendAttempt(ctx, snapshot.ID, model.GroupHealthAttempt{
 				GroupItemID:  item.ID,

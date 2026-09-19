@@ -135,26 +135,8 @@ func HandleResponsesCompact(c *gin.Context) {
 			continue
 		}
 
-		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: iter.StickyKeyID(),
-		}
-		var usedKey dbmodel.ChannelKey
-		for {
-			usedKey = channel.GetChannelKey(selectOpts)
-			if usedKey.ChannelKey == "" {
-				break
-			}
-			if !iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				break
-			}
-			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-			usedKey = dbmodel.ChannelKey{}
-		}
-		if usedKey.ChannelKey == "" {
-			if len(selectOpts.ExcludeKeyIDs) == 0 {
-				iter.Skip(channel.ID, 0, channel.Name, "no available key")
-			}
+		usedKey, ok := selectChannelKey(iter, channel)
+		if !ok {
 			continue
 		}
 

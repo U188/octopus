@@ -61,6 +61,9 @@ func prepareChannelCreate(channel *model.Channel, ctx context.Context) error {
 	// on a manually-created channel.
 	channel.Managed = false
 	channel.ManagedSource = nil
+	if channel.NoAuth && channel.Type != model2.OutboundTypeOpenAIChat {
+		return fmt.Errorf("upstream no-auth is supported only for OpenAI Chat channels")
+	}
 	if channel.ProxyMode == "" {
 		channel.ProxyMode = model.ProxyUsageModeDirect
 	}
@@ -334,6 +337,22 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	if req.Enabled != nil {
 		selectFields = append(selectFields, "enabled")
 		updates.Enabled = *req.Enabled
+	}
+	effectiveType := existingChannel.Type
+	if req.Type != nil {
+		effectiveType = *req.Type
+	}
+	effectiveNoAuth := existingChannel.NoAuth
+	if req.NoAuth != nil {
+		effectiveNoAuth = *req.NoAuth
+	}
+	if effectiveNoAuth && effectiveType != model2.OutboundTypeOpenAIChat {
+		tx.Rollback()
+		return nil, fmt.Errorf("upstream no-auth is supported only for OpenAI Chat channels")
+	}
+	if req.NoAuth != nil {
+		selectFields = append(selectFields, "no_auth")
+		updates.NoAuth = *req.NoAuth
 	}
 	if req.BaseUrls != nil {
 		selectFields = append(selectFields, "base_urls")

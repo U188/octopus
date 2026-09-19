@@ -510,27 +510,8 @@ func runWSRelay(ctx context.Context, req *relayRequest, group *dbmodel.Group) ws
 		req.internalRequest.Model = item.ModelName
 		req.metrics.SetActualModel(item.ModelName)
 
-		selectOpts := dbmodel.ChannelKeySelectOptions{
-			ExcludeKeyIDs:  make(map[int]struct{}),
-			PreferredKeyID: req.iter.StickyKeyID(),
-		}
-
-		var usedKey dbmodel.ChannelKey
-		for {
-			usedKey = channel.GetChannelKey(selectOpts)
-			if usedKey.ChannelKey == "" {
-				break
-			}
-			if !req.iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-				break
-			}
-			selectOpts.ExcludeKeyIDs[usedKey.ID] = struct{}{}
-			usedKey = dbmodel.ChannelKey{}
-		}
-		if usedKey.ChannelKey == "" {
-			if len(selectOpts.ExcludeKeyIDs) == 0 {
-				req.iter.Skip(channel.ID, 0, channel.Name, "no available key")
-			}
+		usedKey, ok := selectChannelKey(req.iter, channel)
+		if !ok {
 			continue
 		}
 

@@ -45,6 +45,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
+        no_auth: channel.no_auth,
         enabled: channel.enabled,
         base_urls: channel.base_urls?.length ? channel.base_urls : [{ url: '', delay: 0 }],
         custom_header: channel.custom_header ?? [],
@@ -90,6 +91,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (formData.name !== channel.name) req.name = formData.name;
         if (formData.type !== channel.type) req.type = formData.type;
         if (formData.enabled !== channel.enabled) req.enabled = formData.enabled;
+        if (formData.no_auth !== channel.no_auth) req.no_auth = formData.no_auth;
         if (!baseUrlsEqual(formData.base_urls, channel.base_urls)) {
             req.base_urls = (formData.base_urls ?? []).filter((u) => u.url.trim()).map((u) => ({
                 url: u.url.trim(),

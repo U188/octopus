@@ -16,6 +16,7 @@ export function CreateDialogContent() {
     const [formData, setFormData] = useState<ChannelFormData>({
         name: '',
         type: ChannelType.OpenAIChat,
+        no_auth: false,
         base_urls: [{ url: '', delay: 0 }],
         custom_header: [],
         ws_mode: 'inherit',
@@ -58,6 +59,7 @@ export function CreateDialogContent() {
                 name: formData.name,
                 type: formData.type,
                 enabled: formData.enabled,
+                no_auth: formData.no_auth,
                 base_urls: normalizedBaseUrls,
                 keys: normalizedKeys,
                 model: formData.model,
@@ -77,6 +79,7 @@ export function CreateDialogContent() {
                     setFormData({
                         name: '',
                         type: ChannelType.OpenAIChat,
+                        no_auth: false,
                         base_urls: [{ url: '', delay: 0 }],
                         custom_header: [],
                         ws_mode: 'inherit',

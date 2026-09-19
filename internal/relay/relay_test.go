@@ -501,6 +501,57 @@ func TestHandlerRewritesOpenAIChatGroupModelBeforeUpstream(t *testing.T) {
 	}
 }
 
+func TestHandlerForwardsKeylessOpenAIChatWithoutDownstreamCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := setupRelayTestDB(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/gemini/v1/chat/completions" {
+			t.Errorf("unexpected upstream path %s", r.URL.Path)
+		}
+		for _, name := range []string{"Authorization", "X-Api-Key", "Cookie"} {
+			if _, exists := r.Header[http.CanonicalHeaderKey(name)]; exists {
+				t.Errorf("upstream received %s", name)
+			}
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["model"] != "gemini-3.6-flash" {
+			t.Errorf("bad upstream request: model=%v err=%v", body["model"], err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"gemini-3.6-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Name: "keyless-chat", Type: outbound.OutboundTypeOpenAIChat, Enabled: true, NoAuth: true,
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/gemini/v1"}}, Model: "gemini-3.6-flash",
+	}
+	if err := op.ChannelCreate(channel, ctx); err != nil {
+		t.Fatal(err)
+	}
+	group := &model.Group{Name: "keyless-group", Mode: model.GroupModeFailover}
+	if err := op.GroupCreate(group, ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := op.GroupItemAdd(&model.GroupItem{GroupID: group.ID, ChannelID: channel.ID, ModelName: "gemini-3.6-flash", Priority: 1, Weight: 1}, ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("api_key_id", 7)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"keyless-group","messages":[{"role":"user","content":"hi"}]}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Authorization", "Bearer downstream-secret")
+	c.Request.Header.Set("X-Api-Key", "downstream-secret")
+	c.Request.Header.Set("Cookie", "session=downstream-secret")
+	Handler(inbound.InboundTypeOpenAIChat, c)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "ok") {
+		t.Fatalf("unexpected relay response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestHandlerPassthroughsOpenAIResponsesSameProtocolNonStream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx := setupRelayTestDB(t)

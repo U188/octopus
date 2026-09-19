@@ -1103,6 +1103,7 @@
             "baseUrlDelay": "延遲(ms)",
             "advanced": "進階設定",
             "apiKey": "API Key",
+            "noAuth": "上游免認證",
             "customHeader": "自定義 Header",
             "customHeaderKey": "Header Key",
             "customHeaderValue": "Header Value",

@@ -1103,6 +1103,7 @@
             "baseUrlDelay": "延迟(ms)",
             "advanced": "高级设置",
             "apiKey": "API Key",
+            "noAuth": "上游免认证",
             "customHeader": "自定义 Header",
             "customHeaderKey": "Header Key",
             "customHeaderValue": "Header Value",

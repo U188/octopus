@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -66,6 +67,7 @@ type Channel struct {
 	Enabled                   bool                    `json:"enabled" gorm:"default:true"`
 	BaseUrls                  []BaseUrl               `json:"base_urls" gorm:"serializer:json"`
 	Keys                      []ChannelKey            `json:"keys" gorm:"foreignKey:ChannelID"`
+	NoAuth                    bool                    `json:"no_auth" gorm:"default:false"`
 	Model                     string                  `json:"model"`
 	CustomModel               string                  `json:"custom_model"`
 	ProxyMode                 ProxyUsageMode          `json:"proxy_mode" gorm:"type:varchar(16);not null;default:'direct'"`
@@ -187,6 +189,7 @@ type ChannelUpdateRequest struct {
 	Name                  *string                `json:"name,omitempty"`
 	Type                  *outbound.OutboundType `json:"type,omitempty"`
 	Enabled               *bool                  `json:"enabled,omitempty"`
+	NoAuth                *bool                  `json:"no_auth,omitempty"`
 	BaseUrls              *[]BaseUrl             `json:"base_urls,omitempty"`
 	Model                 *string                `json:"model,omitempty"`
 	CustomModel           *string                `json:"custom_model,omitempty"`
@@ -259,7 +262,7 @@ func (c *Channel) GetBaseUrl() string {
 }
 
 func (c *Channel) GetChannelKey(opts ...ChannelKeySelectOptions) ChannelKey {
-	if c == nil || len(c.Keys) == 0 {
+	if c == nil || c.NoAuth || len(c.Keys) == 0 {
 		return ChannelKey{}
 	}
 
@@ -302,4 +305,14 @@ func (c *Channel) GetChannelKey(opts ...ChannelKeySelectOptions) ChannelKey {
 		return ChannelKey{}
 	}
 	return best
+}
+
+// StripUpstreamAuth removes credentials even if they arrived through client or custom headers.
+func (c *Channel) StripUpstreamAuth(headers http.Header) {
+	if c == nil || !c.NoAuth {
+		return
+	}
+	for _, name := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie"} {
+		headers.Del(name)
+	}
 }

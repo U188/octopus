@@ -56,6 +56,36 @@ func TestChannelConversationUsesChannelConfiguration(t *testing.T) {
 	}
 }
 
+func TestChannelConversationWithoutUpstreamAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/gemini/v1/chat/completions" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		for _, name := range []string{"Authorization", "X-Api-Key", "Cookie"} {
+			if _, ok := r.Header[http.CanonicalHeaderKey(name)]; ok {
+				t.Errorf("unexpected upstream header %s", name)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Type: outbound.OutboundTypeOpenAIChat, Enabled: true, NoAuth: true,
+		BaseUrls: []model.BaseUrl{{URL: server.URL + "/gemini/v1"}},
+		Model:    "gemini-3.6-flash",
+		CustomHeader: []model.CustomHeader{
+			{HeaderKey: "Authorization", HeaderValue: "Bearer leaked"},
+			{HeaderKey: "X-Api-Key", HeaderValue: "leaked"},
+		},
+	}
+	result, err := TestChannelConversation(context.Background(), channel, "gemini-3.6-flash", "ping")
+	if err != nil || result.Reply != "pong" {
+		t.Fatalf("channel test: result=%+v err=%v", result, err)
+	}
+}
+
 func TestChannelConversationCollectsStreamingResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

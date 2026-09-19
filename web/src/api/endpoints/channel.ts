@@ -73,6 +73,7 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
+    no_auth: boolean;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;
@@ -111,6 +112,7 @@ export type CreateChannelRequest = {
     name: string;
     type: ChannelType;
     enabled?: boolean;
+    no_auth?: boolean;
     base_urls: BaseUrl[];
     keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
     model: string;
@@ -137,6 +139,7 @@ export type UpdateChannelRequest = {
     name?: string;
     type?: ChannelType;
     enabled?: boolean;
+    no_auth?: boolean;
     base_urls?: BaseUrl[];
     model?: string;
     custom_model?: string;
@@ -160,6 +163,7 @@ export type UpdateChannelRequest = {
 
 export type FetchModelRequest = {
     type: ChannelType;
+    no_auth?: boolean;
     base_urls: BaseUrl[];
     keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key'>>;
     proxy_mode?: Exclude<ProxyMode, 'inherit'>;

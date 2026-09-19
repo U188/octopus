@@ -44,7 +44,7 @@ func TestChannelConversation(ctx context.Context, channel *dbmodel.Channel, mode
 		return nil, fmt.Errorf("channel base url is required")
 	}
 	usedKey := channel.GetChannelKey()
-	if strings.TrimSpace(usedKey.ChannelKey) == "" {
+	if !channel.NoAuth && strings.TrimSpace(usedKey.ChannelKey) == "" {
 		return nil, fmt.Errorf("channel has no enabled api key")
 	}
 
